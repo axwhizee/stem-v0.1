@@ -33,9 +33,9 @@ export type { AgentSpaceManager } from './AgentSpaceManager'
 export { DefaultAgentSpaceManager } from './AgentSpaceManager'
 
 // 运行时
-export type { AgentRuntimeDeps, RuntimeRunOptions, ChatResult, AgentRuntime } from './AgentRuntime'
+export type { AgentRuntimeDeps, AgentRuntime } from './AgentRuntime'
 export { DefaultAgentRuntime } from './AgentRuntime'
 
 // Kernel 容器
 export type { AgentKernelOptions } from './AgentKernel'
-export { AgentKernel, BUILTIN_TEMPLATES } from './AgentKernel'
+export { AgentKernel, BUILTIN_TEMPLATES, USER_ID } from './AgentKernel'

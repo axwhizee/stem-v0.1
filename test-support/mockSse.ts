@@ -44,7 +44,7 @@ export function sseLine(chunk: Record<string, unknown>): string {
 }
 
 /** 默认脚本：取最后一个 user 消息文本，流式回显。 */
-function defaultScript(body: Record<string, unknown>): MockResponse {
+export function defaultScript(body: Record<string, unknown>): MockResponse {
   const messages = Array.isArray(body.messages) ? (body.messages as Array<{ role: string; content: unknown }>) : []
   const lastUser = [...messages].reverse().find((m) => m.role === 'user')
   const text =

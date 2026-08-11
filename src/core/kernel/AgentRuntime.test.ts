@@ -1,17 +1,20 @@
 // ============================================================
-// core/kernel/AgentRuntime.test.ts —— 运行时（FakeGateway，无网络）
+// core/kernel/AgentRuntime.test.ts —— 运行时单元测试（被动驱动）
 // ============================================================
 
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { FakeGateway, textEvents } from '../gateway'
-import type { LLMRequest } from '../gateway'
+import { FakeGateway } from '../gateway'
+import { DefaultMessageBus } from '../bus'
+import { ClassicContextAssembler, DefaultContextManager } from '../context'
+import type { AgentDelivery } from '../context'
+import { DefaultToolCapabilityRegistry } from '../tools'
+import type { BusSendInput } from '../bus'
 import { DefaultAgentTemplateRegistry } from './AgentTemplateRegistry'
 import { DefaultAgentInstanceManager } from './AgentInstanceManager'
-import { DefaultAgentSpaceManager } from './AgentSpaceManager'
 import { DefaultAgentRuntime } from './AgentRuntime'
 import type { AgentClass } from './types'
-import { makeAgentClassID, makeAgentID } from './types'
+import { makeAgentClassID, makeAgentSpaceID } from './types'
 
 const cls: AgentClass = {
   id: makeAgentClassID('chat'),
@@ -25,89 +28,94 @@ const cls: AgentClass = {
 
 const model = { provider: 'opencode', id: 'test-model' }
 
-async function makeRuntime(gateway: FakeGateway, extra?: { maxSteps?: number }) {
-  const templates = new DefaultAgentTemplateRegistry([cls])
-  const instances = new DefaultAgentInstanceManager(templates)
-  const spaces = new DefaultAgentSpaceManager()
-  const space = await spaces.getOrCreate('/proj')
-  const agent = await instances.instantiate(cls.id, { spaceId: space.id })
-  const runtime = new DefaultAgentRuntime({ gateway, instances, templates, defaultModel: model, maxSteps: extra?.maxSteps })
-  return { runtime, instances, agent }
+function deliveryFor(agentId: string, system = cls.systemPrompt): AgentDelivery {
+  return { kind: 'agent', agentId, system, messages: [{ role: 'user', content: 'hi' }] }
 }
 
-describe('DefaultAgentRuntime', () => {
-  test('文本对话：system 生效、历史累积、usage 返回、状态复位', async () => {
-    const gateway = new FakeGateway((request: LLMRequest) => {
-      // 首轮只有 1 条 user；第二轮带上一轮 assistant
-      const users = request.messages.filter((m) => m.role === 'user').length
-      return textEvents(`reply-${users}`, { inputTokens: 20, outputTokens: 5 })
-    })
-    const { runtime, instances, agent } = await makeRuntime(gateway)
+async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCapabilityRegistry; template?: AgentClass }) {
+  const templates = new DefaultAgentTemplateRegistry([extra?.template ?? cls])
+  const instances = new DefaultAgentInstanceManager(templates)
+  const contextManager = new DefaultContextManager({ assembler: new ClassicContextAssembler() })
+  const sent: BusSendInput[] = []
+  const bus = new DefaultMessageBus({ forward: async (msg) => void sent.push(msg) })
 
-    const r1 = await runtime.run(agent.id, 'hi')
-    assert.equal(r1.text, 'reply-1')
-    assert.equal(r1.finishReason, 'stop')
-    assert.equal(r1.turnCount, 1)
+  const instance = await instances.instantiate({
+    classId: cls.id,
+    creatorId: 'user0',
+    userPrompt: 'hi',
+    spaceId: makeAgentSpaceID('space-1'),
+  })
+  await contextManager.register({ agentId: instance.id, systemPrompt: cls.systemPrompt, onDelivery: () => {} })
 
-    const r2 = await runtime.run(agent.id, 'again')
-    assert.equal(r2.text, 'reply-2')
+  const runtime = new DefaultAgentRuntime({
+    gateway,
+    instances,
+    templates,
+    contextManager,
+    bus,
+    tools: extra?.tools,
+    defaultModel: model,
+  })
+  return { runtime, instances, contextManager, sent, agentId: instance.id }
+}
 
-    // 第二轮请求必须携带第一轮历史
-    const last = gateway.requests.at(-1)
-    assert.ok(last)
-    assert.equal(last.system, 'You are assistant.')
-    assert.equal(last.messages.length, 3) // system 单独字段，messages 为 user/assistant/user
+describe('DefaultAgentRuntime（被动驱动）', () => {
+  test('processDelivery：LLM 文本回复 → 加发送者戳 → 寄信给创建者 → cooldown', async () => {
+    const gateway = new FakeGateway(() => [
+      { type: 'text-delta', text: 'hello' },
+      { type: 'usage', inputTokens: 5, outputTokens: 3 },
+      { type: 'finish', reason: 'stop' },
+    ])
+    const { runtime, instances, sent, agentId, contextManager } = await makeRuntime(gateway)
 
-    // 实例历史与状态
-    const instance = await instances.get(agent.id)
-    assert.equal(instance.history.length, 4)
-    assert.equal(instance.turnCount, 2)
-    assert.equal(instance.status, 'idle')
-    assert.equal(instance.totalCost, 0)
+    await runtime.processDelivery(deliveryFor(agentId))
+
+    const msg = sent.at(-1)
+    assert.ok(msg)
+    assert.equal(msg.to, 'user0')
+    assert.equal(msg.payload, `<sender id="${agentId}">hello</sender>`)
+    assert.equal((await instances.get(agentId)).status, 'cooldown')
+
+    // assistant 历史自动复制到邮局
+    const state = contextManager.getState(agentId)
+    assert.equal(state.context.filter((m) => m.role === 'assistant').length, 1)
   })
 
-  test('成本估算注入生效', async () => {
-    const gateway = new FakeGateway(() => textEvents('ok', { inputTokens: 10, outputTokens: 3 }))
-    const templates = new DefaultAgentTemplateRegistry([cls])
-    const instances = new DefaultAgentInstanceManager(templates)
-    const space = await new DefaultAgentSpaceManager().getOrCreate('/proj')
-    const agent = await instances.instantiate(cls.id, { spaceId: space.id })
-    const runtime = new DefaultAgentRuntime({
-      gateway,
-      instances,
-      templates,
-      defaultModel: model,
-      estimateCost: (usage) => ((usage?.inputTokens ?? 0) + (usage?.outputTokens ?? 0)) / 1000,
-    })
-    await runtime.run(agent.id, 'hi')
-    const instance = await instances.get(agent.id)
-    assert.equal(instance.totalCost, (10 + 3) / 1000)
-  })
-
-  test('onEvent 透传流式事件', async () => {
-    const gateway = new FakeGateway(() => textEvents('hello'))
-    const { runtime, agent } = await makeRuntime(gateway)
-    const seen: string[] = []
-    await runtime.run(agent.id, 'hi', { onEvent: (e) => seen.push(e.type) })
-    assert.ok(seen.includes('text-delta'))
-    assert.ok(seen.includes('usage'))
-    assert.ok(seen.includes('finish'))
-  })
-
-  test('工具调用：记录 toolCalls 并回写 assistant 历史，单轮结束', async () => {
+  test('工具轮：tool_call → 执行 → 结果入会话 → 续轮 → 最终回复', async () => {
+    let round = 0
     const gateway = new FakeGateway(function* () {
-      yield { type: 'tool-call', id: 'call_1', name: 'get_weather', input: { city: 'beijing' } }
-      yield { type: 'usage', inputTokens: 9, outputTokens: 4 }
-      yield { type: 'finish', reason: 'tool_calls' }
+      round++
+      if (round === 1) {
+        yield { type: 'tool-call', id: 'call_1', name: 'oc_echo', input: { text: 'hi' } }
+        yield { type: 'finish', reason: 'tool_calls' }
+      } else {
+        yield { type: 'text-delta', text: '工具完成' }
+        yield { type: 'finish', reason: 'stop' }
+      }
     })
-    const { runtime, instances, agent } = await makeRuntime(gateway)
-    const result = await runtime.run(agent.id, 'weather?')
-    assert.equal(result.finishReason, 'tool_calls')
-    assert.equal(result.toolCalls.length, 1)
-    assert.equal(result.toolCalls[0]?.name, 'get_weather')
+    const tools = new DefaultToolCapabilityRegistry()
+    await tools.register({
+      id: 'oc_echo',
+      description: 'echo',
+      permission: 'normal',
+      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+      execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
+    })
+    const { runtime, sent, agentId } = await makeRuntime(gateway, {
+      tools,
+      template: { ...cls, tools: [{ id: 'oc_echo' }] },
+    })
 
-    const instance = await instances.get(agent.id)
-    const assistant = instance.history.at(-1)
-    assert.equal(assistant?.role, 'assistant')
+    await runtime.processDelivery(deliveryFor(agentId))
+
+    assert.equal(round, 2, '工具轮 + 续轮')
+    assert.equal(sent.at(-1)?.payload, `<sender id="${agentId}">工具完成</sender>`)
+  })
+
+  test('notifyHold → 状态 hold', async () => {
+    const gateway = new FakeGateway(() => [])
+    const { runtime, instances, agentId } = await makeRuntime(gateway)
+    await runtime.notifyHold(agentId)
+    assert.equal((await instances.get(agentId)).status, 'hold')
   })
 })

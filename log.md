@@ -142,14 +142,83 @@ OPENCODE_API_KEY=<key> OPENCODE_MODEL=<model> npm run shell   # 真实 go/zen
 
 ```bash
 npm run typecheck   # 类型检查
-npm test            # 单元测试（25 项）
+npm test            # 单元测试（44 项）
 npm run shell       # 临时 shell（mock 兜底）
 OPENCODE_API_KEY=<key> OPENCODE_MODEL=<model> npm run shell   # 真实 go/zen
 ```
 
 ### 后续（未执行）
 
-- 工具闭环（ToolCapabilityRegistry + AgentRuntime 工具轮，Task 1.5）。
 - ContextProfile 完整化 + renderPrompt + tokenizer（Task 1.3）。
 - VSCode Adapter Shell 接入（Task 1.1）。
 - MessageBus / 多 Agent / ContextAssetPool（阶段 2）。
+
+---
+
+## 阶段：工具调用与注册（ToolCapabilityRegistry + 工具轮）
+
+**日期**：2026-08-11
+
+### 目标
+
+补齐工具调用与注册功能 —— agent 能力的根基。该系统同时是上下文管理、日志读取、MCP/skill 支持、日志输出等模块的统一接入接口，**设计上以可扩展为第一优先**。
+
+### 完成内容
+
+#### 1. 公共权限 `src/core/types.ts`
+
+- `PermissionLevel`（normal / advanced / admin）+ `hasPermission` 比较（铁律 8 分级）。
+
+#### 2. `src/core/tools/`（工具引擎，纯 TS，零平台依赖）
+
+| 文件 | 内容 |
+|---|---|
+| `types.ts` | `ToolCapability` / `ToolInvocation` / `ToolContext` / `ToolResult`（含 references 大输出引用）/ `ToolError`（判别联合）/ `ToolParametersSchema` / `PermissionResolver` / `ToolHooks` / `ToolCategory` |
+| `validate.ts` | JSON Schema 子集参数校验（纯函数：required / 类型 / 枚举 / 数组 items） |
+| `ToolCapabilityRegistry.ts` | 接口 `register/unregister/get/list/materialize/execute` + 默认实现 |
+
+**可扩展性设计（面向权限管理、MCP、skill、telemetry 等未来接入）**：
+
+1. **`ToolContext` 是开放接口**：core 只定义最小字段（agentId/spaceId/agentPermission/signal）；权限管理、MCP 通道、日志器等宿主能力以「组合扩展」注入，不修改 core。
+2. **权限校验可插拔（`PermissionResolver`）**：默认 `LevelPermissionResolver`（工具 permission ≤ agent 权限）；未来可换 deny 名单、人工确认、子 agent 权限继承策略。
+3. **执行生命周期钩子（`ToolHooks`）**：`onBeforeExecute` / `onAfterExecute` / `onError`，供 telemetry、审计、限流、MCP 网关挂载。
+4. **`ToolCategory` 分类**：`business / system / context / telemetry / module` + 任意扩展（未来 mcp/skill 自然并入），支持按类目过滤与物化。
+5. **统一注册入口**：业务工具（oc_*）、系统管理工具（agent_*）、上下文工具（context_*）、日志工具（telemetry_*）走同一 `register`。
+6. **双层校验**：自定义 `tool.validate` 优先，再走 schema 校验；均失败抛 `invalid_arguments`。
+7. **错误归一化**：`tool_not_found / tool_already_registered / permission_denied / invalid_arguments / execution_failed`。
+
+#### 3. AgentRuntime 工具轮（铁律 6）
+
+- `while` 循环：LLM 返回 `tool_calls` → `ToolCapabilityRegistry.execute` 逐个执行 → tool 结果入上下文 → 续轮，直到纯文本或 `maxSteps`（默认 5）。
+- 工具执行失败 → 错误文本（`[ToolError kind] message`）入上下文，模型可自纠续轮。
+- usage 跨轮累加；模板 `tools` 白名单 ∩ 权限物化结果 → 本轮 LLM 工具集。
+- `AgentKernel` 注入 `tools` 注册表。
+
+#### 4. shell 演示
+
+- 注册示例业务工具 `oc_echo` / `oc_get_time` + 模板 `tool-assistant`（工具白名单）。
+- 新增 `/tools` 命令；mock 模式支持工具调用演示（识别 echo 请求 → tool_call → 工具执行 → 文本续轮）。
+
+### 测试（44/44 通过）
+
+- validate：required / 类型 / 枚举 / 数组 items / 非对象。
+- registry：注册/查询/列表/重复冲突/形状校验、materialize 权限过滤、execute 成功、permission_denied（admin 工具被 normal 调）、invalid_arguments、tool_not_found、钩子顺序（before→execute→after / 错误→onError）、可插拔权限策略（deny 名单）、自定义 validate。
+- runtime 工具轮：tool_call → 执行 → 结果入上下文 → 模型续轮；工具失败错误入上下文可自纠；maxSteps 限制防死循环。
+
+### 验证结果
+
+- **mock 模式工具轮**：`echo hello` → 模型 tool_call(oc_echo) → 执行 → 续轮输出 `Echo: echo hello`，turns=2，usage 跨轮累加。
+- **真实 go/zen 工具轮**：问「现在几点」→ 模型调用 `oc_get_time` → 执行 → 输出正确 UTC 时间，turns=2（usage 943+148 tok）。
+
+### 运行方式
+
+```bash
+npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
+```
+
+### 后续（未执行）
+
+- 系统管理工具实现（`agent_*` / `context_*` / `telemetry_*`，按权限分级注册为 ToolCapability）。
+- MCP / skill 工具适配器（复用 ToolCapability + hooks 挂载）。
+- ToolContext 扩展：权限策略细化（deny/人工确认/子 agent 权限继承）。
+- Telemetry `ToolInvoked` 事件（经 ToolHooks 挂载）。

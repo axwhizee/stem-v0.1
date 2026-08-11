@@ -5,7 +5,8 @@
 // AgentSpace / PermissionLevel / 错误判别联合。
 // ============================================================
 
-import type { ChatMessage, ModelRef } from '../gateway'
+import type { ModelRef } from '../gateway'
+import type { PermissionLevel } from '../types'
 
 // ---------- branded id ----------
 
@@ -35,11 +36,11 @@ export function makeAgentSpaceID(id: string): AgentSpaceID {
 
 // ---------- 权限与状态 ----------
 
-/** 权限分级：normal=业务/对话；advanced=实例创建/调度；admin=类创建/模块改造/全量日志。 */
-export type PermissionLevel = 'normal' | 'advanced' | 'admin'
+/** 权限分级（公共类型：normal=业务/对话；advanced=实例创建/调度；admin=类创建/模块改造/全量日志）。 */
+export type { PermissionLevel } from '../types'
 
-/** 实例状态（对齐 UI 展示）。 */
-export type AgentStatus = 'idle' | 'running' | 'waiting'
+/** 实例状态机：idle →(送信)→ thinking →(最终回复寄出)→ cooldown →(倒计时结束·有信)→ thinking / (无信)→ hold。 */
+export type AgentStatus = 'idle' | 'thinking' | 'cooldown' | 'hold'
 
 /** 工具引用（声明在模板上，执行器后续由 ToolCapabilityRegistry 提供）。 */
 export interface ToolRef {
@@ -66,17 +67,17 @@ export interface AgentClass {
   /** 展示名，如 "Coder" / "Reviewer"。 */
   readonly name: string
   readonly description: string
-  /** 该类的专属系统提示词。 */
+  /** 该类的专属系统提示词（模板承载，实例化注册到邮局）。 */
   readonly systemPrompt: string
-  /** 上下文组装策略（可继承/定制）。 */
-  readonly contextProfile?: ContextProfile
-  /** 该类实例可用的工具。 */
+  /** 该类实例可用的工具白名单。 */
   readonly tools: readonly ToolRef[]
   readonly permission: PermissionLevel
   /** 可访问的上下文资产标签（ContextAssetPool 接入后启用）。 */
   readonly memoryScope: readonly string[]
   /** 可选模型偏好。 */
   readonly model?: ModelRef
+  /** 送信倒计时（毫秒，默认 1000）；实例化时传给邮局。 */
+  readonly sendCountdown?: number
   /** 用户自定义元数据。 */
   readonly custom?: Readonly<Record<string, unknown>>
 }
@@ -86,6 +87,8 @@ export interface AgentClass {
 export interface AgentInstance {
   readonly id: AgentID
   readonly classRef: AgentClassID
+  /** 创建者 id（用户默认 'user0'；agent 创建时为其 id）。 */
+  readonly creatorId: string
   /** 用户可命名（可接管改名）。 */
   displayName: string
   /** 区分用户创建 vs 调度创建。 */
@@ -94,8 +97,8 @@ export interface AgentInstance {
   status: AgentStatus
   turnCount: number
   totalCost: number
-  /** 对话历史（context 最小实现；ContextHandle/资产池后续接入）。 */
-  readonly history: ChatMessage[]
+  /** 实例化时必填的 user prompt（作为首封信投递，符合 openai messages 规范）。 */
+  readonly userPrompt: string
 }
 
 /** 用户接管/微调可更新的字段。 */
