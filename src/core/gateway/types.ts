@@ -1,0 +1,120 @@
+// ============================================================
+// core/gateway/types.ts —— 领域类型（纯 TS，零平台依赖）
+//
+// 判别联合事件 / DTO / 错误，作为 ModelGateway 契约的数据层。
+// 不 import 'vscode'，不 import opencode —— 与宿主完全解耦。
+// ============================================================
+
+/** 模型引用（provider + 模型 id）。 */
+export interface ModelRef {
+  readonly provider: string
+  readonly id: string
+}
+
+/** 文本内容块。 */
+export interface TextPart {
+  readonly type: 'text'
+  readonly text: string
+}
+
+/** 消息内容块（阶段 1 仅文本，图片/文件等后续扩展）。 */
+export type ContentPart = TextPart
+
+/** 一次模型发起的工具调用（OpenAI 协议形状：arguments 为 JSON 字符串）。 */
+export interface ToolCall {
+  readonly id: string
+  readonly name: string
+  readonly arguments: string
+}
+
+/** 对话消息（OpenAI 兼容形状）。 */
+export interface ChatMessage {
+  readonly role: 'system' | 'user' | 'assistant' | 'tool'
+  readonly content: string | readonly ContentPart[]
+  /** 仅 role=assistant：本轮模型发出的工具调用。 */
+  readonly toolCalls?: readonly ToolCall[]
+  /** 仅 role=tool：对应的工具调用 id。 */
+  readonly toolCallId?: string
+}
+
+/** 工具定义（JSON Schema 形状，透传给协议层）。 */
+export interface ToolDefinition {
+  readonly name: string
+  readonly description: string
+  readonly parameters: Record<string, unknown>
+}
+
+/** 一次 LLM 请求。 */
+export interface LLMRequest {
+  readonly model: ModelRef
+  readonly system?: string
+  readonly messages: readonly ChatMessage[]
+  readonly tools?: readonly ToolDefinition[]
+  readonly maxTokens?: number
+  readonly temperature?: number
+}
+
+/** 工具调用事件（input 已解析为 JSON）。 */
+export interface ToolCallEvent {
+  readonly type: 'tool-call'
+  readonly id: string
+  readonly name: string
+  readonly input: unknown
+}
+
+/** 用量事件（由服务端返回，客户端无需估算）。 */
+export interface UsageEvent {
+  readonly type: 'usage'
+  readonly inputTokens: number
+  readonly outputTokens: number
+  readonly cacheReadTokens?: number
+  readonly cacheWriteTokens?: number
+}
+
+/** 结束事件。 */
+export interface FinishEvent {
+  readonly type: 'finish'
+  readonly reason: 'stop' | 'tool_calls' | 'length'
+}
+
+/** 流式事件判别联合。 */
+export type LLMEvent =
+  | { readonly type: 'text-delta'; readonly text: string }
+  | { readonly type: 'reasoning-delta'; readonly text: string }
+  | ToolCallEvent
+  | UsageEvent
+  | FinishEvent
+
+/** 网关错误分类。 */
+export type GatewayErrorKind =
+  | 'auth_missing'
+  | 'context_overflow'
+  | 'api_error'
+  | 'invalid_response'
+  | 'request_failed'
+
+/** 统一网关错误：不 throw 字符串，判别联合错误（code-style §4.1）。 */
+export class GatewayError extends Error {
+  readonly kind: GatewayErrorKind
+  readonly retryable: boolean
+  readonly statusCode?: number
+
+  constructor(input: {
+    kind: GatewayErrorKind
+    message: string
+    retryable?: boolean
+    statusCode?: number
+    cause?: unknown
+  }) {
+    super(input.message, input.cause === undefined ? undefined : { cause: input.cause })
+    this.name = 'GatewayError'
+    this.kind = input.kind
+    this.retryable = input.retryable ?? false
+    if (input.statusCode !== undefined) this.statusCode = input.statusCode
+  }
+}
+
+/** 类型守卫。 */
+export function isGatewayError(value: unknown): value is GatewayError {
+  return value instanceof GatewayError
+}
