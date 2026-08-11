@@ -76,6 +76,8 @@ export class DefaultAgentRuntime implements AgentRuntime {
       let roundUsage: UsageEvent | undefined
       let roundFinish: 'stop' | 'tool_calls' | 'length' = 'stop'
 
+      // 请求已发 → thinking。
+      await instances.updateStatus(instance.id, 'thinking')
       const request: LLMRequest = { model, system: delivery.system, messages: session, tools }
       for await (const event of this.deps.gateway.chat(request)) {
         switch (event.type) {
@@ -103,6 +105,9 @@ export class DefaultAgentRuntime implements AgentRuntime {
       allReasoning.push(...roundReasoning)
       usage = mergeUsage(usage, roundUsage)
       finishReason = roundFinish
+
+      // LLM 已返回（assistant 或 tool_call）→ holding，等待下一次送信/续轮。
+      await instances.updateStatus(instance.id, 'holding')
 
       const assistantMessage: ChatMessage = {
         role: 'assistant',
@@ -140,10 +145,9 @@ export class DefaultAgentRuntime implements AgentRuntime {
       session = [...session, ...results]
     }
 
-    // 统计与状态
+    // 统计与状态（最终保持 holding，等待邮局下一次送信）
     instance.turnCount += 1
     instance.totalCost += this.estimateCost(usage)
-    await instances.updateStatus(instance.id, 'cooldown')
 
     // 最终回复：自动加发送者戳 → 寄信给创建者。
     const finalText = allText.join('')
@@ -158,7 +162,7 @@ export class DefaultAgentRuntime implements AgentRuntime {
   }
 
   async notifyHold(agentId: AgentID): Promise<void> {
-    await this.deps.instances.updateStatus(agentId, 'hold')
+    await this.deps.instances.updateStatus(agentId, 'holding')
   }
 
   /** 物化本轮 LLM 工具集：注册表按模板权限物化 ∩ 模板工具白名单。 */

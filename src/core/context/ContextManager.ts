@@ -55,8 +55,17 @@ interface InternalMailbox {
   readonly onDelivery: (delivery: MailDelivery) => void
   readonly onHold?: (agentId: string) => void
   timer: TimerHandle | undefined
-  /** 是否处于 cooldown（倒计时中）。 */
+  /** 是否处于倒计时中（送信合并窗口）。 */
   coolingDown: boolean
+  /** 是否有"等待填充的 tool 结果"待送信。 */
+  fillPending: boolean
+}
+
+/** 挂起等待：context_hold 注册后，等待指定 agent 的 assistant_message 作为 tool 结果填充。 */
+export interface PendingHold {
+  readonly waitFor: string
+  readonly ownerId: string
+  readonly toolCallId: string
 }
 
 export interface ContextManagerOptions {
@@ -68,8 +77,13 @@ export interface ContextManagerOptions {
 export interface ContextManager {
   readonly register: (registration: MailboxRegistration) => Promise<void>
   readonly unregister: (agentId: string) => Promise<void>
-  /** 投信：追加信件 + 触发送信/重置倒计时。 */
-  readonly deposit: (agentId: string, letter: ChatMessage) => Promise<void>
+  /**
+   * 投信（from 为发送者 id，用于 sub 等待分流）。
+   * 若 from 命中挂起等待 → 作为 tool 结果填充到等待者上下文（非 user_prompt）。
+   */
+  readonly deposit: (agentId: string, letter: ChatMessage, from?: string) => Promise<void>
+  /** 注册挂起等待：等待 waitFor 的 assistant_message 作为 tool 结果填充到 owner 上下文。 */
+  readonly registerHold: (waitFor: string, opts: { ownerId: string; toolCallId: string }) => Promise<void>
   /** 追加历史（runtime 复制 assistant；工具模块注入 tool 结果）。 */
   readonly appendHistory: (agentId: string, message: ChatMessage) => Promise<void>
   /** 工具调用审计记录（工具模块自动发送）。 */
@@ -79,6 +93,7 @@ export interface ContextManager {
 
 export class DefaultContextManager implements ContextManager {
   private readonly boxes = new Map<string, InternalMailbox>()
+  private readonly pendingFills = new Map<string, PendingHold>()
   private readonly assembler: ContextAssembler
   private readonly defaultCountdownMs: number
   private readonly timer: TimerFactory
@@ -105,6 +120,7 @@ export class DefaultContextManager implements ContextManager {
       onHold: registration.onHold,
       timer: undefined,
       coolingDown: false,
+      fillPending: false,
     })
   }
 
@@ -115,18 +131,26 @@ export class DefaultContextManager implements ContextManager {
     this.boxes.delete(agentId)
   }
 
-  async deposit(agentId: string, letter: ChatMessage): Promise<void> {
+  async registerHold(waitFor: string, opts: { ownerId: string; toolCallId: string }): Promise<void> {
+    this.pendingFills.set(waitFor, { waitFor, ownerId: opts.ownerId, toolCallId: opts.toolCallId })
+  }
+
+  async deposit(agentId: string, letter: ChatMessage, from?: string): Promise<void> {
+    // 发送者命中挂起等待 → 该 assistant_message 作为 tool 结果填充，而非信件。
+    if (from !== undefined) {
+      const pending = this.pendingFills.get(from)
+      if (pending) {
+        this.pendingFills.delete(from)
+        const owner = this.require(pending.ownerId)
+        owner.context.push({ role: 'tool', content: letter.content, toolCallId: pending.toolCallId })
+        owner.fillPending = true
+        this.scheduleDelivery(owner)
+        return
+      }
+    }
     const box = this.require(agentId)
     box.pendingLetters.push(letter)
-
-    if (box.coolingDown) {
-      // cooldown 中 → 重置倒计时（合并窗口滑动）
-      box.timer?.cancel()
-      box.timer = this.timer(() => this.onCountdown(box), box.sendCountdownMs)
-      return
-    }
-    // 无倒计时（首信 / hold 中）→ 立即送信
-    this.deliver(box)
+    this.scheduleDelivery(box)
   }
 
   async appendHistory(agentId: string, message: ChatMessage): Promise<void> {
@@ -152,7 +176,20 @@ export class DefaultContextManager implements ContextManager {
     }
   }
 
+  /** 触发送信/重置倒计时（上下文就绪时）。 */
+  private scheduleDelivery(box: InternalMailbox): void {
+    if (box.coolingDown) {
+      // 倒计时中 → 重置（合并窗口滑动）。
+      box.timer?.cancel()
+      box.timer = this.timer(() => this.onCountdown(box), box.sendCountdownMs)
+      return
+    }
+    // 无倒计时（首信 / holding 中来信 / 填充就绪）→ 立即送信。
+    this.deliver(box)
+  }
+
   private deliver(box: InternalMailbox): void {
+    box.fillPending = false
     if (box.assemble) {
       // 信件并入历史后组装，再送信
       const letters = [...box.pendingLetters]
@@ -186,7 +223,8 @@ export class DefaultContextManager implements ContextManager {
   private onCountdown(box: InternalMailbox): void {
     box.timer = undefined
     box.coolingDown = false
-    if (box.pendingLetters.length > 0) {
+    // 送信条件：上下文就绪（有待送信件 或 等待填充的 tool 结果）。
+    if (box.pendingLetters.length > 0 || box.fillPending) {
       this.deliver(box)
     } else {
       box.onHold?.(box.agentId)

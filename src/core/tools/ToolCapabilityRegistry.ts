@@ -142,7 +142,7 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     }
     await record('called')
     try {
-      const result = await tool.execute(invocation.input, ctx)
+      const result = await tool.execute(invocation.input, { ...ctx, callId: invocation.id })
       await record('success', { result })
       await this.hooks?.onAfterExecute?.(invocation, tool, ctx, result)
       return result

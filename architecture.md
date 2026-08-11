@@ -51,10 +51,10 @@
 
 ### 送信倒计时（邮局维护的局部量）
 
-- 倒计时**初始为 0**：首次来信立即组装送信（无需等待）。
-- **仅发送完一次上下文后**才进入倒计时（= 合并下一批来信的滑动窗口），cooldown 期间新来信**重置**倒计时。
-- 倒计时结束：上下文可完整组装（有 user_prompt）→ 组装送信；不完整 → **hold** 直到完整。
-- 默认 `send_countdown = 1000ms`（模板可配）。
+- 倒计时**初始为 0**：首信到达立即组装送信（无需等待）。
+- **仅发送完一次上下文后**才进入倒计时（= 合并下一批来信的滑动窗口），倒计时期间新来信**重置**倒计时。
+- **送信条件**：上下文各成分就绪（有信件累积 或 有待填充的 tool 结果）**且**倒计时就绪；否则保持 holding。
+- 默认 `sendCountdownMs = 1000ms`（模板可配）。
 
 ### 单工消息流
 
@@ -95,10 +95,11 @@ interface Mailbox {
 行为：
 
 - `register(agentId, { systemPrompt, sendCountdownMs, deliveryHandler })` —— 实例化时注册。
-- `deposit(agentId, letter)` —— 投信：追加 pendingLetters；idle/hold 且无计时器 → 立即组装送信；cooldown 中 → 重置倒计时。
+- `deposit(agentId, letter, from?)` —— 投信：追加 pendingLetters；**若 `from` 命中 context_wait 挂起等待** → 该 assistant_message 作为 **tool 结果**填充到等待者上下文（非信件）；否则按信件处理；触发送信/重置倒计时。
+- `registerHold(waitFor, { ownerId, toolCallId })` —— context_wait 工具注册挂起等待。
 - `appendHistory(agentId, message)` —— runtime/工具模块追加历史消息。
 - `appendToolRecord(agentId, record)` —— 工具模块自动记录。
-- 倒计时结束 → 可组装（pending 非空）→ `assemble` → 清空信件 → 送信 → 重新倒计时；不可组装 → 通知 kernel 进入 hold。
+- 送信（上下文就绪 & 倒计时就绪）→ `assemble` → 清空信件/填充标记 → 送信 → 重新倒计时；不可送信 → 通知 kernel 保持 holding。
 - 用户（`user0`）注册时 `assemble: false`：不做组装，直接把信件汇总为一条消息送信给面板。
 
 ### 3.3 ContextAssembler（`core/context/ContextAssembler.ts`）
@@ -109,11 +110,11 @@ interface Mailbox {
 
 ### 3.4 AgentRuntime（`core/kernel/AgentRuntime.ts`，被动驱动）
 
-- **不是同步 run**：向 kernel 注册后，由邮局送信回调驱动。
-- 收到组装好的上下文 → `status=thinking` → 发 LLM → 工具轮（并行执行）→ 每轮 assistant 消息自动复制到邮局历史 → 最终纯文本回复：
+- **不是同步 run**：向 kernel 注册后，由邮局送信回调驱动（`processDelivery`）。
+- 状态机：`idle →(邮局送信)→ thinking(请求已发) →(LLM 返回，assistant 或 tool_call)→ holding(等待下一次送信) →…`。
+- 收到组装好的完整上下文 → 发 LLM → 工具轮（并行执行）→ 每轮 assistant 消息自动复制到邮局历史 → 最终纯文本回复：
   - 自动加**发送者戳** `<sender id="<agentId>">内容</sender>`；
-  - 自动寄信给**创建者**（creatorId）→ 状态 `cooldown`。
-- 状态机：`idle →(送信)→ thinking →(最终回复寄出)→ cooldown →(倒计时结束·有信)→ thinking →(无信)→ hold`。
+  - 自动寄信给**创建者**（creatorId）。
 - 状态反映在实例的 `status` 属性（kernel 维护）。
 
 ### 3.5 AgentInstanceManager（`core/kernel/AgentInstanceManager.ts`）
@@ -132,9 +133,10 @@ interface Mailbox {
 
 | 工具 | 权限 | 作用 |
 |---|---|---|
-| `agent_instantiate` | advanced | 创建 agent（必填 userPrompt + creatorId，注册总线+邮局，投递首信） |
+| `agent_instantiate` | advanced | 创建 agent（必填 userPrompt + creatorId，注册总线+邮局，投递首信，**返回 agent id**） |
 | `agent_list` | advanced | 列出实例 |
 | `agent_terminate` | advanced | 终止实例（注销总线+邮局） |
+| `context_wait` | normal | 等待指定 agent 回复：其 assistant_message 作为本工具 tool 结果填充（无常规 tool 结果） |
 | `bus_send` | normal | 经总线发消息（单目标；并行调用实现一对多） |
 | `bus_participants` | normal | 查询总线注册 id 列表 |
 

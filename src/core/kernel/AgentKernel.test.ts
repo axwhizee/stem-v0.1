@@ -38,7 +38,7 @@ describe('AgentKernel 邮局模式', () => {
     const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
 
     await kernel.sendUserMessage(agentId, 'hi')
-    const delivery = await deliveries.next()
+    const delivery = (await deliveries.next())!
 
     assert.equal(delivery.kind, 'user')
     const letter = delivery.letters[0]
@@ -48,7 +48,7 @@ describe('AgentKernel 邮局模式', () => {
     assert.equal(instance.turnCount, 1)
   })
 
-  test('状态机：thinking → cooldown → hold（倒计时结束无信）', async () => {
+  test('状态机：thinking → holding（倒计时结束无信保持 holding）', async () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
     const { kernel, deliveries, timers } = await createKernelHarness(gateway)
     const agentId = await kernel.instantiateAgent(
@@ -56,16 +56,16 @@ describe('AgentKernel 邮局模式', () => {
       '/proj',
     )
 
-    // 首信立即送信（初始倒计时 0）→ agent thinking → 回复 → cooldown
+    // 首信立即送信（初始倒计时 0）→ agent thinking → 回复 → holding
     await deliveries.next()
-    assert.equal((await kernel.instances.get(agentId)).status, 'cooldown')
+    assert.equal((await kernel.instances.get(agentId)).status, 'holding')
 
-    // 倒计时结束无信 → hold
+    // 倒计时结束无信 → 保持 holding（等待）
     timers.flushAll()
     await tick()
-    assert.equal((await kernel.instances.get(agentId)).status, 'hold')
+    assert.equal((await kernel.instances.get(agentId)).status, 'holding')
 
-    // hold 中再来信 → 立即唤醒
+    // holding 中再来信 → 立即唤醒
     await kernel.sendUserMessage(agentId, 'again')
     await deliveries.next()
   })
@@ -121,7 +121,7 @@ describe('AgentKernel 邮局模式', () => {
 
     await kernel.sendUserMessage(agentId, 'echo hi')
     timers.flushAll()
-    const delivery = await deliveries.next()
+    const delivery = (await deliveries.next())!
     assert.equal(delivery.letters[0]?.content, `<sender id="${agentId}">工具返回了</sender>`)
 
     // onRecord 自动记录（called + success）已入邮局

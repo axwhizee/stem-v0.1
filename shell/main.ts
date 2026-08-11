@@ -22,6 +22,8 @@
 
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
+import { readFile } from 'node:fs/promises'
+import { isAbsolute } from 'node:path'
 import {
   AgentKernel,
   makeAgentClassID,
@@ -75,54 +77,78 @@ const ocGetTime: ToolCapability = {
   execute: () => ({ text: `当前 UTC 时间: ${new Date().toISOString()}` }),
 }
 
+/** 测试用读取工具：读取指定文件内容（相对路径基于工作区）。 */
+const ocReadFile: ToolCapability = {
+  id: 'oc_read_file',
+  description: '读取指定文件的内容并返回。',
+  permission: 'normal',
+  category: 'business',
+  parameters: {
+    type: 'object',
+    properties: { path: { type: 'string', description: '文件路径（绝对路径）' } },
+    required: ['path'],
+  },
+  execute: async (input) => {
+    const filePath = (input as { path: string }).path
+    if (!isAbsolute(filePath)) {
+      return { text: `错误：需要绝对路径，收到 ${filePath}` }
+    }
+    try {
+      const content = await readFile(filePath, 'utf8')
+      const summary = content.length > 2000 ? `${content.slice(0, 2000)}\n…（截断）` : content
+      return { text: `文件内容（${filePath}）:\n${summary}` }
+    } catch (error) {
+      return { text: `读取失败: ${error instanceof Error ? error.message : String(error)}` }
+    }
+  },
+}
+
 async function buildGateway(): Promise<{ gateway: ModelGateway; source: string }> {
   const apiKey = process.env.OPENCODE_API_KEY
   if (apiKey) {
     return { gateway: createOpencodeGateway({ apiKey }), source: `real go/zen (model=${process.env.OPENCODE_MODEL ?? DEFAULT_MODEL})` }
   }
-  // mock 模式：识别 echo 请求 → 返回 tool_call 演示工具轮。
+  // mock 模式：按 system 区分角色，按轮次推进（创建→等待→汇报）。
+  const systemRounds = new Map<string, number>()
   const mock = await startMockSse({
     requiredApiKey: 'test-key',
     delayMs: 6,
     script: (body): MockResponse => {
       const messages = (body.messages ?? []) as Array<{ role: string; content: unknown }>
+      const system = typeof messages[0]?.content === 'string' ? messages[0].content : ''
       const lastUser = [...messages].reverse().find((m) => m.role === 'user')
       const text = typeof lastUser?.content === 'string' ? lastUser.content : ''
       const hasToolResult = messages.some((m) => m.role === 'tool')
       const tools = (body.tools ?? []) as Array<{ function?: { name: string } }>
 
-      if (tools.some((t) => t.function?.name === 'oc_echo') && /echo|回显/i.test(text) && !hasToolResult) {
-        return {
-          kind: 'stream',
-          chunks: [
-            {
-              choices: [
-                {
-                  index: 0,
-                  delta: {
-                    tool_calls: [{ index: 0, id: 'call_mock_1', type: 'function', function: { name: 'oc_echo', arguments: JSON.stringify({ text }) } }],
-                  },
-                  finish_reason: null,
-                },
-              ],
-            },
-            {
-              choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }],
-              usage: { prompt_tokens: 15, completion_tokens: 4 },
-            },
-          ],
+      const key = system.includes('creator-sys') ? 'creator' : system.includes('tool-sys') ? 'tool' : 'other'
+      const round = systemRounds.get(key) ?? 0
+      systemRounds.set(key, round + 1)
+
+      if (key === 'creator') {
+        if (round === 0) {
+          return toolCall('agent_instantiate', { classId: 'tool-agent', userPrompt: '请读取当前时间，然后把时间告诉我。' })
         }
+        if (round === 1) {
+          const lastTool = [...messages].reverse().find((m) => m.role === 'tool')
+          const toolText = typeof lastTool?.content === 'string' ? lastTool.content : ''
+          const created = /已创建 agent (\w+)/.exec(toolText)
+          return toolCall('context_wait', { agentId: created?.[1] ?? 'sub-0' })
+        }
+        return streamText('（mock）子agent 报告当前时间是 12:00:00')
+      }
+      if (key === 'tool') {
+        if (round === 0) return toolCall('oc_get_time', {})
+        return streamText('（mock）当前时间是 12:00:00')
+      }
+
+      if (tools.some((t) => t.function?.name === 'oc_echo') && /echo|回显/i.test(text) && !hasToolResult) {
+        return toolCall('oc_echo', { text })
       }
       if (hasToolResult) {
         const lastTool = [...messages].reverse().find((m) => m.role === 'tool')
         const toolText = typeof lastTool?.content === 'string' ? lastTool.content : ''
-        return {
-          kind: 'stream',
-          chunks: [
-            ...splitText(`（mock）工具已执行，结果：${toolText}`),
-            { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 8 } },
-          ],
-        }
+        return streamText(`（mock）工具已执行，结果：${toolText}`)
       }
       return defaultScript(body)
     },
@@ -139,43 +165,67 @@ async function createShell(): Promise<ShellState> {
   const tools = new DefaultToolCapabilityRegistry()
   await tools.register(ocEcho)
   await tools.register(ocGetTime)
+  await tools.register(ocReadFile)
 
-  let currentAgentId: AgentID
   const deliveries = userDeliveryQueue()
   const display = { streamedAny: false }
+  // 先建 state 骨架，onEvent 引用 state.currentAgentId（动态，避免旧值闭包）。
+  const state: ShellState = {
+    kernel: undefined as never,
+    currentAgentId: '' as never,
+    source,
+    deliveries,
+    display,
+  }
 
   const kernel = new AgentKernel({
     gateway,
     defaultModel: { provider: 'opencode', id: process.env.OPENCODE_MODEL ?? DEFAULT_MODEL },
     tools,
     onEvent: (agentId, event) => {
-      if (agentId === currentAgentId && event.type === 'text-delta') {
+      if (agentId === state.currentAgentId && event.type === 'text-delta') {
         display.streamedAny = true
         process.stdout.write(event.text)
       }
     },
     onUserDelivery: (delivery) => deliveries.push(delivery),
   })
+  state.kernel = kernel
 
   // 带工具白名单的示例模板
   await kernel.templates.register({
     id: makeAgentClassID('tool-assistant'),
     name: 'ToolAssistant',
-    description: '能调用工具（oc_echo / oc_get_time）的助手（示例）',
-    systemPrompt: 'You are a helpful assistant with tool access. Use the available tools when appropriate.',
-    tools: [{ id: 'oc_echo' }, { id: 'oc_get_time' }],
+    description: '能调用工具（oc_echo / oc_get_time / oc_read_file）的助手（示例）',
+    systemPrompt:
+      'You are a helpful assistant with tool access. Use the available tools when appropriate. If you need a result from another agent, call agent_instantiate to create it (returns its id), then context_wait(id) to await its reply.',
+    tools: [{ id: 'oc_echo' }, { id: 'oc_get_time' }, { id: 'oc_read_file' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
     permission: 'normal',
     memoryScope: [],
   })
 
+  // 创造者模板（advanced：可创建子 agent；无时间权限）
+  await kernel.templates.register({
+    id: makeAgentClassID('creator'),
+    name: 'Creator',
+    description: '调度者：可创建子 agent 获取信息（示例）',
+    systemPrompt:
+      "creator-sys: 你是调度者，负责创建子 agent 获取信息并汇总给用户。\n可用模板 id：'tool-agent'（带 oc_get_time 时间工具）、'simple-chat'（纯对话）、'coder'。\n流程：① 用 agent_instantiate 创建子 agent，参数 classId 填 'tool-agent'，必填 userPrompt 说明要它做什么；它返回新建 agent 的 id。② 随后调用 context_wait(agentId)（agentId 填①返回的 id）等待子 agent 的回复——其 assistant_message 会作为 context_wait 的 tool 结果进入你的上下文。③ 拿到结果后向用户汇报。",
+    tools: [{ id: 'agent_instantiate' }, { id: 'agent_list' }, { id: 'agent_terminate' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
+    permission: 'advanced',
+    memoryScope: [],
+  })
+
+  // 系统管理工具（agent_* / bus_*）
+  await kernel.registerSystemTools(tools)
+
   await kernel.registerUser('User')
-  currentAgentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), DEFAULT_PROJECT, {
+  state.currentAgentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), DEFAULT_PROJECT, {
     displayName: '小助手',
   })
 
-  const state: ShellState = { kernel, currentAgentId, source, deliveries, display }
   // 消费初始 agent 的首信自动回复（自我介绍），保持第一条消息干净。
-  await drainRepliesUntil(state, currentAgentId)
+  await drainRepliesUntil(state, state.currentAgentId)
   return state
 }
 
@@ -190,8 +240,8 @@ function parseStamp(message: string): { sender: string; text: string } {
   return { sender: '', text: message }
 }
 
-/** 消费掉指定 agent 的"首信自动回复"（默认 userPrompt 触发），保持后续对话干净。 */
-async function drainRepliesUntil(state: ShellState, agentId: AgentID, timeoutMs = 5000): Promise<void> {
+/** 消费掉指定 agent 的"首信自动回复"（userPrompt 触发），保持后续对话干净。 */
+async function drainRepliesUntil(state: ShellState, agentId: AgentID, timeoutMs = 20000): Promise<void> {
   const deadline = Date.now() + timeoutMs
   while (Date.now() < deadline) {
     const race = await Promise.race<unknown>([
@@ -206,22 +256,54 @@ async function drainRepliesUntil(state: ShellState, agentId: AgentID, timeoutMs 
   }
 }
 
+const sleep = (ms: number) => new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
+
 async function chat(state: ShellState, input: string): Promise<void> {
-  console.log(`\n[user] ${input}`)
-  process.stdout.write('[assistant] ')
-  state.display.streamedAny = false
-  await state.kernel.sendUserMessage(state.currentAgentId, input)
-  // 等待当前 agent 的回信（跳过其他 agent 的异步回信，避免串扰）。
+  // 丢弃当前 agent 的积压旧信（如 /new 首信回复晚到），避免顶替新回复。
   for (;;) {
-    const delivery = await state.deliveries.next()
-    const letter = delivery.letters[0]
-    const { sender, text } = parseStamp(contentText(letter?.content ?? ''))
-    if (!sender || sender === state.currentAgentId) {
-      process.stdout.write('\n')
-      if (!state.display.streamedAny) console.log(text)
-      return
-    }
+    const stale = await waitCurrentAgentReply(state, 100)
+    if (stale === null) break
   }
+  state.display.streamedAny = false
+  console.log(`\n[user] ${input}`)
+  await state.kernel.sendUserMessage(state.currentAgentId, input)
+  // 等待并显示当前 agent 的回信（含 agent 链产生的后续回信），直到静默。
+  const first = await waitCurrentAgentReply(state, Infinity)
+  if (first === null) {
+    console.log('（无回复）')
+    return
+  }
+  printReply(state, first)
+  for (;;) {
+    const next = await waitCurrentAgentReply(state, 1200)
+    if (next === null) break
+    printReply(state, next)
+  }
+}
+
+/** 等待当前 agent 的下一封回信（跳过其他 agent 回信）；超时返回 null。 */
+async function waitCurrentAgentReply(state: ShellState, timeoutMs: number): Promise<UserDelivery | null> {
+  const deadline = timeoutMs === Infinity ? Infinity : Date.now() + timeoutMs
+  for (;;) {
+    const remaining = deadline === Infinity ? Infinity : deadline - Date.now()
+    if (remaining <= 0) return null
+    // 队列内置超时（resolve null 并移除等待者），避免僵尸 waiter。
+    const delivery = await state.deliveries.next(deadline === Infinity ? undefined : remaining)
+    if (delivery === null) return null
+    const letter = delivery.letters[0]
+    const { sender } = parseStamp(contentText(letter?.content ?? ''))
+    if (!sender || sender === state.currentAgentId) return delivery
+  }
+}
+
+function printReply(state: ShellState, delivery: UserDelivery): void {
+  const letter = delivery.letters[0]
+  const { sender, text } = parseStamp(contentText(letter?.content ?? ''))
+  const label = sender && sender !== state.currentAgentId ? `\n[来自 ${sender}]` : '\n[assistant]'
+  console.log(label)
+  // 若该回复未经流式显示（无文本流），直接打印文本。
+  if (!state.display.streamedAny) console.log(text)
+  state.display.streamedAny = false
 }
 
 async function handleCommand(state: ShellState, line: string): Promise<boolean> {
@@ -304,14 +386,42 @@ function splitText(text: string): Array<Record<string, unknown>> {
   }))
 }
 
+function streamText(text: string): MockResponse {
+  return {
+    kind: 'stream',
+    chunks: [
+      ...splitText(text),
+      { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 8 } },
+    ],
+  }
+}
+
+function toolCall(name: string, args: Record<string, unknown>): MockResponse {
+  return {
+    kind: 'stream',
+    chunks: [
+      {
+        choices: [
+          {
+            index: 0,
+            delta: { tool_calls: [{ index: 0, id: `call_mock_${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] },
+            finish_reason: null,
+          },
+        ],
+      },
+      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 15, completion_tokens: 4 } },
+    ],
+  }
+}
+
 async function main(): Promise<number> {
   const state = await createShell()
   console.log('====================================================')
   console.log(' stem core 调试 shell（临时面板 user0）')
   console.log(` gateway: ${state.source}`)
-  console.log(` 模板: ${BUILTIN_TEMPLATES.map((t) => t.id).join(', ')}, tool-assistant`)
+  console.log(` 模板: ${BUILTIN_TEMPLATES.map((t) => t.id).join(', ')}, tool-assistant, creator`)
   console.log(` 当前实例: ${state.currentAgentId} (小助手)`)
-  console.log(' 工具演示: /new tool-assistant 再问 "echo hello"')
+  console.log(' 工具演示: /new tool-assistant 再问 "echo hello"；/new creator 再问 "创建一个助手读取时间"')
   console.log(' 直接输入对话；/help 查看命令；/exit 退出')
   console.log('====================================================')
 

@@ -7,5 +7,5 @@ export type { MailboxState, AgentDelivery, UserDelivery, MailDelivery } from './
 export type { AssembleInput, AssembleResult, ContextAssembler } from './ContextAssembler'
 export { ClassicContextAssembler } from './ContextAssembler'
 
-export type { TimerHandle, TimerFactory, MailboxRegistration, ContextManagerOptions, ContextManager } from './ContextManager'
+export type { TimerHandle, TimerFactory, MailboxRegistration, PendingHold, ContextManagerOptions, ContextManager } from './ContextManager'
 export { DefaultContextManager } from './ContextManager'

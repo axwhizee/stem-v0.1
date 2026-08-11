@@ -28,6 +28,7 @@ import { DefaultAgentSpaceManager } from './AgentSpaceManager'
 import type { AgentSpaceManager } from './AgentSpaceManager'
 import { DefaultAgentRuntime } from './AgentRuntime'
 import type { AgentRuntime } from './AgentRuntime'
+import { createSystemTools } from './systemTools'
 import type { AgentClass, AgentClassID, AgentID, AgentSpaceID, ProjectRef } from './types'
 import { makeAgentID } from './types'
 
@@ -83,9 +84,9 @@ export class AgentKernel {
       timer: options.timer,
     })
 
-    // 总线转发到邮局（送信员）。
+    // 总线转发到邮局（送信员），携带发送者 id（供 context_wait 分流）。
     this.bus = new DefaultMessageBus({
-      forward: (msg) => this.contextManager.deposit(msg.to, { role: 'user', content: msg.payload }),
+      forward: (msg) => this.contextManager.deposit(msg.to, { role: 'user', content: msg.payload }, msg.from),
     })
 
     this.runtime = new DefaultAgentRuntime({
@@ -102,9 +103,11 @@ export class AgentKernel {
     })
 
     // 工具自动记录 → 邮局（触发/成功/失败），不依赖 runtime 手动发送。
+    // context_wait 工具无常规 tool 结果（结果由邮局在等待对象回信时填充）。
     this.tools?.setRecordSink?.((record, ctx) => {
       void this.contextManager.appendToolRecord(ctx.agentId, record)
       if (record.status === 'success' && record.result) {
+        if (record.result.metadata?.contextWait) return // context_wait：等待填充，不 append
         void this.contextManager.appendHistory(ctx.agentId, {
           role: 'tool',
           content: record.result.text,
@@ -145,7 +148,12 @@ export class AgentKernel {
   /** 实例化：创建实例 + 注册总线 + 注册邮局(systemPrompt + 倒计时 + 送信回调) + 投递首信。 */
   async instantiateAgent(opts: Omit<InstantiateOptions, 'spaceId'>, project: ProjectRef): Promise<AgentID> {
     const space = await this.spaces.getOrCreate(project)
-    const instance = await this.instances.instantiate({ ...opts, spaceId: space.id })
+    return this.instantiateInSpace(opts, space.id)
+  }
+
+  /** 实例化（指定空间，供系统工具 agent_instantiate 使用）。 */
+  async instantiateInSpace(opts: Omit<InstantiateOptions, 'spaceId'>, spaceId: AgentSpaceID | string): Promise<AgentID> {
+    const instance = await this.instances.instantiate({ ...opts, spaceId: spaceId as AgentSpaceID })
 
     await this.bus.register({ id: instance.id, kind: 'agent', displayName: instance.displayName })
 
@@ -162,6 +170,13 @@ export class AgentKernel {
     // userPrompt 作为首封信投递（邮局驱动，不 hold 等待）。
     await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt })
     return instance.id
+  }
+
+  /** 注册系统管理工具（agent_ 与 bus_ 前缀）到工具注册表。 */
+  async registerSystemTools(registry: ToolCapabilityRegistry): Promise<void> {
+    for (const tool of createSystemTools(this)) {
+      await registry.register(tool)
+    }
   }
 
   /** 终止实例：注销邮局 + 总线 + 实例。 */

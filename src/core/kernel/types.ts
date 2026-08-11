@@ -39,8 +39,8 @@ export function makeAgentSpaceID(id: string): AgentSpaceID {
 /** 权限分级（公共类型：normal=业务/对话；advanced=实例创建/调度；admin=类创建/模块改造/全量日志）。 */
 export type { PermissionLevel } from '../types'
 
-/** 实例状态机：idle →(送信)→ thinking →(最终回复寄出)→ cooldown →(倒计时结束·有信)→ thinking / (无信)→ hold。 */
-export type AgentStatus = 'idle' | 'thinking' | 'cooldown' | 'hold'
+/** 实例状态机：idle →(邮局送信)→ thinking(请求已发) →(LLM 返回)→ holding(等待下一次送信)。 */
+export type AgentStatus = 'idle' | 'thinking' | 'holding'
 
 /** 工具引用（声明在模板上，执行器后续由 ToolCapabilityRegistry 提供）。 */
 export interface ToolRef {

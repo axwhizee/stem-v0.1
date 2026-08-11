@@ -28,18 +28,33 @@ export function manualTimers() {
 
 export function userDeliveryQueue() {
   const queue: UserDelivery[] = []
-  const waiters: Array<{ resolve: (d: UserDelivery) => void }> = []
+  const waiters: Array<{ resolve: (d: UserDelivery) => void; id: number }> = []
+  let nextId = 0
   return {
     push: (d: UserDelivery) => {
       const waiter = waiters.shift()
       if (waiter) waiter.resolve(d)
       else queue.push(d)
     },
-    next: () =>
-      new Promise<UserDelivery>((resolve) => {
-        const q = queue.shift()
-        if (q) resolve(q)
-        else waiters.push({ resolve })
+    /** 等待下一封；timeoutMs 后 resolve(null)（自动从等待队列移除，避免僵尸 waiter）。 */
+    next: (timeoutMs?: number) =>
+      new Promise<UserDelivery | null>((resolve) => {
+        const buffered = queue.shift()
+        if (buffered) {
+          resolve(buffered)
+          return
+        }
+        const waiter = { resolve, id: ++nextId }
+        waiters.push(waiter)
+        if (timeoutMs !== undefined) {
+          setTimeout(() => {
+            const index = waiters.findIndex((w) => w.id === waiter.id)
+            if (index >= 0) {
+              waiters.splice(index, 1)
+              resolve(null)
+            }
+          }, timeoutMs)
+        }
       }),
   }
 }

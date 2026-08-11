@@ -58,6 +58,8 @@ export interface ToolContext {
   /** 调用方 agent 的权限等级。 */
   readonly agentPermission: PermissionLevel
   readonly signal?: AbortSignal
+  /** 本次调用 id（registry 执行时填充，供工具绑定自身 tool_call）。 */
+  readonly callId?: string
 }
 
 /** 大输出引用（对接 ContextAssetPool 的 references 存储）。 */

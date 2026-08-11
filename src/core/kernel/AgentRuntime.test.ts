@@ -60,7 +60,7 @@ async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCa
 }
 
 describe('DefaultAgentRuntime（被动驱动）', () => {
-  test('processDelivery：LLM 文本回复 → 加发送者戳 → 寄信给创建者 → cooldown', async () => {
+  test('processDelivery：LLM 文本回复 → 加发送者戳 → 寄信给创建者 → holding', async () => {
     const gateway = new FakeGateway(() => [
       { type: 'text-delta', text: 'hello' },
       { type: 'usage', inputTokens: 5, outputTokens: 3 },
@@ -74,7 +74,7 @@ describe('DefaultAgentRuntime（被动驱动）', () => {
     assert.ok(msg)
     assert.equal(msg.to, 'user0')
     assert.equal(msg.payload, `<sender id="${agentId}">hello</sender>`)
-    assert.equal((await instances.get(agentId)).status, 'cooldown')
+    assert.equal((await instances.get(agentId)).status, 'holding')
 
     // assistant 历史自动复制到邮局
     const state = contextManager.getState(agentId)
@@ -112,10 +112,10 @@ describe('DefaultAgentRuntime（被动驱动）', () => {
     assert.equal(sent.at(-1)?.payload, `<sender id="${agentId}">工具完成</sender>`)
   })
 
-  test('notifyHold → 状态 hold', async () => {
+  test('notifyHold → 状态 holding', async () => {
     const gateway = new FakeGateway(() => [])
     const { runtime, instances, agentId } = await makeRuntime(gateway)
     await runtime.notifyHold(agentId)
-    assert.equal((await instances.get(agentId)).status, 'hold')
+    assert.equal((await instances.get(agentId)).status, 'holding')
   })
 })

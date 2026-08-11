@@ -39,3 +39,6 @@ export { DefaultAgentRuntime } from './AgentRuntime'
 // Kernel 容器
 export type { AgentKernelOptions } from './AgentKernel'
 export { AgentKernel, BUILTIN_TEMPLATES, USER_ID } from './AgentKernel'
+
+// 系统管理工具
+export { createSystemTools } from './systemTools'

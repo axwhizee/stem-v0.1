@@ -222,3 +222,62 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - MCP / skill 工具适配器（复用 ToolCapability + hooks 挂载）。
 - ToolContext 扩展：权限策略细化（deny/人工确认/子 agent 权限继承）。
 - Telemetry `ToolInvoked` 事件（经 ToolHooks 挂载）。
+
+---
+
+## 阶段：单工邮局模式（agent 通信总线）+ 系统工具 + context_wait
+
+**日期**：2026-08-11
+
+### 目标
+
+打通 agent-user 融合通信：总线退化为"送信员"，上下文管理器成为"邮局 + 数据库"（按 agent id 分箱，所有上下文成分异步就绪）；agent 全程被动，由邮局送信驱动；新增系统工具（agent_*/bus_*/context_wait）。
+
+### 完成内容
+
+#### 1. 通信模型重构（单工邮局模式）
+
+- **MessageBus**（`core/bus/`）：参与者注册/查询 + 消息转发（携带 from）。不存消息。
+- **ContextManager（邮局）**（`core/context/`）：按 agentId 分箱持有 `systemPrompt / context历史 / pendingLetters / toolRecords`；**送信倒计时**（初始 0，送信后开始，来信重置）；**送信条件 = 上下文就绪 & 倒计时就绪**。
+- **ContextAssembler**：经典组装模式（system + 历史 + 信件 → messages），可替换。
+- **AgentRuntime**：被动驱动 `processDelivery`；状态机 `idle / thinking / holding`；最终回复自动加 `<sender id>` 戳寄信给创建者；每轮 assistant 自动复制到邮局历史。
+- 用户面板（user0）与 agent 一视同仁注册邮局（不组装，只汇总信件）。
+
+#### 2. 系统工具（`core/kernel/systemTools.ts`）
+
+| 工具 | 权限 | 作用 |
+|---|---|---|
+| `agent_instantiate` | advanced | 创建 agent（必填 userPrompt + creatorId，可指定 agentId，返回新建 id） |
+| `agent_list` / `agent_terminate` | advanced | 实例管理 |
+| `context_wait` | normal | 等待指定 agent 回复：其 assistant_message 作为**本工具的 tool 结果**填充（无常规结果） |
+| `bus_send` | normal | 经总线发消息（单目标，并行实现一对多） |
+| `bus_participants` | normal | 查询总线注册参与者 |
+
+- 工具调用自动记录（ToolRecord / onRecord → 邮局），不依赖 runtime 手动发送。
+- `ToolContext` 增加 `callId`（供 context_wait 绑定自身 tool_call）。
+
+#### 3. context_wait 机制
+
+- `context_wait(agentId)` 注册挂起等待（邮局 `registerHold`）。
+- 总线 forward 携带 from；邮局 deposit 时若 from 命中挂起等待 → 该 assistant_message 作为 **tool 结果**（`role:'tool'`，toolCallId 匹配）填充到等待者上下文，而非信件。
+- 送信条件纳入"待填充结果"。
+
+#### 4. 测试（48/48 通过）
+
+- 状态机 holding、邮局信件累积、简单对话闭环、发送者戳、工具轮（onRecord 自动记录）、并行工具调用、白名单隔离、**agent 链端到端**（用户→创造者→agent_instantiate→context_wait→子agent读时间→回传→用户）。
+
+### 验证结果
+
+- **mock 模式**：creator 链完整（创建→context_wait→子agent读时间→回传→汇报）。
+- **真实 go/zen**：创造者成功创建子 agent（creatorId 正确、返回 id）；模型行为不可控（模板选择、context_wait 调用依赖模型遵循提示词）。
+
+### 关键修复（调试中发现）
+
+- `Promise.race` 中超时的 next() 产生"僵尸 waiter" → 队列支持超时自移除并 resolve(null)。
+- shell `onEvent` 闭包引用旧 `currentAgentId` + `streamedAny` 跨会话污染 → 改为引用动态 state + 会话前重置。
+
+### 后续（未执行）
+
+- sub_agent 清理（手动 `agent_terminate` / kernel 接口）。
+- 等待超时机制（context_wait 无超时，需手动清理）。
+- Telemetry / MCP / skill 工具适配。
