@@ -11,6 +11,7 @@
 // ============================================================
 
 import type { ToolDefinition } from '../gateway'
+import type { LogSink } from '../logging'
 import type { PermissionLevel } from '../types'
 import type {
   ToolCapability,
@@ -42,6 +43,8 @@ export interface ToolCapabilityRegistry {
   readonly execute: (invocation: ToolInvocation, ctx: ToolContext) => Promise<ToolResult>
   /** 装配工具调用自动记录（组合根注入 → 邮局）。 */
   readonly setRecordSink: (onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>) => void
+  /** 装配工具调用日志（组合根注入 → bus → core/logging）。 */
+  readonly setLogSink: (onLog?: LogSink) => void
 }
 
 export interface ToolRegistryOptions {
@@ -52,6 +55,8 @@ export interface ToolRegistryOptions {
    * 由组合根（kernel）注入 → 转发给邮局，不依赖 runtime 手动发送。
    */
   readonly onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>
+  /** 工具调用日志（组合根注入 → bus → core/logging）。 */
+  readonly onLog?: LogSink
 }
 
 export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
@@ -59,15 +64,21 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
   private readonly permissionResolver: PermissionResolver
   private readonly hooks?: ToolHooks
   private onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>
+  private onLog?: LogSink
 
   constructor(options: ToolRegistryOptions = {}) {
     this.permissionResolver = options.permissionResolver ?? new LevelPermissionResolver()
     this.hooks = options.hooks
     this.onRecord = options.onRecord
+    this.onLog = options.onLog
   }
 
   setRecordSink(onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>): void {
     this.onRecord = onRecord
+  }
+
+  setLogSink(onLog?: LogSink): void {
+    this.onLog = onLog
   }
 
   async register(tool: ToolCapability): Promise<void> {
@@ -128,6 +139,15 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     }
 
     await this.hooks?.onBeforeExecute?.(invocation, tool, ctx)
+    const startedAt = Date.now()
+    this.onLog?.log({
+      type: 'tool.invoked',
+      at: startedAt,
+      agentId: ctx.agentId,
+      tool: tool.id,
+      args: invocation.input,
+      phase: 'called',
+    })
     const record = async (status: ToolRecord['status'], extra?: Partial<ToolRecord>) => {
       await this.onRecord?.(
         {
@@ -143,6 +163,16 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     await record('called')
     try {
       const result = await tool.execute(invocation.input, { ...ctx, callId: invocation.id })
+      this.onLog?.log({
+        type: 'tool.invoked',
+        at: Date.now(),
+        agentId: ctx.agentId,
+        tool: tool.id,
+        args: invocation.input,
+        phase: 'success',
+        durationMs: Date.now() - startedAt,
+        resultText: result.text,
+      })
       await record('success', { result })
       await this.hooks?.onAfterExecute?.(invocation, tool, ctx, result)
       return result
@@ -151,6 +181,16 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
         cause !== null && typeof cause === 'object' && 'kind' in cause
           ? (cause as ToolError)
           : { kind: 'execution_failed', tool: tool.id, message: cause instanceof Error ? cause.message : String(cause), cause }
+      this.onLog?.log({
+        type: 'tool.invoked',
+        at: Date.now(),
+        agentId: ctx.agentId,
+        tool: tool.id,
+        args: invocation.input,
+        phase: 'error',
+        durationMs: Date.now() - startedAt,
+        errorKind: error.kind,
+      })
       await record('error', { error })
       await this.hooks?.onError?.(invocation, tool, ctx, error)
       throw error

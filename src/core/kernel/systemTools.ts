@@ -73,7 +73,7 @@ function agentClassCreate(kernel: AgentKernel): ToolCapability {
         model: args.model ? { provider: 'opencode', id: args.model } : undefined,
         sendCountdown: args.sendCountdown,
       }
-      await kernel.templates.register(cls)
+      await kernel.registerAgentClass(cls)
       return { text: `已创建 agent 类 ${args.id}（${args.name}，permission=${cls.permission}）` }
     },
   }

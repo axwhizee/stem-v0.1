@@ -17,6 +17,7 @@
 // ============================================================
 
 import type { ChatMessage, ToolDefinition } from '../gateway'
+import type { LogEvent } from '../logging'
 import type { ToolRecord } from '../tools'
 import type { Mailbox, MailboxRegistration, ReadyContent, TimerFactory } from './Mailbox'
 import { DefaultMailbox } from './Mailbox'
@@ -56,6 +57,8 @@ export interface ContextManagerOptions {
   readonly timer?: TimerFactory
   /** 可注入邮箱实现（缺省 DefaultMailbox）。 */
   readonly mailbox?: Mailbox
+  /** 日志出口（组合根注入 → bus → core/logging）。 */
+  readonly onLog?: (event: LogEvent) => void
 }
 
 /** 实例化时注册（成分信息 + 发送回调）。 */
@@ -87,6 +90,10 @@ interface InternalBox {
   readonly assemble: boolean
   /** 是否有"等待填充的 tool 结果"待送信。 */
   fillPending: boolean
+  /** 各成分最近就绪时间（毫秒，供日志）。 */
+  lastLetterAt: number | undefined
+  lastHistoryAt: number | undefined
+  lastToolAt: number | undefined
 }
 
 export interface ContextManager {
@@ -111,14 +118,17 @@ export class DefaultContextManager implements ContextManager {
   private readonly pendingFills = new Map<string, PendingHold>()
   private readonly assemble: ContextAssembler
   private readonly mailbox: Mailbox
+  private readonly onLog?: (event: LogEvent) => void
 
   constructor(options: ContextManagerOptions = {}) {
     this.assemble = options.contextAssembler ?? classicAssemble
+    this.onLog = options.onLog
     this.mailbox =
       options.mailbox ??
       new DefaultMailbox({
         defaultCountdownMs: options.defaultCountdownMs,
         timer: options.timer,
+        onLog: options.onLog,
       })
   }
 
@@ -134,6 +144,9 @@ export class DefaultContextManager implements ContextManager {
       toolRecords: [],
       assemble: registration.assemble ?? true,
       fillPending: false,
+      lastLetterAt: undefined,
+      lastHistoryAt: undefined,
+      lastToolAt: undefined,
     })
     const mailboxRegistration: MailboxRegistration = {
       agentId: registration.agentId,
@@ -163,6 +176,7 @@ export class DefaultContextManager implements ContextManager {
         this.pendingFills.delete(from)
         const owner = this.require(pending.ownerId)
         owner.context.push({ role: 'tool', content: letter.content, toolCallId: pending.toolCallId })
+        owner.lastHistoryAt = Date.now()
         owner.fillPending = true
         this.assembleAndNotify(owner)
         return
@@ -170,17 +184,20 @@ export class DefaultContextManager implements ContextManager {
     }
     const box = this.require(agentId)
     box.pendingLetters.push(letter)
+    box.lastLetterAt = Date.now()
     this.assembleAndNotify(box)
   }
 
   async appendHistory(agentId: string, message: ChatMessage): Promise<void> {
     const box = this.require(agentId)
     box.context.push(message)
+    box.lastHistoryAt = Date.now()
   }
 
   async appendToolRecord(agentId: string, record: ToolRecord): Promise<void> {
     const box = this.require(agentId)
     box.toolRecords.push(record)
+    box.lastToolAt = Date.now()
   }
 
   async getState(agentId: string): Promise<MailboxState> {
@@ -198,7 +215,7 @@ export class DefaultContextManager implements ContextManager {
     }
   }
 
-  /** 拼装（agent）或汇总（user）出新内容 → 交给邮箱（就绪信号）。 */
+  /** 拼装（agent）或汇总（user）出新内容 → 交给邮箱（就绪信号）+ 留档日志。 */
   private assembleAndNotify(box: InternalBox): void {
     let content: ReadyContent
     if (box.assemble) {
@@ -216,6 +233,19 @@ export class DefaultContextManager implements ContextManager {
     } else {
       content = { kind: 'letters', letters: [...box.pendingLetters] }
     }
+    this.onLog?.({
+      type: 'context.assembled',
+      at: Date.now(),
+      agentId: box.agentId,
+      assemble: box.assemble,
+      messageCount: content.kind === 'context' ? content.messages.length : content.letters.length,
+      messages: content.kind === 'context' ? content.messages : [],
+      readyAt: {
+        letters: box.lastLetterAt,
+        history: box.lastHistoryAt,
+        tools: box.lastToolAt,
+      },
+    })
     void this.mailbox.notifyReady(box.agentId, content)
   }
 

@@ -9,7 +9,7 @@ import { DefaultMessageBus } from '../bus'
 import { DefaultContextManager } from '../context'
 import type { AgentDelivery } from '../context'
 import { DefaultToolCapabilityRegistry } from '../tools'
-import type { BusSendInput } from '../bus'
+import type { AgentBusMessage } from '../bus'
 import { DefaultAgentTemplateRegistry } from './AgentTemplateRegistry'
 import { DefaultAgentInstanceManager } from './AgentInstanceManager'
 import { DefaultAgentRuntime } from './AgentRuntime'
@@ -36,7 +36,7 @@ async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCa
   const templates = new DefaultAgentTemplateRegistry([extra?.template ?? cls])
   const instances = new DefaultAgentInstanceManager(templates)
   const contextManager = new DefaultContextManager()
-  const sent: BusSendInput[] = []
+  const sent: AgentBusMessage[] = []
   const bus = new DefaultMessageBus({ forward: async (msg) => void sent.push(msg) })
 
   const instance = await instances.instantiate({

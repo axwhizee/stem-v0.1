@@ -24,7 +24,7 @@
 │ Layer 1  Model Gateway (core/gateway/)  ← 纯 TS（opencode 隔离）       │
 │   ModelGateway · providers/(opencodeLlm / fetch) · FakeGateway         │
 └──────────────────────────────────────────────────────────────────────┘
-  横切  Telemetry（规划中，未实现）
+  横切  Logging (core/logging/) —— 各模块日志经 MessageBus → 记录器（内存留档 + 查询）
 ```
 
 依赖方向（单向）：`shell → kernel → context/tools/bus → gateway`。core 目录零平台依赖（禁止 `import 'vscode'` 与平台全局）。
@@ -72,11 +72,11 @@
 
 ## 三、模块职责与内部实现
 
-### 3.1 MessageBus（`core/bus/MessageBus.ts`）
+### 3.1 MessageBus（`core/bus/MessageBus.ts`，通信接口抽象）
 
 - 参与者注册/注销/查询（`user0` + 所有 agent，实例化时自动注册）。
-- `send(msg)`：只负责**转发**到邮局，不保存消息。
-- 保留理由：未来可能承载广播/审计等；当前为薄层。
+- `send(msg)` 按消息 kind **路由**：agent 消息（`user_prompt/agent_message/result/system`）→ `forward`（邮局 deposit）；`log` 消息 → `onLog`（日志记录器）。
+- 承担 Agent IPC 与日志通道两类职责（日志见 §三.8）。
 
 ### 3.2 ContextManager + Mailbox（`core/context/`，context 模块子模块化）
 
@@ -138,6 +138,18 @@ interface ContextManager {
 - 保持既有：`ModelGateway` 接口、`providers/opencodeLlm`（单点）、`FakeGateway`。
 - 并行工具调用：协议层 `tool_calls` 数组原生支持；工具轮并行执行，结果按 index 回填。
 
+### 3.9 Logging 横切（`core/logging/`）
+
+- **消息总线即通信接口抽象**：各模块经注入的 `LogSink` 发日志 → 组合根接到 `bus.send({kind:'log'})` → MessageBus 路由到 `Logger`（订阅者）。
+- `LogEvent` 判别联合（对齐 docs §4.1 + 补充点）：
+  - `tool.invoked`：工具调用（called/success/error + durationMs + 结果/错误）——ToolCapabilityRegistry 记录。
+  - `gateway.apiRequest`：模型调用（model/provider/tokens/latencyMs/cost）——AgentRuntime 每轮记录。
+  - `context.assembled`：上下文构成 + **成分就绪时间**（letters/history/tools 时间戳）+ **完整上下文留档**——ContextManager 记录。
+  - `mailbox.countdown` / `mailbox.delivered`：倒计时触发/重置/发送状态——Mailbox 记录。
+  - `kernel.*`：class.registered / instance.created / status.changed / instance.terminated / message.sent——Kernel 记录。
+- `InMemoryLogger`：留档 + `query({agentId, type})` 过滤（后续持久化 + `telemetry_read` 工具）。
+- 低层模块（context/tools/runtime）**不依赖 bus**：通过注入的 `LogSink` 发日志，组合根装配。
+
 ## 四、messages 经典模式的定制化（第一步）
 
 1. **自动返回**：任何 agent 最终纯文本回复自动寄信给创建者。
@@ -175,4 +187,5 @@ interface ContextManager {
 | 系统工具 | 阶段 3.1 | 提前：agent_class_create/list（admin）已实现 |
 | 上下文 | ContextProfile + 渲染器 | 邮局累积成分 + 组装策略经典组装 |
 | 工具记录 | 无 | onRecord 自动记录 tool_call 到邮局 |
-| 日志 | 规划 Telemetry | 提交 2 落地（core/logging/） |
+| MessageBus | 只转发 agent 消息 | 通信接口抽象：agent 消息 → 邮局；log → 日志记录器 |
+| 日志 | 规划 Telemetry（未实现） | core/logging/ 落地：各模块 LogEvent 经总线路由到 InMemoryLogger |

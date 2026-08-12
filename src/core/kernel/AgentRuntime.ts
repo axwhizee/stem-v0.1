@@ -12,12 +12,13 @@
 
 import type { ModelGateway } from '../gateway'
 import type { ChatMessage, LLMEvent, LLMRequest, ModelRef, ToolCallEvent, UsageEvent } from '../gateway'
+import type { LogSink } from '../logging'
 import type { MessageBus } from '../bus'
 import type { AgentDelivery, ContextManager } from '../context'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import type { AgentTemplateRegistry } from './AgentTemplateRegistry'
 import type { AgentInstanceManager } from './AgentInstanceManager'
-import type { AgentClass, AgentID } from './types'
+import type { AgentClass, AgentID, AgentStatus } from './types'
 import { makeAgentID } from './types'
 
 export interface AgentRuntimeDeps {
@@ -35,6 +36,8 @@ export interface AgentRuntimeDeps {
   readonly estimateCost?: (usage: UsageEvent | undefined) => number
   /** 流式事件全局透传（shell 面板显示用）。 */
   readonly onEvent?: (agentId: AgentID, event: LLMEvent) => void
+  /** 日志出口（组合根注入 → bus → core/logging）。 */
+  readonly onLog?: LogSink
 }
 
 export interface AgentRuntime {
@@ -59,7 +62,7 @@ export class DefaultAgentRuntime implements AgentRuntime {
     const template = await this.deps.templates.get(instance.classRef)
     const model = template.model ?? this.deps.defaultModel
 
-    await instances.updateStatus(instance.id, 'thinking')
+    await this.setStatus(instance, 'thinking')
 
     const allText: string[] = []
     const allReasoning: string[] = []
@@ -77,8 +80,9 @@ export class DefaultAgentRuntime implements AgentRuntime {
       let roundFinish: 'stop' | 'tool_calls' | 'length' = 'stop'
 
       // 请求已发 → thinking。
-      await instances.updateStatus(instance.id, 'thinking')
+      await this.setStatus(instance, 'thinking')
       const request: LLMRequest = { model, system: delivery.system, messages: session, tools }
+      const roundStart = Date.now()
       for await (const event of this.deps.gateway.chat(request)) {
         switch (event.type) {
           case 'text-delta':
@@ -106,8 +110,23 @@ export class DefaultAgentRuntime implements AgentRuntime {
       usage = mergeUsage(usage, roundUsage)
       finishReason = roundFinish
 
+      // 记录模型调用（token 消耗 / 延迟 / 成本）。
+      this.deps.onLog?.log({
+        type: 'gateway.apiRequest',
+        at: Date.now(),
+        agentId: instance.id,
+        model: model.id,
+        provider: model.provider,
+        promptTokens: roundUsage?.inputTokens,
+        completionTokens: roundUsage?.outputTokens,
+        cacheReadTokens: roundUsage?.cacheReadTokens,
+        cacheWriteTokens: roundUsage?.cacheWriteTokens,
+        latencyMs: Date.now() - roundStart,
+        cost: this.estimateCost(roundUsage),
+      })
+
       // LLM 已返回（assistant 或 tool_call）→ holding，等待下一次送信/续轮。
-      await instances.updateStatus(instance.id, 'holding')
+      await this.setStatus(instance, 'holding')
 
       const assistantMessage: ChatMessage = {
         role: 'assistant',
@@ -162,7 +181,16 @@ export class DefaultAgentRuntime implements AgentRuntime {
   }
 
   async notifyHold(agentId: AgentID): Promise<void> {
-    await this.deps.instances.updateStatus(agentId, 'holding')
+    const instance = await this.deps.instances.get(agentId)
+    await this.setStatus(instance, 'holding')
+  }
+
+  /** 状态变化（thinking/holding）→ 实例状态更新 + 日志。 */
+  private async setStatus(instance: { readonly id: AgentID; status: AgentStatus }, to: AgentStatus): Promise<void> {
+    if (instance.status === to) return
+    const from = instance.status
+    await this.deps.instances.updateStatus(instance.id, to)
+    this.deps.onLog?.log({ type: 'kernel.status.changed', at: Date.now(), agentId: instance.id, from, to })
   }
 
   /** 物化本轮 LLM 工具集：注册表按模板权限物化 ∩ 模板工具白名单。 */

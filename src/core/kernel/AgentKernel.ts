@@ -17,6 +17,9 @@ import { DefaultMessageBus } from '../bus'
 import type { MessageBus } from '../bus'
 import type { ContextAssembler, ContextManager, MailDelivery, UserDelivery } from '../context'
 import { DefaultContextManager } from '../context'
+import type { Logger } from '../logging'
+import { InMemoryLogger } from '../logging'
+import type { LogEvent } from '../logging'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import simpleChatTemplate from '../../../templates/SimpleChat.json'
 import coderTemplate from '../../../templates/Coder.json'
@@ -59,6 +62,8 @@ export interface AgentKernelOptions {
   readonly onEvent?: (agentId: AgentID, event: LLMEvent) => void
   /** 用户面板收信回调（user0 信箱送信时调用）。 */
   readonly onUserDelivery?: (delivery: UserDelivery) => void
+  /** 日志记录器（缺省内存版；组合根把各模块日志经 bus 路由到这里）。 */
+  readonly logger?: Logger
 }
 
 export class AgentKernel {
@@ -69,6 +74,8 @@ export class AgentKernel {
   readonly contextManager: ContextManager
   readonly runtime: AgentRuntime
   readonly tools?: ToolCapabilityRegistry
+  /** 日志记录器（MessageBus log 路由的订阅者）。 */
+  readonly logger: Logger
   private readonly userDeliveryHandler?: (delivery: UserDelivery) => void
 
   constructor(options: AgentKernelOptions) {
@@ -77,16 +84,29 @@ export class AgentKernel {
     this.instances = new DefaultAgentInstanceManager(this.templates)
     this.spaces = new DefaultAgentSpaceManager()
     this.tools = options.tools
+    this.logger = options.logger ?? new InMemoryLogger()
 
     this.contextManager = new DefaultContextManager({
       contextAssembler: options.contextAssembler,
       defaultCountdownMs: options.defaultCountdownMs,
       timer: options.timer,
+      onLog: (event) => this.emitLog(event),
     })
 
-    // 总线转发到邮局（送信员），携带发送者 id（供 context_wait 分流）。
+    // 总线路由：agent 消息 → 邮局（携带发送者 id，供 context_wait 分流）；log → 日志记录器。
     this.bus = new DefaultMessageBus({
-      forward: (msg) => this.contextManager.deposit(msg.to, { role: 'user', content: msg.payload }, msg.from),
+      forward: (msg) => {
+        this.emitLog({
+          type: 'kernel.message.sent',
+          at: msg.at,
+          from: msg.from,
+          to: msg.to,
+          kind: msg.kind,
+          payloadSize: msg.payload.length,
+        })
+        return this.contextManager.deposit(msg.to, { role: 'user', content: msg.payload }, msg.from)
+      },
+      onLog: (event) => this.logger.log(event),
     })
 
     this.runtime = new DefaultAgentRuntime({
@@ -100,6 +120,7 @@ export class AgentKernel {
       maxSteps: options.maxSteps,
       estimateCost: options.estimateCost,
       onEvent: options.onEvent,
+      onLog: { log: (event) => this.emitLog(event) },
     })
 
     // 工具自动记录 → 邮局（触发/成功/失败），不依赖 runtime 手动发送。
@@ -126,6 +147,8 @@ export class AgentKernel {
         })
       }
     })
+    // 工具调用日志 → bus。
+    this.tools?.setLogSink?.({ log: (event) => this.emitLog(event) })
   }
 
   /** 注册用户面板（user0）到总线 + 邮局（不组装，只汇总信件）。 */
@@ -154,6 +177,13 @@ export class AgentKernel {
   /** 实例化（指定空间，供系统工具 agent_instantiate 使用）。 */
   async instantiateInSpace(opts: Omit<InstantiateOptions, 'spaceId'>, spaceId: AgentSpaceID | string): Promise<AgentID> {
     const instance = await this.instances.instantiate({ ...opts, spaceId: spaceId as AgentSpaceID })
+    this.emitLog({
+      type: 'kernel.instance.created',
+      at: Date.now(),
+      agentId: instance.id,
+      classId: instance.classRef,
+      creatorId: instance.creatorId,
+    })
 
     await this.bus.register({ id: instance.id, kind: 'agent', displayName: instance.displayName })
 
@@ -184,6 +214,7 @@ export class AgentKernel {
     await this.contextManager.unregister(agentId)
     await this.bus.unregister(agentId)
     await this.instances.terminate(makeAgentID(agentId))
+    this.emitLog({ type: 'kernel.instance.terminated', at: Date.now(), agentId })
   }
 
   /** Scheduler 最小直通：空间内已存在该模板实例则复用，否则创建。 */
@@ -217,5 +248,16 @@ export class AgentKernel {
     if (delivery.kind === 'agent') {
       void this.runtime.processDelivery(delivery)
     }
+  }
+
+  /** 注册新 agent 类（供系统工具 agent_class_create 使用，含日志）。 */
+  async registerAgentClass(cls: AgentClass): Promise<void> {
+    await this.templates.register(cls)
+    this.emitLog({ type: 'kernel.class.registered', at: Date.now(), classId: cls.id })
+  }
+
+  /** 发送日志事件（经消息总线 → 日志记录器）。 */
+  private emitLog(event: LogEvent): void {
+    void this.bus.send({ kind: 'log', event, at: Date.now() })
   }
 }

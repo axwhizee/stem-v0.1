@@ -1,10 +1,14 @@
 // ============================================================
-// core/bus/MessageBus.ts —— 送信员（薄层）
+// core/bus/MessageBus.ts —— 通信接口抽象（送信员）
 //
-// 总线不保存任何消息：send 直接把信件转发给"邮局"（ContextManager）。
-// 职责：参与者注册/注销/查询（user0 + 所有 agent）+ 消息转发。
-// 保留理由：未来广播/审计/多 user 等扩展点。
+// 总线不保存任何消息，按消息 kind 路由：
+//   - agent 消息（user_prompt/agent_message/result/system）→ forward（邮局）
+//   - log 消息 → onLog（日志订阅者，core/logging）
+//
+// 职责：参与者注册/注销/查询（user0 + 所有 agent）+ 消息路由。
 // ============================================================
+
+import type { LogEvent } from '../logging'
 
 export type ParticipantKind = 'user' | 'agent'
 
@@ -15,33 +19,45 @@ export interface BusParticipant {
   readonly displayName: string
 }
 
-export type BusMessageKind = 'user_prompt' | 'agent_message' | 'result' | 'system'
+export type BusMessageKind = 'user_prompt' | 'agent_message' | 'result' | 'system' | 'log'
 
-export interface BusMessage {
+/** agent 通信消息（单目标；一对多通过并行调用多次实现）。 */
+export interface AgentBusMessage {
   readonly id: string
-  readonly kind: BusMessageKind
+  readonly kind: 'user_prompt' | 'agent_message' | 'result' | 'system'
   readonly from: string
-  /** 单目标；一对多通过并行调用多次实现。 */
   readonly to: string
   readonly payload: string
   readonly at: number
 }
 
+/** 日志消息（路由到日志订阅者）。 */
+export interface LogBusMessage {
+  readonly id: string
+  readonly kind: 'log'
+  readonly event: LogEvent
+  readonly at: number
+}
+
+export type BusMessage = AgentBusMessage | LogBusMessage
+
 /** send 入参：id 由总线自动生成。 */
-export type BusSendInput = Omit<BusMessage, 'id'>
+export type BusSendInput = Omit<AgentBusMessage, 'id'> | Omit<LogBusMessage, 'id'>
 
 export interface MessageBus {
   readonly register: (participant: BusParticipant) => Promise<void>
   readonly unregister: (id: string) => Promise<void>
   readonly has: (id: string) => boolean
   readonly listParticipants: () => BusParticipant[]
-  /** 发送（转发给邮局），id 自动生成。 */
+  /** 发送（按 kind 路由：agent 消息 → forward；log → onLog），id 自动生成。 */
   readonly send: (message: BusSendInput) => Promise<void>
 }
 
 export interface MessageBusOptions {
-  /** 收到消息后的转发目标（组合根注入 = 邮局 deposit）。 */
-  readonly forward: (message: BusMessage) => Promise<void> | void
+  /** 收到 agent 消息后的转发目标（组合根注入 = 邮局 deposit）。 */
+  readonly forward: (message: AgentBusMessage) => Promise<void> | void
+  /** 收到 log 消息后的路由目标（组合根注入 = 日志记录器）。 */
+  readonly onLog?: (event: LogEvent) => void
 }
 
 export class DefaultMessageBus implements MessageBus {
@@ -70,7 +86,12 @@ export class DefaultMessageBus implements MessageBus {
   }
 
   async send(message: BusSendInput): Promise<void> {
-    await this.options.forward({ ...message, id: this.nextId() })
+    const msg = { ...message, id: this.nextId() } as BusMessage
+    if (msg.kind === 'log') {
+      this.options.onLog?.(msg.event)
+    } else {
+      await this.options.forward(msg)
+    }
   }
 
   /** 生成消息 id（邮局/上层用）。 */

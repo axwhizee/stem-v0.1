@@ -311,3 +311,35 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 
 - logging 模块（提交 2）：各模块日志经 MessageBus 路由到日志订阅者。
 - `agent_class_update/remove`、模板持久化。
+
+---
+
+## 阶段：Logging 横切模块（core/logging/，消息总线作为通信接口抽象）
+
+**日期**：2026-08-12
+
+### 目标
+
+为所有模块添加日志接口，经消息总线发送到专门的日志模块——MessageBus 从"送信员"升级为**通信接口抽象**（agent 消息 → 邮局；log → 日志记录器）。
+
+### 完成内容
+
+1. **core/logging/**：`events.ts`（LogEvent 判别联合）、`Logger.ts`（InMemoryLogger：留档 + query 过滤 + clear）。
+2. **MessageBus**：`BusMessage` 判别联合（AgentBusMessage / LogBusMessage），按 kind 路由；`onLog` 订阅者。
+3. **各模块接入**（低层模块经注入 `LogSink`，组合根装配到 bus）：
+   - **tools**：`tool.invoked`（called/success/error + durationMs + 结果/错误）。
+   - **context/Mailbox**：`mailbox.countdown`（start/reset/fire/hold）+ `mailbox.delivered`（发送状态）。
+   - **context/ContextManager**：`context.assembled`（上下文构成 + 成分就绪时间戳 + 完整上下文留档）。
+   - **runtime**：`gateway.apiRequest`（model/provider/tokens/latency/cost）+ `kernel.status.changed`。
+   - **kernel**：`kernel.instance.created/terminated`、`kernel.class.registered`（经 `registerAgentClass`）、`kernel.message.sent`（bus forward 时）。
+4. 测试 50/50（新增 logging 全链路集成测试：路由 + 各事件 + query 过滤 + 上下文留档 + 工具日志）。
+
+### 设计要点
+
+- 依赖方向：低层模块（context/tools/runtime）**不依赖 bus**，只依赖 `LogSink` 接口；组合根（AgentKernel）装配到 bus log 路由 → logger。
+- `getState` 之前的 `coolingDown` 状态与日志联动。
+
+### 后续（未执行）
+
+- 持久化（SQLite/文件）+ `telemetry_read` 系统工具。
+- `agent_class_update/remove`、模板持久化。

@@ -14,6 +14,7 @@
 // ============================================================
 
 import type { ChatMessage, ToolDefinition } from '../gateway'
+import type { LogEvent } from '../logging'
 import type { AgentDelivery, MailDelivery, UserDelivery } from './types'
 
 export interface TimerHandle {
@@ -60,6 +61,8 @@ export interface MailboxState {
 export interface MailboxOptions {
   readonly defaultCountdownMs?: number
   readonly timer?: TimerFactory
+  /** 日志出口（组合根注入 → bus → core/logging）。 */
+  readonly onLog?: (event: LogEvent) => void
 }
 
 export interface Mailbox {
@@ -87,10 +90,12 @@ export class DefaultMailbox implements Mailbox {
   private readonly boxes = new Map<string, InternalBox>()
   private readonly defaultCountdownMs: number
   private readonly timer: TimerFactory
+  private readonly onLog?: (event: LogEvent) => void
 
   constructor(options: MailboxOptions = {}) {
     this.defaultCountdownMs = options.defaultCountdownMs ?? 1000
     this.timer = options.timer ?? defaultTimer
+    this.onLog = options.onLog
   }
 
   async register(registration: MailboxRegistration): Promise<void> {
@@ -121,6 +126,7 @@ export class DefaultMailbox implements Mailbox {
     box.ready = content
     if (box.coolingDown) {
       // 倒计时中 → 重置（合并窗口滑动，发送最新内容）。
+      this.emit({ type: 'mailbox.countdown', at: Date.now(), agentId, action: 'reset' })
       box.timer?.cancel()
       box.timer = this.timer(() => this.onCountdown(box), box.sendCountdownMs)
       return
@@ -155,11 +161,19 @@ export class DefaultMailbox implements Mailbox {
             tools: content.tools,
           }
         : { kind: 'user', agentId: box.agentId, letters: content.letters }
+    this.emit({
+      type: 'mailbox.delivered',
+      at: Date.now(),
+      agentId: box.agentId,
+      kind: delivery.kind,
+      messageCount: content.kind === 'context' ? content.messages.length : content.letters.length,
+    })
     box.onDelivery(delivery)
     this.startCountdown(box)
   }
 
   private startCountdown(box: InternalBox): void {
+    this.emit({ type: 'mailbox.countdown', at: Date.now(), agentId: box.agentId, action: 'start' })
     box.coolingDown = true
     box.timer?.cancel()
     box.timer = this.timer(() => this.onCountdown(box), box.sendCountdownMs)
@@ -170,10 +184,16 @@ export class DefaultMailbox implements Mailbox {
     box.coolingDown = false
     // 送信条件：倒计时就绪 & 有待发送内容（上下文就绪）。
     if (box.ready !== undefined) {
+      this.emit({ type: 'mailbox.countdown', at: Date.now(), agentId: box.agentId, action: 'fire' })
       this.deliver(box)
     } else {
+      this.emit({ type: 'mailbox.countdown', at: Date.now(), agentId: box.agentId, action: 'hold' })
       box.onHold?.(box.agentId)
     }
+  }
+
+  private emit(event: LogEvent): void {
+    this.onLog?.(event)
   }
 
   private require(agentId: string): InternalBox {

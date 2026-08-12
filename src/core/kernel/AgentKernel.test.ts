@@ -251,4 +251,53 @@ describe('AgentKernel 邮局模式', () => {
       (e: { kind?: string }) => e.kind === 'permission_denied',
     )
   })
+
+  test('logging：全链路日志经消息总线路由到记录器', async () => {
+    const gateway = new FakeGateway(() => textEvents('ok'))
+    const { kernel, tools, timers, deliveries } = await createKernelHarness(gateway)
+    await kernel.registerSystemTools(tools)
+
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    await deliveries.next() // 首信回复
+    await kernel.sendUserMessage(agentId, 'hi')
+    timers.flushAll()
+    await deliveries.next()
+
+    const logs = kernel.logger.all()
+    const has = (type: string) => logs.some((e) => e.type === type)
+    assert.ok(has('kernel.instance.created'), '实例创建')
+    assert.ok(has('kernel.status.changed'), '状态变化')
+    assert.ok(has('kernel.message.sent'), '总线消息')
+    assert.ok(has('gateway.apiRequest'), '模型调用 + token')
+    assert.ok(has('context.assembled'), '上下文拼装留档')
+    assert.ok(has('mailbox.countdown'), '倒计时状态')
+    assert.ok(has('mailbox.delivered'), '发送状态')
+
+    // 按 agentId 过滤查询
+    const agentLogs = kernel.logger.query({ agentId })
+    assert.ok(agentLogs.length > 0)
+    assert.ok(agentLogs.every((e) => e.type !== 'kernel.class.registered'))
+
+    // 上下文留档包含 messages 快照
+    const assembled = kernel.logger.query({ type: 'context.assembled' })[0] as { messages: readonly unknown[] }
+    assert.ok(Array.isArray(assembled.messages))
+
+    // 工具调用日志（tool.invoked：called/success/error）
+    await tools.register({
+      id: 'oc_echo',
+      description: 'echo',
+      permission: 'normal',
+      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+      execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
+    })
+    const normalCtx = { agentId, spaceId: 'space-1', agentPermission: 'normal' as const }
+    await tools.execute({ id: 'call_5', name: 'oc_echo', input: { text: 'hi' } }, normalCtx)
+    const toolLogs = kernel.logger.query({ type: 'tool.invoked' })
+    assert.ok(toolLogs.some((e) => (e as { phase?: string }).phase === 'called'))
+    assert.ok(
+      toolLogs.some(
+        (e) => (e as { phase?: string; resultText?: string }).phase === 'success' && (e as { resultText?: string }).resultText === 'Echo: hi',
+      ),
+    )
+  })
 })
