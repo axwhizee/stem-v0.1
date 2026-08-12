@@ -136,6 +136,21 @@ interface ContextManager {
 
 > 系统工具默认权限名 = 工具 id；示例模板（creator 等）在 `permissions` 中显式 `allow` 所需内部工具，避免弹窗打扰。
 
+### 3.8 host 外部工具（`shell/tools/`，kind=external）
+
+- 与 core 解耦的真实文件系统工具，经 registry 注册接口接入（未来 MCP / VSCode 工具同样经该接口）。
+- 参考 opencode 实现：
+
+| 工具 | 权限名 | 作用 |
+|---|---|---|
+| `read` | read | 读取文本文件（offset/limit 分页，1-based）+ 目录列出；二进制检测 |
+| `write` | edit | 全量写入（父目录自动创建，不支持 append） |
+| `edit` | edit | oldString/newString 精确替换（0/多次匹配校验） |
+| `grep` | grep | 正则递归搜索（排除 .git/node_modules），file:line:text |
+| `glob` | glob | glob 模式匹配文件（**/*/?/{a,b}） |
+
+- shell 装配时 `createHostTools(process.cwd())` 注册；`coder` 模板已启用这些工具。
+
 ### 3.8 Gateway（`core/gateway/`）
 
 - 保持既有：`ModelGateway` 接口、`providers/opencodeLlm`（单点）、`FakeGateway`。

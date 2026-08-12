@@ -40,6 +40,7 @@ import type { PermissionReply, PermissionReplyInput } from '../src/core/permissi
 import type { PanelMessage } from '../src/core/panel'
 import { startMockSse, defaultScript, type MockResponse } from '../test-support/mockSse'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
+import { createHostTools } from './tools'
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
 const DEFAULT_PROJECT = '/workspace/stem-demo'
@@ -165,6 +166,10 @@ async function createShell(): Promise<ShellState> {
   await tools.register(ocEcho)
   await tools.register(ocGetTime)
   await tools.register(ocReadFile)
+  // host 外部工具（kind=external）：read/write/edit/grep/glob，操作真实文件系统。
+  for (const tool of createHostTools(process.cwd())) {
+    await tools.register(tool)
+  }
 
   const dialogs = new QueueDialog()
   const display = { streamedAny: false }

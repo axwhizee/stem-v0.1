@@ -380,3 +380,34 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 
 - host 工具（read/write/edit/grep/glob，shell/tools/，提交 2）。
 - 权限规则持久化（per-project）+ `telemetry_read`。
+
+---
+
+## 阶段：host 外部工具（read/write/edit/grep/glob，kind=external）
+
+**日期**：2026-08-12
+
+### 目标
+
+实现第一批外部注册工具（相较 core 的外部模块 `shell/tools/`），参考 opencode 实现；工具为固有属性 kind=external，经 registry 注册接口接入，权限名 read/edit/edit/grep/glob。
+
+### 完成内容
+
+- `shell/tools/fs-util.ts`：路径解析（相对工作区）、二进制检测（NUL）、递归遍历（排除 .git/node_modules）、glob→正则。
+- `read`（权限 read）：文本读取 + offset/limit 分页（1-based）+ 目录列出 + 二进制拒绝 + 50KB 截断。
+- `write`（权限 edit）：全量写入，父目录自动创建，不支持 append。
+- `edit`（权限 edit）：oldString/newString 精确替换（非 diff），0 次/多次（需 replaceAll）校验。
+- `grep`（权限 grep）：正则递归搜索，include glob 过滤，file:line:text。
+- `glob`（权限 glob）：glob 模式匹配（**/*/?/{a,b}）。
+- shell 装配 `createHostTools(process.cwd())` 注册；`coder` 模板启用这些工具。
+- `package.json` test 脚本扩展覆盖 `shell/**/*.test.ts`。
+
+### 验证
+
+- 69/69 测试通过（新增 host 工具单测：read 分页/目录、write 自动建目录、edit 精确替换与校验、grep 递归、glob 匹配）。
+- mock 模式 `/tools` 列出 5 个 external 工具及权限名。
+
+### 后续（未执行）
+
+- MCP 工具适配器（复用 ToolCapability 注册接口 + 统一权限确认）。
+- external_directory 资源级审批（当前简化掉，所有路径统一走工具权限确认）。

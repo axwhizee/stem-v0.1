@@ -10,7 +10,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit",
-    "test": "tsx --test \"src/**/*.test.ts\"",
+    "test": "tsx --test \"src/**/*.test.ts\" \"shell/**/*.test.ts\"",
     "smoke": "tsx prototype/smoke.ts",
     "shell": "tsx shell/main.ts"
   },
