@@ -119,6 +119,25 @@ export interface AgentMessageSent {
   readonly payloadSize: number
 }
 
+/** 权限请求记录（评估动作 + 是否挂起确认）。 */
+export interface PermissionAsked {
+  readonly type: 'permission.asked'
+  readonly at: number
+  readonly agentId: string
+  readonly permission: string
+  readonly action: 'allow' | 'deny' | 'ask'
+}
+
+/** 权限回复记录。 */
+export interface PermissionReplied {
+  readonly type: 'permission.replied'
+  readonly at: number
+  readonly agentId: string
+  readonly permission: string
+  readonly requestId: string
+  readonly reply: 'once' | 'always' | 'reject'
+}
+
 export type LogEvent =
   | ToolInvoked
   | ApiRequestRecorded
@@ -130,3 +149,5 @@ export type LogEvent =
   | AgentStatusChanged
   | AgentTerminated
   | AgentMessageSent
+  | PermissionAsked
+  | PermissionReplied

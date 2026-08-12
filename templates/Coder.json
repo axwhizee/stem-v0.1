@@ -4,6 +4,6 @@
   "description": "编程助手：代码编写与解释（示例模板）",
   "systemPrompt": "You are an expert coding assistant. When writing code, keep it readable and follow the existing project conventions.",
   "tools": [],
-  "permission": "normal",
+  "permissions": {},
   "memoryScope": []
 }

@@ -7,8 +7,9 @@
 // ============================================================
 
 import type { ToolCapability } from '../tools'
+import type { PermissionAction } from '../permission'
 import type { AgentKernel } from './AgentKernel'
-import type { AgentClass, PermissionLevel } from './types'
+import type { AgentClass } from './types'
 import { makeAgentClassID } from './types'
 
 /** 生成系统工具清单（由 AgentKernel.registerSystemTools 装配）。 */
@@ -30,8 +31,9 @@ function agentClassCreate(kernel: AgentKernel): ToolCapability {
   return {
     id: 'agent_class_create',
     description:
-      '创建新的 agent 类（模板）。类定义角色设定（systemPrompt/权限/工具白名单/模型/送信倒计时），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。创建后可用 agent_class_list 查看，用 agent_instantiate(classId) 实例化。',
-    permission: 'admin',
+      '创建新的 agent 类（模板）。类定义角色设定（systemPrompt/权限列表/工具白名单/模型/送信倒计时），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。permissions 为工具权限名到 allow/deny/ask 的映射，未列出的工具默认 ask（交用户确认）。',
+    permission: 'agent_class_create',
+    kind: 'internal',
     category: 'system',
     parameters: {
       type: 'object',
@@ -40,12 +42,8 @@ function agentClassCreate(kernel: AgentKernel): ToolCapability {
         name: { type: 'string', description: '类名，如 "Coder"' },
         description: { type: 'string', description: '类用途描述' },
         systemPrompt: { type: 'string', description: '该类的专属系统提示词' },
-        permission: {
-          type: 'string',
-          enum: ['normal', 'advanced', 'admin'],
-          description: '权限等级（缺省 normal）',
-        },
-        tools: { type: 'array', items: { type: 'string' }, description: '工具 id 白名单（缺省=模板权限内的全部工具）' },
+        permissions: { type: 'object', description: '权限列表：工具权限名 → allow/deny/ask（未列出的默认 ask）' },
+        tools: { type: 'array', items: { type: 'string' }, description: '工具 id 白名单（缺省=权限允许的全部工具）' },
         model: { type: 'string', description: '模型 id（可选，缺省用系统默认模型）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒（可选，缺省 1000）' },
       },
@@ -57,7 +55,7 @@ function agentClassCreate(kernel: AgentKernel): ToolCapability {
         name: string
         description: string
         systemPrompt: string
-        permission?: PermissionLevel
+        permissions?: Readonly<Record<string, PermissionAction>>
         tools?: string[]
         model?: string
         sendCountdown?: number
@@ -67,14 +65,14 @@ function agentClassCreate(kernel: AgentKernel): ToolCapability {
         name: args.name,
         description: args.description,
         systemPrompt: args.systemPrompt,
-        permission: args.permission ?? 'normal',
+        permissions: args.permissions ?? {},
         tools: (args.tools ?? []).map((id) => ({ id })),
         memoryScope: [],
         model: args.model ? { provider: 'opencode', id: args.model } : undefined,
         sendCountdown: args.sendCountdown,
       }
       await kernel.registerAgentClass(cls)
-      return { text: `已创建 agent 类 ${args.id}（${args.name}，permission=${cls.permission}）` }
+      return { text: `已创建 agent 类 ${args.id}（${args.name}，permissions=${Object.keys(cls.permissions).length} 条规则）` }
     },
   }
 }
@@ -84,13 +82,17 @@ function agentClassList(kernel: AgentKernel): ToolCapability {
   return {
     id: 'agent_class_list',
     description: '列出全部 agent 类（模板）及关键属性。',
-    permission: 'admin',
+    permission: 'agent_class_list',
+    kind: 'internal',
     category: 'system',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
       const classes = await kernel.templates.list()
       const lines = classes.map(
-        (c) => `${c.id}  ${c.name}  [${c.permission}]  tools=${c.tools.length > 0 ? c.tools.map((t) => t.id).join(',') : '-'}${c.model ? `  model=${c.model.id}` : ''}`,
+        (c) =>
+          `${c.id}  ${c.name}  tools=${c.tools.length > 0 ? c.tools.map((t) => t.id).join(',') : '-'}  perms=${Object.entries(c.permissions)
+            .map(([t, a]) => `${t}:${a}`)
+            .join(',') || '-'}${c.model ? `  model=${c.model.id}` : ''}`,
       )
       return { text: lines.length > 0 ? `agent 类列表:\n${lines.join('\n')}` : '（暂无 agent 类）' }
     },
@@ -103,7 +105,8 @@ function agentInstantiate(kernel: AgentKernel): ToolCapability {
     id: 'agent_instantiate',
     description:
       '创建新的 agent 实例。必填 classId 与 userPrompt（作为该 agent 的首条 user 消息）；creatorId 缺省为调用者自身。创建后 agent 自动注册到总线与邮局，返回其 agent id。若需等待该 agent 的返回结果，请在收到 id 后调用 context_wait(agentId)。',
-    permission: 'advanced',
+    permission: 'agent_instantiate',
+    kind: 'internal',
     category: 'system',
     parameters: {
       type: 'object',
@@ -138,7 +141,8 @@ function agentList(kernel: AgentKernel): ToolCapability {
   return {
     id: 'agent_list',
     description: '列出 agent 实例（可选指定空间，缺省为调用者所在空间）。',
-    permission: 'advanced',
+    permission: 'agent_list',
+    kind: 'internal',
     category: 'system',
     parameters: {
       type: 'object',
@@ -158,7 +162,8 @@ function agentTerminate(kernel: AgentKernel): ToolCapability {
   return {
     id: 'agent_terminate',
     description: '终止一个 agent 实例（注销总线与邮局）。',
-    permission: 'advanced',
+    permission: 'agent_terminate',
+    kind: 'internal',
     category: 'system',
     parameters: {
       type: 'object',
@@ -178,7 +183,8 @@ function busSend(kernel: AgentKernel): ToolCapability {
   return {
     id: 'bus_send',
     description: '通过总线向指定参与者发送消息（单目标，一对多请并行调用多次）。消息自动添加发送者戳。',
-    permission: 'normal',
+    permission: 'bus_send',
+    kind: 'internal',
     category: 'system',
     parameters: {
       type: 'object',
@@ -202,7 +208,8 @@ function busParticipants(kernel: AgentKernel): ToolCapability {
   return {
     id: 'bus_participants',
     description: '列出当前总线注册的参与者 id 列表。',
-    permission: 'normal',
+    permission: 'bus_participants',
+    kind: 'internal',
     category: 'system',
     parameters: { type: 'object', properties: {} },
     execute: () => {
@@ -223,7 +230,8 @@ function contextWait(kernel: AgentKernel): ToolCapability {
     id: 'context_wait',
     description:
       '等待指定 agent 的回复。配合 agent_instantiate 使用：创建子 agent 后调用 context_wait(agentId)（agentId 为 agent_instantiate 返回的 id），该 agent 的 assistant_message 将作为本工具的 tool 结果进入你的上下文，而不是作为普通来信。',
-    permission: 'normal',
+    permission: 'context_wait',
+    kind: 'internal',
     category: 'context',
     parameters: {
       type: 'object',

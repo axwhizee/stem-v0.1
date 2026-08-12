@@ -16,7 +16,7 @@ const cls: AgentClass = {
   description: 'worker agent',
   systemPrompt: 'work',
   tools: [],
-  permission: 'normal',
+  permissions: {},
   memoryScope: [],
 }
 

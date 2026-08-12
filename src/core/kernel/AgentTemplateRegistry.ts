@@ -6,18 +6,15 @@
 // 非硬编码角色（code-style §3.2）。
 // ============================================================
 
-import type { AgentClass, AgentClassID, KernelError, PermissionLevel } from './types'
-
-export interface TemplateListFilter {
-  readonly permission?: PermissionLevel
-}
+import type { AgentClass, AgentClassID, KernelError } from './types'
+import type { PermissionAction } from '../permission'
 
 export interface AgentTemplateRegistry {
   readonly register: (cls: AgentClass) => Promise<void>
   readonly update: (id: AgentClassID, patch: Partial<AgentClass>) => Promise<void>
   readonly remove: (id: AgentClassID) => Promise<void>
   readonly get: (id: AgentClassID) => Promise<AgentClass>
-  readonly list: (filter?: TemplateListFilter) => Promise<AgentClass[]>
+  readonly list: () => Promise<AgentClass[]>
   readonly validate: (cls: AgentClass) => Promise<void>
 }
 
@@ -56,10 +53,8 @@ export class DefaultAgentTemplateRegistry implements AgentTemplateRegistry {
     return cls
   }
 
-  async list(filter?: TemplateListFilter): Promise<AgentClass[]> {
-    const all = [...this.templates.values()]
-    if (!filter?.permission) return all
-    return all.filter((cls) => cls.permission === filter.permission)
+  async list(): Promise<AgentClass[]> {
+    return [...this.templates.values()]
   }
 
   async validate(cls: AgentClass): Promise<void> {
@@ -70,12 +65,14 @@ export class DefaultAgentTemplateRegistry implements AgentTemplateRegistry {
     if (!cls.name || typeof cls.name !== 'string') fail('name 不能为空')
     if (!cls.systemPrompt || typeof cls.systemPrompt !== 'string') fail('systemPrompt 不能为空')
     if (!cls.description || typeof cls.description !== 'string') fail('description 不能为空')
-    if (!isPermissionLevel(cls.permission)) fail(`非法权限等级: ${String(cls.permission)}`)
+    for (const [tool, action] of Object.entries(cls.permissions ?? {})) {
+      if (!isPermissionAction(action)) fail(`权限列表 ${tool}=${String(action)} 非法（允许 allow/deny/ask）`)
+    }
   }
 }
 
-function isPermissionLevel(value: unknown): value is PermissionLevel {
-  return value === 'normal' || value === 'advanced' || value === 'admin'
+function isPermissionAction(value: unknown): value is PermissionAction {
+  return value === 'allow' || value === 'deny' || value === 'ask'
 }
 
 function error(e: KernelError): KernelError {

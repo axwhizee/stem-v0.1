@@ -20,6 +20,11 @@ import { DefaultContextManager } from '../context'
 import type { Logger } from '../logging'
 import { InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
+import type { PermissionManager } from '../permission'
+import { DefaultPermissionManager } from '../permission'
+import type { PanelConsumer } from '../panel'
+import { DefaultPanelBus } from '../panel'
+import type { PanelBus } from '../panel'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import simpleChatTemplate from '../../../templates/SimpleChat.json'
 import coderTemplate from '../../../templates/Coder.json'
@@ -64,6 +69,8 @@ export interface AgentKernelOptions {
   readonly onUserDelivery?: (delivery: UserDelivery) => void
   /** 日志记录器（缺省内存版；组合根把各模块日志经 bus 路由到这里）。 */
   readonly logger?: Logger
+  /** 面板消息消费者（shell/GUI 注入；统一消费回信/权限请求等面板消息）。 */
+  readonly onPanelMessage?: PanelConsumer
 }
 
 export class AgentKernel {
@@ -74,6 +81,10 @@ export class AgentKernel {
   readonly contextManager: ContextManager
   readonly runtime: AgentRuntime
   readonly tools?: ToolCapabilityRegistry
+  /** 权限管理器（registry 统一确认；ask 挂起经 PanelBus 交面板）。 */
+  readonly permissions: PermissionManager
+  /** 面板消息总线（core → 面板统一通道）。 */
+  readonly panel: PanelBus
   /** 日志记录器（MessageBus log 路由的订阅者）。 */
   readonly logger: Logger
   private readonly userDeliveryHandler?: (delivery: UserDelivery) => void
@@ -86,6 +97,23 @@ export class AgentKernel {
     this.tools = options.tools
     this.logger = options.logger ?? new InMemoryLogger()
 
+    // 面板消息总线（统一汇总回信/权限请求等面板消息，GUI 可完全复用）。
+    this.panel = new DefaultPanelBus({ consumer: options.onPanelMessage })
+
+    // 权限管理器：ask 挂起 → 面板弹窗；always → session 批准。
+    this.permissions = new DefaultPermissionManager({
+      askPanel: (request) =>
+        this.panel.post({
+          type: 'permission_request',
+          requestId: request.id,
+          permission: request.permission,
+          agentId: request.agentId,
+          metadata: request.metadata,
+          at: request.at,
+        }),
+      onLog: { log: (event) => this.emitLog(event) },
+    })
+
     this.contextManager = new DefaultContextManager({
       contextAssembler: options.contextAssembler,
       defaultCountdownMs: options.defaultCountdownMs,
@@ -93,7 +121,7 @@ export class AgentKernel {
       onLog: (event) => this.emitLog(event),
     })
 
-    // 总线路由：agent 消息 → 邮局（携带发送者 id，供 context_wait 分流）；log → 日志记录器。
+    // 总线路由：agent 消息 → 邮局；log → 日志；permission_reply → 权限管理器。
     this.bus = new DefaultMessageBus({
       forward: (msg) => {
         this.emitLog({
@@ -107,6 +135,7 @@ export class AgentKernel {
         return this.contextManager.deposit(msg.to, { role: 'user', content: msg.payload }, msg.from)
       },
       onLog: (event) => this.logger.log(event),
+      onPermissionReply: (reply) => void this.permissions.reply(reply),
     })
 
     this.runtime = new DefaultAgentRuntime({
@@ -147,8 +176,9 @@ export class AgentKernel {
         })
       }
     })
-    // 工具调用日志 → bus。
+    // 工具调用日志 → bus；权限确认 → PermissionManager。
     this.tools?.setLogSink?.({ log: (event) => this.emitLog(event) })
+    this.tools?.setPermissionSink?.(this.permissions)
   }
 
   /** 注册用户面板（user0）到总线 + 邮局（不组装，只汇总信件）。 */
@@ -158,7 +188,15 @@ export class AgentKernel {
       agentId: USER_ID,
       assemble: false,
       onDelivery: (delivery) => {
-        if (delivery.kind === 'user') this.userDeliveryHandler?.(delivery)
+        if (delivery.kind !== 'user') return
+        this.userDeliveryHandler?.(delivery)
+        // 统一面板消息：回信经 PanelBus 交给面板展示层。
+        this.panel.post({
+          type: 'letter',
+          agentId: delivery.agentId,
+          letters: delivery.letters,
+          at: Date.now(),
+        })
       },
     })
   }

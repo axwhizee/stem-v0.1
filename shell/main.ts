@@ -36,9 +36,10 @@ import {
 } from '../src/core/kernel'
 import { createOpencodeGateway, GatewayError, isGatewayError, type ModelGateway } from '../src/core/gateway'
 import { DefaultToolCapabilityRegistry, type ToolCapability } from '../src/core/tools'
+import type { PermissionReply, PermissionReplyInput } from '../src/core/permission'
+import type { PanelMessage } from '../src/core/panel'
 import { startMockSse, defaultScript, type MockResponse } from '../test-support/mockSse'
-import { userDeliveryQueue } from '../test-support/kernelHarness'
-import type { UserDelivery } from '../src/core/context'
+import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
 const DEFAULT_PROJECT = '/workspace/stem-demo'
@@ -48,7 +49,8 @@ interface ShellState {
   kernel: AgentKernel
   currentAgentId: AgentID
   source: string
-  deliveries: ReturnType<typeof userDeliveryQueue>
+  /** 弹窗模块（权限确认等队列弹窗）。 */
+  dialogs: QueueDialog
   /** 流式输出状态（避免收信重复打印）。 */
   display: { streamedAny: boolean }
 }
@@ -57,7 +59,6 @@ interface ShellState {
 const ocEcho: ToolCapability = {
   id: 'oc_echo',
   description: '回显一段文本（原样返回）。',
-  permission: 'normal',
   category: 'business',
   parameters: {
     type: 'object',
@@ -71,7 +72,6 @@ const ocEcho: ToolCapability = {
 const ocGetTime: ToolCapability = {
   id: 'oc_get_time',
   description: '获取当前 UTC 时间。',
-  permission: 'normal',
   category: 'business',
   parameters: { type: 'object', properties: {} },
   execute: () => ({ text: `当前 UTC 时间: ${new Date().toISOString()}` }),
@@ -81,7 +81,6 @@ const ocGetTime: ToolCapability = {
 const ocReadFile: ToolCapability = {
   id: 'oc_read_file',
   description: '读取指定文件的内容并返回。',
-  permission: 'normal',
   category: 'business',
   parameters: {
     type: 'object',
@@ -167,14 +166,14 @@ async function createShell(): Promise<ShellState> {
   await tools.register(ocGetTime)
   await tools.register(ocReadFile)
 
-  const deliveries = userDeliveryQueue()
+  const dialogs = new QueueDialog()
   const display = { streamedAny: false }
-  // 先建 state 骨架，onEvent 引用 state.currentAgentId（动态，避免旧值闭包）。
+  // 先建 state 骨架，回调引用 state.currentAgentId（动态，避免旧值闭包）。
   const state: ShellState = {
     kernel: undefined as never,
     currentAgentId: '' as never,
     source,
-    deliveries,
+    dialogs,
     display,
   }
 
@@ -188,7 +187,8 @@ async function createShell(): Promise<ShellState> {
         process.stdout.write(event.text)
       }
     },
-    onUserDelivery: (delivery) => deliveries.push(delivery),
+    // 统一面板消息：回信 → 展示层；权限请求 → 弹窗模块。
+    onPanelMessage: (message) => handlePanelMessage(state, message),
   })
   state.kernel = kernel
 
@@ -200,11 +200,18 @@ async function createShell(): Promise<ShellState> {
     systemPrompt:
       'You are a helpful assistant with tool access. Use the available tools when appropriate. If you need a result from another agent, call agent_instantiate to create it (returns its id), then context_wait(id) to await its reply.',
     tools: [{ id: 'oc_echo' }, { id: 'oc_get_time' }, { id: 'oc_read_file' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-    permission: 'normal',
+    permissions: {
+      oc_echo: 'allow',
+      oc_get_time: 'allow',
+      oc_read_file: 'allow',
+      context_wait: 'allow',
+      bus_send: 'allow',
+      bus_participants: 'allow',
+    },
     memoryScope: [],
   })
 
-  // 创造者模板（advanced：可创建子 agent；无时间权限）
+  // 创造者模板（可创建子 agent；无时间权限）
   await kernel.templates.register({
     id: makeAgentClassID('creator'),
     name: 'Creator',
@@ -212,7 +219,14 @@ async function createShell(): Promise<ShellState> {
     systemPrompt:
       "creator-sys: 你是调度者，负责创建子 agent 获取信息并汇总给用户。\n可用模板 id：'tool-agent'（带 oc_get_time 时间工具）、'simple-chat'（纯对话）、'coder'。\n流程：① 用 agent_instantiate 创建子 agent，参数 classId 填 'tool-agent'，必填 userPrompt 说明要它做什么；它返回新建 agent 的 id。② 随后调用 context_wait(agentId)（agentId 填①返回的 id）等待子 agent 的回复——其 assistant_message 会作为 context_wait 的 tool 结果进入你的上下文。③ 拿到结果后向用户汇报。",
     tools: [{ id: 'agent_instantiate' }, { id: 'agent_list' }, { id: 'agent_terminate' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-    permission: 'advanced',
+    permissions: {
+      agent_instantiate: 'allow',
+      agent_list: 'allow',
+      agent_terminate: 'allow',
+      context_wait: 'allow',
+      bus_send: 'allow',
+      bus_participants: 'allow',
+    },
     memoryScope: [],
   })
 
@@ -224,8 +238,6 @@ async function createShell(): Promise<ShellState> {
     displayName: '小助手',
   })
 
-  // 消费初始 agent 的首信自动回复（自我介绍），保持第一条消息干净。
-  await drainRepliesUntil(state, state.currentAgentId)
   return state
 }
 
@@ -240,70 +252,46 @@ function parseStamp(message: string): { sender: string; text: string } {
   return { sender: '', text: message }
 }
 
-/** 消费掉指定 agent 的"首信自动回复"（userPrompt 触发），保持后续对话干净。 */
-async function drainRepliesUntil(state: ShellState, agentId: AgentID, timeoutMs = 20000): Promise<void> {
-  const deadline = Date.now() + timeoutMs
-  while (Date.now() < deadline) {
-    const race = await Promise.race<unknown>([
-      state.deliveries.next(),
-      new Promise((resolve) => setTimeout(() => resolve(null), deadline - Date.now())),
-    ])
-    if (race === null) return
-    const delivery = race as UserDelivery
-    const letter = delivery.letters[0]
-    const { sender } = parseStamp(contentText(letter?.content ?? ''))
-    if (sender === agentId) return
+/** 统一面板消息处理：回信 → 展示层；权限请求 → 弹窗模块。 */
+function handlePanelMessage(state: ShellState, message: PanelMessage): void {
+  if (message.type === 'letter') {
+    const letter = message.letters[0]
+    const { sender, text } = parseStamp(contentText(letter?.content ?? ''))
+    const label = sender && sender !== state.currentAgentId ? `\n[来自 ${sender}]` : '\n[assistant]'
+    console.log(label)
+    // 若该回复未经流式显示（无文本流），直接打印文本。
+    if (!state.display.streamedAny) console.log(text)
+    state.display.streamedAny = false
+    return
+  }
+  if (message.type === 'permission_request') {
+    // 权限确认弹窗：主题=权限确认；正文=agent 申请工具；选项=单次/始终/拒绝。
+    const request: DialogRequest = {
+      title: '权限确认',
+      body: `agent ${message.agentId} 正在申请「${message.permission}」工具权限`,
+      options: [
+        { id: 'once', label: '单次批准' },
+        { id: 'always', label: '始终批准' },
+        { id: 'reject', label: '拒绝' },
+      ],
+    }
+    void state.dialogs.push(request).then((selected) => {
+      const reply = selected[0] as PermissionReply | undefined
+      if (!reply) return
+      const input: PermissionReplyInput = { requestId: message.requestId, reply }
+      void state.kernel.bus.send({ kind: 'permission_reply', reply: input, at: Date.now() })
+    })
+    // 若该弹窗立即激活（队列空闲），打印弹窗；否则已由队列中的激活弹窗占据。
+    if (state.dialogs.active) console.log('\n' + formatDialog(state.dialogs.activeRequest!))
+    return
   }
 }
 
-const sleep = (ms: number) => new Promise<null>((resolve) => setTimeout(() => resolve(null), ms))
-
+/** 发送一条用户消息（回信经 PanelBus 异步展示，不阻塞主循环）。 */
 async function chat(state: ShellState, input: string): Promise<void> {
-  // 丢弃当前 agent 的积压旧信（如 /new 首信回复晚到），避免顶替新回复。
-  for (;;) {
-    const stale = await waitCurrentAgentReply(state, 100)
-    if (stale === null) break
-  }
   state.display.streamedAny = false
   console.log(`\n[user] ${input}`)
   await state.kernel.sendUserMessage(state.currentAgentId, input)
-  // 等待并显示当前 agent 的回信（含 agent 链产生的后续回信），直到静默。
-  const first = await waitCurrentAgentReply(state, Infinity)
-  if (first === null) {
-    console.log('（无回复）')
-    return
-  }
-  printReply(state, first)
-  for (;;) {
-    const next = await waitCurrentAgentReply(state, 1200)
-    if (next === null) break
-    printReply(state, next)
-  }
-}
-
-/** 等待当前 agent 的下一封回信（跳过其他 agent 回信）；超时返回 null。 */
-async function waitCurrentAgentReply(state: ShellState, timeoutMs: number): Promise<UserDelivery | null> {
-  const deadline = timeoutMs === Infinity ? Infinity : Date.now() + timeoutMs
-  for (;;) {
-    const remaining = deadline === Infinity ? Infinity : deadline - Date.now()
-    if (remaining <= 0) return null
-    // 队列内置超时（resolve null 并移除等待者），避免僵尸 waiter。
-    const delivery = await state.deliveries.next(deadline === Infinity ? undefined : remaining)
-    if (delivery === null) return null
-    const letter = delivery.letters[0]
-    const { sender } = parseStamp(contentText(letter?.content ?? ''))
-    if (!sender || sender === state.currentAgentId) return delivery
-  }
-}
-
-function printReply(state: ShellState, delivery: UserDelivery): void {
-  const letter = delivery.letters[0]
-  const { sender, text } = parseStamp(contentText(letter?.content ?? ''))
-  const label = sender && sender !== state.currentAgentId ? `\n[来自 ${sender}]` : '\n[assistant]'
-  console.log(label)
-  // 若该回复未经流式显示（无文本流），直接打印文本。
-  if (!state.display.streamedAny) console.log(text)
-  state.display.streamedAny = false
 }
 
 async function handleCommand(state: ShellState, line: string): Promise<boolean> {
@@ -328,7 +316,8 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
     }
     case '/templates': {
       const list = await state.kernel.templates.list()
-      for (const t of list) console.log(`  ${t.id}  ${t.name}  [${t.permission}]  ${t.description}`)
+      for (const t of list)
+        console.log(`  ${t.id}  ${t.name}  tools=${t.tools.length > 0 ? t.tools.map((x) => x.id).join(',') : '-'}  ${t.description}`)
       return false
     }
     case '/agents': {
@@ -354,8 +343,6 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       )
       state.currentAgentId = agentId
       console.log(`已创建并切换到: ${agentId} (${name ?? classId})`)
-      // 消费首信自动回复，保持后续对话干净。
-      await drainRepliesUntil(state, agentId)
       return false
     }
     case '/use': {
@@ -431,6 +418,20 @@ async function main(): Promise<number> {
     const line = rawLine.trim()
     if (line === '') continue
     try {
+      // 弹窗优先：有激活弹窗 → 该行作为选项选择。
+      if (state.dialogs.active) {
+        const request = state.dialogs.activeRequest
+        if (!request) continue
+        const ids = parseSelection(line, request)
+        if (ids === null) {
+          console.log('无效输入，请重新选择:\n' + formatDialog(request))
+          continue
+        }
+        state.dialogs.submit(ids)
+        // 队列中还有弹窗 → 激活并打印下一个。
+        if (state.dialogs.active) console.log(formatDialog(state.dialogs.activeRequest!))
+        continue
+      }
       if (line.startsWith('/')) {
         const shouldExit = await handleCommand(state, line)
         if (shouldExit) break

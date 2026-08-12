@@ -2,11 +2,11 @@
 // core/kernel/types.ts —— Agent Kernel 领域类型（纯 TS，零平台依赖）
 //
 // branded id / AgentClass（模板）/ AgentInstance（实例）/
-// AgentSpace / PermissionLevel / 错误判别联合。
+// AgentSpace / 错误判别联合。
 // ============================================================
 
 import type { ModelRef } from '../gateway'
-import type { PermissionLevel } from '../types'
+import type { PermissionAction } from '../permission'
 
 // ---------- branded id ----------
 
@@ -34,10 +34,7 @@ export function makeAgentSpaceID(id: string): AgentSpaceID {
   return id as AgentSpaceID
 }
 
-// ---------- 权限与状态 ----------
-
-/** 权限分级（公共类型：normal=业务/对话；advanced=实例创建/调度；admin=类创建/模块改造/全量日志）。 */
-export type { PermissionLevel } from '../types'
+// ---------- 状态 ----------
 
 /** 实例状态机：idle →(邮局送信)→ thinking(请求已发) →(LLM 返回)→ holding(等待下一次送信)。 */
 export type AgentStatus = 'idle' | 'thinking' | 'holding'
@@ -45,7 +42,6 @@ export type AgentStatus = 'idle' | 'thinking' | 'holding'
 /** 工具引用（声明在模板上，执行器后续由 ToolCapabilityRegistry 提供）。 */
 export interface ToolRef {
   readonly id: string
-  readonly permission?: PermissionLevel
 }
 
 // ---------- 上下文策略（最小占位） ----------
@@ -71,7 +67,11 @@ export interface AgentClass {
   readonly systemPrompt: string
   /** 该类实例可用的工具白名单。 */
   readonly tools: readonly ToolRef[]
-  readonly permission: PermissionLevel
+  /**
+   * 权限列表（统一原子化 per-tool）：Record<权限名, allow|deny|ask>。
+   * 未列出的工具默认 ask（弹窗交用户确认）；deny 的工具不暴露给模型。
+   */
+  readonly permissions: Readonly<Record<string, PermissionAction>>
   /** 可访问的上下文资产标签（ContextAssetPool 接入后启用）。 */
   readonly memoryScope: readonly string[]
   /** 可选模型偏好。 */

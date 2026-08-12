@@ -17,9 +17,9 @@
 │   AgentTemplateRegistry · AgentInstanceManager · AgentSpaceManager     │
 │   AgentRuntime（被动驱动状态机）· AgentKernel（组合根+系统工具）        │
 ├──────────────────────────────────────────────────────────────────────┤
-│ Layer 2  Core Infra (core/context/, core/tools/, core/bus/)           │
+│ Layer 2  Core Infra (core/context/, core/tools/, core/bus/, core/permission/, core/panel/) │
 │   ContextManager（成分管理+拼装+就绪信号）· Mailbox（等待+倒计时+发送）│
-│   ToolCapabilityRegistry（工具引擎，ToolHooks/onRecord）               │
+│   ToolCapabilityRegistry（工具引擎，统一权限确认）· PermissionManager · PanelBus │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 1  Model Gateway (core/gateway/)  ← 纯 TS（opencode 隔离）       │
 │   ModelGateway · providers/(opencodeLlm / fetch) · FakeGateway         │
@@ -116,29 +116,49 @@ interface ContextManager {
 
 ### 3.6 ToolCapabilityRegistry（`core/tools/`）
 
-- 注册/查询/materialize（权限物化）/execute（权限+参数校验+ToolHooks）。
-- **新增 `onRecord` 回调**（kernel 装配时注入）：工具被触发（onBefore）、成功（onAfter）、失败（onError）时**自动**产生 `ToolRecord`（含调用、参数、结果/错误、agentId、时间）发送给邮局 —— 不依赖 runtime 手动发送，确保可靠。
+- 注册/查询/materialize（按权限规则过滤工具可见性）/execute（**统一权限确认** + 参数校验 + ToolHooks）。
+- 内部工具（kind=internal，systemTools 注册）与外部工具（kind=external，宿主/未来 MCP 经注册接口接入）统一注册，工具来源为固有属性。
+- **`onRecord` 回调**（kernel 装配时注入）：工具被触发/成功/失败时自动产生 `ToolRecord` 发送给邮局 —— 不依赖 runtime 手动发送。
 - 工具结果消息由工具模块自动追加到邮局历史（经典组装的一部分）。
 
-### 3.7 系统工具（`core/kernel/systemTools.ts`，Kernel 注册）
+### 3.7 系统工具（`core/kernel/systemTools.ts`，Kernel 注册，kind=internal）
 
-| 工具 | 权限 | 作用 |
+| 工具 | 权限名 | 作用 |
 |---|---|---|
-| `agent_class_create` | admin | 创建新 agent 类（只承载类属性 systemPrompt/权限/工具白名单/模型/倒计时，**不含实例数据**） |
-| `agent_class_list` | admin | 列出 agent 类 |
-| `agent_instantiate` | advanced | 创建 agent（必填 classId + userPrompt，**creatorId 可显式指定**，注册总线+邮局，投递首信，**返回 agent id**） |
-| `agent_list` | advanced | 列出实例 |
-| `agent_terminate` | advanced | 终止实例（注销总线+邮局） |
-| `context_wait` | normal | 等待指定 agent 回复：其 assistant_message 作为本工具 tool 结果填充（无常规 tool 结果） |
-| `bus_send` | normal | 经总线发消息（单目标；并行调用实现一对多） |
-| `bus_participants` | normal | 查询总线注册 id 列表 |
+| `agent_class_create` | agent_class_create | 创建新 agent 类（类属性 + `permissions` 权限列表，**不含实例数据**） |
+| `agent_class_list` | agent_class_list | 列出 agent 类 |
+| `agent_instantiate` | agent_instantiate | 创建 agent（必填 classId + userPrompt，**creatorId 可显式指定**，注册总线+邮局，投递首信，**返回 agent id**） |
+| `agent_list` | agent_list | 列出实例 |
+| `agent_terminate` | agent_terminate | 终止实例（注销总线+邮局） |
+| `context_wait` | context_wait | 等待指定 agent 回复：其 assistant_message 作为本工具 tool 结果填充（无常规 tool 结果） |
+| `bus_send` | bus_send | 经总线发消息（单目标；并行调用实现一对多） |
+| `bus_participants` | bus_participants | 查询总线注册 id 列表 |
+
+> 系统工具默认权限名 = 工具 id；示例模板（creator 等）在 `permissions` 中显式 `allow` 所需内部工具，避免弹窗打扰。
 
 ### 3.8 Gateway（`core/gateway/`）
 
 - 保持既有：`ModelGateway` 接口、`providers/opencodeLlm`（单点）、`FakeGateway`。
 - 并行工具调用：协议层 `tool_calls` 数组原生支持；工具轮并行执行，结果按 index 回填。
 
-### 3.9 Logging 横切（`core/logging/`）
+### 3.9 统一权限模型（`core/permission/`，原子化 per-tool）
+
+**废弃模糊的角色等级（normal/advanced/admin）**，改为**每个工具原子化的 allow/deny/ask**，由 **agent 类权限列表**决定：
+
+- **工具**：声明 `permission`（权限名，string；缺省=工具 id；可多工具共享，如 edit/write → `'edit'`）+ `kind: 'internal' | 'external'`（固有属性：内部=core 系统工具，外部=宿主注册工具）。
+- **Agent 类**：`permissions: Record<权限名, allow|deny|ask>`；**未列出的工具默认 ask**（弹窗交用户确认）。
+- **评估** `evaluate(permission, rules)`：规则集 = [agent 类规则, ...session 用户批准]，**最后命中优先**，缺省 ask。
+- **materialize**：deny 的工具不暴露给模型；allow/ask 暴露（执行时才确认）。
+- **execute**：registry 层统一 `assert` → allow 执行 / deny 抛 `permission_denied` / **ask 挂起** → PanelBus 弹窗 → 用户回复 `once`（通过本次）/ `always`（通过+写 session approved，**用户批准优先于 agent 规则**）/ `reject`（拒绝，可带反馈）。
+- 用户确认完全**面向面板**：ask 请求经 PanelBus 发到面板，CLI 用弹窗模块选择。
+
+### 3.10 PanelBus（`core/panel/`，面板消息统一通道）
+
+- 所有通向面板的消息统一汇总为 `PanelMessage`：`letter`（回信）/ `permission_request`（权限弹窗）/ `notice`（未来通知）。
+- 面板端（shell/GUI）只需实现一个 consumer 消费统一消息流，内部再分发到展示层 / 弹窗模块；**core 与面板解耦，GUI 完全复用**。
+- 弹窗模块（shell/ui/dialog.ts）：队列结构，`{title, body, options, multiple?}`；CLI 数字编号选择，多选逗号分隔。
+
+### 3.11 Logging 横切（`core/logging/`）
 
 - **消息总线即通信接口抽象**：各模块经注入的 `LogSink` 发日志 → 组合根接到 `bus.send({kind:'log'})` → MessageBus 路由到 `Logger`（订阅者）。
 - `LogEvent` 判别联合（对齐 docs §4.1 + 补充点）：
@@ -184,8 +204,10 @@ interface ContextManager {
 | AgentRuntime | 同步 while 循环 | 被动驱动：Mailbox 送信触发，状态机 thinking/cooldown/hold |
 | Agent 状态 | `idle/running/waiting` | `idle/thinking/holding` |
 | 实例化 | 无 userPrompt/creatorId | 必填 userPrompt；creatorId 可显式指定，注册总线+邮局 |
-| 系统工具 | 阶段 3.1 | 提前：agent_class_create/list（admin）已实现 |
+| 系统工具 | 阶段 3.1 | 提前：agent_class_create/list 已实现（权限名=工具 id） |
 | 上下文 | ContextProfile + 渲染器 | 邮局累积成分 + 组装策略经典组装 |
 | 工具记录 | 无 | onRecord 自动记录 tool_call 到邮局 |
-| MessageBus | 只转发 agent 消息 | 通信接口抽象：agent 消息 → 邮局；log → 日志记录器 |
+| MessageBus | 只转发 agent 消息 | 通信接口抽象：agent 消息 → 邮局；log → 日志；permission_reply → 权限管理器 |
 | 日志 | 规划 Telemetry（未实现） | core/logging/ 落地：各模块 LogEvent 经总线路由到 InMemoryLogger |
+| 权限 | `PermissionLevel`（normal/advanced/admin 角色等级） | **统一原子化 per-tool**：工具 permission 名 + agent 类 permissions 列表（allow/deny/ask），缺省 ask 交用户确认；core/permission/ |
+| 面板通信 | user0 邮局收信 | **PanelBus 统一通道**：回信/权限请求/通知 → 面板弹窗模块（shell/ui/dialog） |

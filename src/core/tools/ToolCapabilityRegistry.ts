@@ -2,9 +2,13 @@
 // core/tools/ToolCapabilityRegistry.ts —— 工具注册与执行（工具引擎）
 //
 // 一切工具统一注册（业务 oc_* / 系统 agent_* / 上下文 context_* /
-// 日志 telemetry_* / 模块 module_*，未来 mcp_*/skill_*），
-// 权限过滤由 materialize 完成，执行时再做一次权限/参数校验，
-// 生命周期钩子（ToolHooks）提供横切扩展点。
+// 日志 telemetry_* / 模块 module_*，未来 mcp_*/skill_*）。
+//
+// 权限统一模型（见 core/permission）：
+//   - materialize(rules)：按调用方权限规则过滤工具可见性（deny 不暴露）；
+//   - execute：registry 层统一确认（setPermissionSink 注入 PermissionManager）
+//     → allow 执行 / deny 抛 permission_denied / ask 挂起等用户回复。
+//   - 工具无需内部调权限接口（external_directory 已简化掉）。
 //
 // 依赖方向：infra（tools）→ gateway（ToolDefinition 形状），
 // 不依赖 kernel；AgentRuntime 在上层消费本接口。
@@ -12,7 +16,8 @@
 
 import type { ToolDefinition } from '../gateway'
 import type { LogSink } from '../logging'
-import type { PermissionLevel } from '../types'
+import type { PermissionManager, PermissionRules } from '../permission'
+import { evaluate } from '../permission'
 import type {
   ToolCapability,
   ToolCategory,
@@ -23,8 +28,6 @@ import type {
   ToolRecord,
   ToolResult,
 } from './types'
-import { LevelPermissionResolver } from './types'
-import type { PermissionResolver } from './types'
 import { validateArgs } from './validate'
 
 export interface ToolListFilter {
@@ -37,18 +40,19 @@ export interface ToolCapabilityRegistry {
   readonly unregister: (id: string) => Promise<void>
   readonly get: (id: string) => Promise<ToolCapability>
   readonly list: (filter?: ToolListFilter) => Promise<ToolCapability[]>
-  /** 按调用方权限过滤，物化为 LLM 工具定义（schema）。 */
-  readonly materialize: (permission: PermissionLevel, filter?: ToolListFilter) => readonly ToolDefinition[]
-  /** 执行：查工具 → 权限校验 → 参数校验 → 钩子 → 执行器。 */
+  /** 按调用方权限规则过滤，物化为 LLM 工具定义（schema）；deny 的工具不暴露。 */
+  readonly materialize: (rules: PermissionRules, filter?: ToolListFilter) => readonly ToolDefinition[]
+  /** 执行：查工具 → 权限确认 → 参数校验 → 钩子 → 执行器。 */
   readonly execute: (invocation: ToolInvocation, ctx: ToolContext) => Promise<ToolResult>
   /** 装配工具调用自动记录（组合根注入 → 邮局）。 */
   readonly setRecordSink: (onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>) => void
   /** 装配工具调用日志（组合根注入 → bus → core/logging）。 */
   readonly setLogSink: (onLog?: LogSink) => void
+  /** 装配权限确认（组合根注入 → PermissionManager）。 */
+  readonly setPermissionSink: (permission?: PermissionManager) => void
 }
 
 export interface ToolRegistryOptions {
-  readonly permissionResolver?: PermissionResolver
   readonly hooks?: ToolHooks
   /**
    * 工具调用自动记录（触发 / 成功 / 失败时调用）。
@@ -57,20 +61,22 @@ export interface ToolRegistryOptions {
   readonly onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>
   /** 工具调用日志（组合根注入 → bus → core/logging）。 */
   readonly onLog?: LogSink
+  /** 权限确认（组合根注入 → PermissionManager）。 */
+  readonly permission?: PermissionManager
 }
 
 export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
   private readonly tools = new Map<string, ToolCapability>()
-  private readonly permissionResolver: PermissionResolver
   private readonly hooks?: ToolHooks
   private onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>
   private onLog?: LogSink
+  private permission?: PermissionManager
 
   constructor(options: ToolRegistryOptions = {}) {
-    this.permissionResolver = options.permissionResolver ?? new LevelPermissionResolver()
     this.hooks = options.hooks
     this.onRecord = options.onRecord
     this.onLog = options.onLog
+    this.permission = options.permission
   }
 
   setRecordSink(onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>): void {
@@ -79,6 +85,10 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
 
   setLogSink(onLog?: LogSink): void {
     this.onLog = onLog
+  }
+
+  setPermissionSink(permission?: PermissionManager): void {
+    this.permission = permission
   }
 
   async register(tool: ToolCapability): Promise<void> {
@@ -106,11 +116,13 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     return all.filter((t) => t.category === filter.category)
   }
 
-  materialize(permission: PermissionLevel, filter?: ToolListFilter): readonly ToolDefinition[] {
+  materialize(rules: PermissionRules, filter?: ToolListFilter): readonly ToolDefinition[] {
     const result: ToolDefinition[] = []
     for (const tool of this.tools.values()) {
       if (filter?.category !== undefined && tool.category !== filter.category) continue
-      if (!this.permissionResolver.canExecute(tool, { agentPermission: permission } as ToolContext)) continue
+      const permissionName = tool.permission ?? tool.id
+      // deny 的工具不暴露给模型（ask/allow 均可暴露，执行时才确认）。
+      if (evaluate(permissionName, rules) === 'deny') continue
       result.push({ name: tool.id, description: tool.description, parameters: tool.parameters })
     }
     return result
@@ -120,13 +132,29 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     const tool = this.tools.get(invocation.name)
     if (!tool) throw toolError({ kind: 'tool_not_found', tool: invocation.name })
 
-    if (!this.permissionResolver.canExecute(tool, ctx)) {
-      throw toolError({
-        kind: 'permission_denied',
-        tool: tool.id,
-        required: tool.permission,
-        actual: ctx.agentPermission,
+    // 权限统一确认（allow 通过 / deny 拒绝 / ask 挂起等面板回复）。
+    const permissionName = tool.permission ?? tool.id
+    try {
+      await this.permission?.assert({
+        permission: permissionName,
+        agentId: ctx.agentId,
+        rules: ctx.rules ?? [],
+        metadata: { tool: tool.id },
       })
+    } catch (cause) {
+      const error = cause as { kind?: string; permission?: string; feedback?: string }
+      if (error?.kind === 'permission_denied') {
+        throw toolError({ kind: 'permission_denied', tool: tool.id, permission: permissionName })
+      }
+      if (error?.kind === 'permission_rejected') {
+        throw toolError({
+          kind: 'permission_rejected',
+          tool: tool.id,
+          permission: permissionName,
+          ...(typeof error.feedback === 'string' ? { feedback: error.feedback } : {}),
+        })
+      }
+      throw cause
     }
 
     const customError = tool.validate?.(invocation.input)

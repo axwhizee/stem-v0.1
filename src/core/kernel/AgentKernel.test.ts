@@ -25,7 +25,7 @@ const toolAssistant: AgentClass = {
   description: '带工具 agent',
   systemPrompt: 'You are an assistant with tools.',
   tools: [{ id: 'oc_echo' }],
-  permission: 'normal',
+  permissions: { oc_echo: 'allow' },
   memoryScope: [],
 }
 
@@ -110,7 +110,6 @@ describe('AgentKernel 邮局模式', () => {
     await tools.register({
       id: 'oc_echo',
       description: 'echo',
-      permission: 'normal',
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
     })
@@ -150,7 +149,6 @@ describe('AgentKernel 邮局模式', () => {
     await tools.register({
       id: 'oc_echo',
       description: 'echo',
-      permission: 'normal',
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => {
         executed.push((input as { text: string }).text)
@@ -181,7 +179,6 @@ describe('AgentKernel 邮局模式', () => {
     await tools.register({
       id: 'oc_get_time',
       description: 'get time',
-      permission: 'normal',
       parameters: { type: 'object', properties: {} },
       execute: () => ({ text: 'now' }),
     })
@@ -200,8 +197,16 @@ describe('AgentKernel 邮局模式', () => {
     const { kernel, tools } = await createKernelHarness(gateway)
     await kernel.registerSystemTools(tools)
 
-    // admin 权限上下文（创建类需 admin；实例化需 advanced）。
-    const adminCtx = { agentId: USER_ID, spaceId: 'space-1', agentPermission: 'admin' as const }
+    // 调用方规则：允许类管理工具（统一 per-tool 权限）。
+    const adminCtx = {
+      agentId: USER_ID,
+      spaceId: 'space-1',
+      rules: [
+        { tool: 'agent_class_create', action: 'allow' },
+        { tool: 'agent_class_list', action: 'allow' },
+        { tool: 'agent_instantiate', action: 'allow' },
+      ] as const,
+    }
 
     const created = await tools.execute(
       {
@@ -212,7 +217,7 @@ describe('AgentKernel 邮局模式', () => {
           name: 'Reviewer',
           description: '代码审查',
           systemPrompt: 'You review code.',
-          permission: 'advanced',
+          permissions: { read: 'allow' },
           tools: ['oc_echo'],
         },
       },
@@ -222,7 +227,7 @@ describe('AgentKernel 邮局模式', () => {
 
     const cls = await kernel.templates.get(makeAgentClassID('reviewer'))
     assert.equal(cls.name, 'Reviewer')
-    assert.equal(cls.permission, 'advanced')
+    assert.deepEqual(cls.permissions, { read: 'allow' })
     assert.equal(cls.tools[0]?.id, 'oc_echo')
     assert.ok(!('userPrompt' in cls), '类只承载设定参数，不含实例数据')
 
@@ -236,8 +241,12 @@ describe('AgentKernel 邮局模式', () => {
     )
     assert.match(inst.text, /已创建 agent/)
 
-    // 权限校验：normal 无权创建类
-    const normalCtx = { agentId: 'some-agent', spaceId: 'space-1', agentPermission: 'normal' as const }
+    // 权限校验：deny agent_class_create → permission_denied
+    const deniedCtx = {
+      agentId: 'some-agent',
+      spaceId: 'space-1',
+      rules: [{ tool: 'agent_class_create', action: 'deny' }] as const,
+    }
     await assert.rejects(
       () =>
         tools.execute(
@@ -246,7 +255,7 @@ describe('AgentKernel 邮局模式', () => {
             name: 'agent_class_create',
             input: { id: 'x', name: 'X', description: 'x', systemPrompt: 'x' },
           },
-          normalCtx,
+          deniedCtx,
         ),
       (e: { kind?: string }) => e.kind === 'permission_denied',
     )
@@ -286,11 +295,10 @@ describe('AgentKernel 邮局模式', () => {
     await tools.register({
       id: 'oc_echo',
       description: 'echo',
-      permission: 'normal',
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
     })
-    const normalCtx = { agentId, spaceId: 'space-1', agentPermission: 'normal' as const }
+    const normalCtx = { agentId, spaceId: 'space-1', rules: [{ tool: 'oc_echo', action: 'allow' }] as const }
     await tools.execute({ id: 'call_5', name: 'oc_echo', input: { text: 'hi' } }, normalCtx)
     const toolLogs = kernel.logger.query({ type: 'tool.invoked' })
     assert.ok(toolLogs.some((e) => (e as { phase?: string }).phase === 'called'))

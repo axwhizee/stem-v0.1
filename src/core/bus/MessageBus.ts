@@ -9,6 +9,7 @@
 // ============================================================
 
 import type { LogEvent } from '../logging'
+import type { PermissionReplyInput } from '../permission'
 
 export type ParticipantKind = 'user' | 'agent'
 
@@ -19,7 +20,7 @@ export interface BusParticipant {
   readonly displayName: string
 }
 
-export type BusMessageKind = 'user_prompt' | 'agent_message' | 'result' | 'system' | 'log'
+export type BusMessageKind = 'user_prompt' | 'agent_message' | 'result' | 'system' | 'log' | 'permission_reply'
 
 /** agent 通信消息（单目标；一对多通过并行调用多次实现）。 */
 export interface AgentBusMessage {
@@ -39,17 +40,25 @@ export interface LogBusMessage {
   readonly at: number
 }
 
-export type BusMessage = AgentBusMessage | LogBusMessage
+/** 权限回复消息（面板 → 权限管理器）。 */
+export interface PermissionReplyBusMessage {
+  readonly id: string
+  readonly kind: 'permission_reply'
+  readonly reply: PermissionReplyInput
+  readonly at: number
+}
+
+export type BusMessage = AgentBusMessage | LogBusMessage | PermissionReplyBusMessage
 
 /** send 入参：id 由总线自动生成。 */
-export type BusSendInput = Omit<AgentBusMessage, 'id'> | Omit<LogBusMessage, 'id'>
+export type BusSendInput = Omit<AgentBusMessage, 'id'> | Omit<LogBusMessage, 'id'> | Omit<PermissionReplyBusMessage, 'id'>
 
 export interface MessageBus {
   readonly register: (participant: BusParticipant) => Promise<void>
   readonly unregister: (id: string) => Promise<void>
   readonly has: (id: string) => boolean
   readonly listParticipants: () => BusParticipant[]
-  /** 发送（按 kind 路由：agent 消息 → forward；log → onLog），id 自动生成。 */
+  /** 发送（按 kind 路由），id 自动生成。 */
   readonly send: (message: BusSendInput) => Promise<void>
 }
 
@@ -58,6 +67,8 @@ export interface MessageBusOptions {
   readonly forward: (message: AgentBusMessage) => Promise<void> | void
   /** 收到 log 消息后的路由目标（组合根注入 = 日志记录器）。 */
   readonly onLog?: (event: LogEvent) => void
+  /** 收到权限回复后的路由目标（组合根注入 = 权限管理器）。 */
+  readonly onPermissionReply?: (reply: PermissionReplyInput) => void
 }
 
 export class DefaultMessageBus implements MessageBus {
@@ -87,10 +98,15 @@ export class DefaultMessageBus implements MessageBus {
 
   async send(message: BusSendInput): Promise<void> {
     const msg = { ...message, id: this.nextId() } as BusMessage
-    if (msg.kind === 'log') {
-      this.options.onLog?.(msg.event)
-    } else {
-      await this.options.forward(msg)
+    switch (msg.kind) {
+      case 'log':
+        this.options.onLog?.(msg.event)
+        break
+      case 'permission_reply':
+        this.options.onPermissionReply?.(msg.reply)
+        break
+      default:
+        await this.options.forward(msg)
     }
   }
 

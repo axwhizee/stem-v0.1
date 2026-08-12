@@ -13,6 +13,7 @@
 import type { ModelGateway } from '../gateway'
 import type { ChatMessage, LLMEvent, LLMRequest, ModelRef, ToolCallEvent, UsageEvent } from '../gateway'
 import type { LogSink } from '../logging'
+import { permissionsToRules } from '../permission'
 import type { MessageBus } from '../bus'
 import type { AgentDelivery, ContextManager } from '../context'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
@@ -144,7 +145,8 @@ export class DefaultAgentRuntime implements AgentRuntime {
       const ctx: ToolContext = {
         agentId: instance.id,
         spaceId: instance.spaceId,
-        agentPermission: template.permission,
+        // agent 类权限规则（registry 统一确认时使用）。
+        rules: permissionsToRules(template.permissions),
       }
       const results = await Promise.all(
         toolCalls.map(async (call): Promise<ChatMessage> => {
@@ -193,10 +195,10 @@ export class DefaultAgentRuntime implements AgentRuntime {
     this.deps.onLog?.log({ type: 'kernel.status.changed', at: Date.now(), agentId: instance.id, from, to })
   }
 
-  /** 物化本轮 LLM 工具集：注册表按模板权限物化 ∩ 模板工具白名单。 */
+  /** 物化本轮 LLM 工具集：注册表按 agent 类权限规则过滤 ∩ 模板工具白名单。 */
   private enabledTools(template: AgentClass) {
     if (!this.deps.tools) return undefined
-    const available = this.deps.tools.materialize(template.permission)
+    const available = this.deps.tools.materialize(permissionsToRules(template.permissions))
     // template.tools 为 undefined → 全部权限内工具；显式数组（含空）→ 白名单（空=无工具）。
     if (template.tools === undefined) return available
     const allowed = new Set(template.tools.map((t) => t.id))

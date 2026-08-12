@@ -343,3 +343,40 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 
 - 持久化（SQLite/文件）+ `telemetry_read` 系统工具。
 - `agent_class_update/remove`、模板持久化。
+
+---
+
+## 阶段：统一权限模型 + PanelBus 面板通道 + 弹窗模块
+
+**日期**：2026-08-12
+
+### 目标
+
+工具分为内部/外部两类（固有属性）；废弃模糊的 PermissionLevel 角色等级，改为**统一原子化 per-tool 权限**（allow/deny/ask），由 agent 类权限列表决定，ask 完全面向用户（面板）确认；统一 PanelBus 汇总所有面板消息。
+
+### 完成内容
+
+1. **统一权限模型（core/permission/）**：
+   - 工具声明 `permission`（权限名，缺省=工具 id；edit/write 可共享 'edit'）+ `kind: 'internal'|'external'`（固有属性）。
+   - Agent 类 `permissions: Record<权限名, allow|deny|ask>`；未列出的默认 ask。
+   - `evaluate`：规则集=[agent 类, ...session 批准]，最后命中优先，缺省 ask。
+   - `PermissionManager`：ask 挂起 → 面板确认；once/always/reject；always 写 approved（用户批准优先于 agent 规则）。
+   - **废弃 PermissionLevel**（core/types / kernel / tools / systemTools / 模板 / 测试全量迁移）。
+
+2. **registry 统一权限确认**：`materialize(rules)` 过滤 deny；`execute` 内统一 assert（allow 执行 / deny 拒绝 / ask 挂起），工具无需内部调权限接口（external_directory 简化掉）。
+
+3. **PanelBus（core/panel/）**：统一面板消息流（letter 回信 / permission_request 权限弹窗 / notice 通知），面板端只需实现一个 consumer；bus 新增 `permission_reply` kind 路由到权限管理器。
+
+4. **弹窗模块（shell/ui/dialog.ts）**：可复用队列弹窗（主题/正文/编号选项，支持多选）；权限确认弹窗 = 主题"权限确认"、正文"agent xx 正在申请 xx 工具权限"、选项 1.单次批准 2.始终批准 3.拒绝。
+
+5. **shell 事件循环重构**：回信经 PanelBus 异步展示（不再阻塞等待）；弹窗优先处理（用户输入行优先解析为弹窗选择）。
+
+### 验证
+
+- 62/62 测试通过（新增 permission 评估/管理器单测：ask 挂起 once/always/reject、always 免询问、用户批准优先）。
+- mock 模式：内部工具（allow）不弹窗，creator 链正常；外部工具（ask）触发权限弹窗 → 输入 1 单次批准 → 工具执行 → 结果展示。
+
+### 后续（未执行）
+
+- host 工具（read/write/edit/grep/glob，shell/tools/，提交 2）。
+- 权限规则持久化（per-project）+ `telemetry_read`。

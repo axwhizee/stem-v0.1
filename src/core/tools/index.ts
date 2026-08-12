@@ -4,6 +4,7 @@
 
 export type {
   ToolCategory,
+  ToolKind,
   ToolPropertySchema,
   ToolParametersSchema,
   ToolInvocation,
@@ -13,10 +14,10 @@ export type {
   ToolError,
   ToolRecord,
   ToolCapability,
-  PermissionResolver,
   ToolHooks,
+  PermissionAction,
+  PermissionRules,
 } from './types'
-export { LevelPermissionResolver } from './types'
 
 export { validateArgs } from './validate'
 

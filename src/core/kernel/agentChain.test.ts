@@ -28,7 +28,13 @@ const creatorTemplate: AgentClass = {
   description: '能创建子 agent 的调度者',
   systemPrompt: 'creator-sys: 你是调度者，可以创建子 agent 获取信息。',
   tools: [{ id: 'agent_instantiate' }, { id: 'agent_list' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-  permission: 'advanced',
+  permissions: {
+    agent_instantiate: 'allow',
+    agent_list: 'allow',
+    context_wait: 'allow',
+    bus_send: 'allow',
+    bus_participants: 'allow',
+  },
   memoryScope: [],
 }
 
@@ -38,7 +44,7 @@ const toolAgentTemplate: AgentClass = {
   description: '带时间工具的助手',
   systemPrompt: 'tool-sys: 你是执行者，可以用工具查询信息并回复。',
   tools: [{ id: 'oc_get_time' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-  permission: 'normal',
+  permissions: { oc_get_time: 'allow', bus_send: 'allow', bus_participants: 'allow' },
   memoryScope: [],
 }
 
@@ -83,7 +89,6 @@ describe('agent 链：用户 → 创造者 → 子 agent（读时间）→ conte
     await tools.register({
       id: 'oc_get_time',
       description: 'get time',
-      permission: 'normal',
       parameters: { type: 'object', properties: {} },
       execute: () => ({ text: '当前 UTC 时间: 2026-08-11T12:00:00.000Z' }),
     })

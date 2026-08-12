@@ -22,7 +22,7 @@ const cls: AgentClass = {
   description: 'chat agent',
   systemPrompt: 'You are assistant.',
   tools: [],
-  permission: 'normal',
+  permissions: {},
   memoryScope: [],
 }
 
@@ -97,7 +97,6 @@ describe('DefaultAgentRuntime（被动驱动）', () => {
     await tools.register({
       id: 'oc_echo',
       description: 'echo',
-      permission: 'normal',
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
     })

@@ -14,7 +14,7 @@ const base: AgentClass = {
   description: 'test',
   systemPrompt: 'be helpful',
   tools: [],
-  permission: 'normal',
+  permissions: {},
   memoryScope: [],
 }
 
@@ -39,14 +39,14 @@ describe('DefaultAgentTemplateRegistry', () => {
     await assert.rejects(() => registry.register(base), (e: unknown) => (e as { kind: string }).kind === 'template_exists')
   })
 
-  test('校验：缺失 systemPrompt / 非法权限 → invalid_template', async () => {
+  test('校验：缺失 systemPrompt / 非法权限动作 → invalid_template', async () => {
     const registry = new DefaultAgentTemplateRegistry()
     await assert.rejects(
       () => registry.register({ ...base, systemPrompt: '' }),
       (e: unknown) => (e as { kind: string }).kind === 'invalid_template',
     )
     await assert.rejects(
-      () => registry.register({ ...base, permission: 'sudo' as never }),
+      () => registry.register({ ...base, permissions: { read: 'sudo' as never } }),
       (e: unknown) => (e as { kind: string }).kind === 'invalid_template',
     )
   })
@@ -58,10 +58,14 @@ describe('DefaultAgentTemplateRegistry', () => {
     assert.ok(list.length >= 0)
   })
 
-  test('list 按 permission 过滤', async () => {
-    const registry = new DefaultAgentTemplateRegistry([base, { ...base, id: makeAgentClassID('admin-agent'), permission: 'admin' }])
-    const normals = await registry.list({ permission: 'normal' })
-    assert.equal(normals.length, 1)
-    assert.equal(normals[0]?.permission, 'normal')
+  test('模板权限列表（permissions）保留', async () => {
+    const registry = new DefaultAgentTemplateRegistry([
+      base,
+      { ...base, id: makeAgentClassID('coder2'), permissions: { read: 'allow', edit: 'deny' } },
+    ])
+    const list = await registry.list()
+    const coder = list.find((c) => c.id === makeAgentClassID('coder2'))
+    assert.ok(coder)
+    assert.deepEqual(coder.permissions, { read: 'allow', edit: 'deny' })
   })
 })

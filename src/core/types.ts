@@ -5,16 +5,5 @@
 // 放这里；单模块专属类型仍放各模块 types.ts。
 // ============================================================
 
-/** 权限分级（铁律 8 / D10）：normal=业务+对话；advanced=实例创建/调度；admin=类创建/全量日志。 */
-export type PermissionLevel = 'normal' | 'advanced' | 'admin'
-
-const PERMISSION_RANK: Record<PermissionLevel, number> = {
-  normal: 0,
-  advanced: 1,
-  admin: 2,
-}
-
-/** 判断实际权限是否满足所需权限（actual ≥ required）。 */
-export function hasPermission(actual: PermissionLevel, required: PermissionLevel): boolean {
-  return PERMISSION_RANK[actual] >= PERMISSION_RANK[required]
-}
+// 权限模型见 core/permission/（原子化 per-tool allow/deny/ask）。
+// 跨层无固定角色权限等级 —— agent 类权限列表决定工具可用性与确认策略。

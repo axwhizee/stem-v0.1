@@ -8,7 +8,6 @@ export type {
   AgentID,
   AgentSpaceID,
   ProjectRef,
-  PermissionLevel,
   AgentStatus,
   ToolRef,
   ContextProfile,
@@ -21,7 +20,7 @@ export type {
 export { makeAgentClassID, makeAgentID, makeAgentSpaceID } from './types'
 
 // 模板注册表
-export type { TemplateListFilter, AgentTemplateRegistry } from './AgentTemplateRegistry'
+export type { AgentTemplateRegistry } from './AgentTemplateRegistry'
 export { DefaultAgentTemplateRegistry } from './AgentTemplateRegistry'
 
 // 实例管理
