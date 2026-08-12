@@ -121,7 +121,7 @@ describe('agent 链：用户 → 创造者 → 子 agent（读时间）→ conte
     assert.ok(sub, '应存在由创造者创建的子 agent')
     assert.equal(sub.creatorId, creatorId)
 
-    const state = kernel.contextManager.getState(creatorId)
+    const state = await kernel.contextManager.getState(creatorId)
     // context_wait 的 tool 结果应包含子 agent 的回信文本
     const waitResult = state.context.find(
       (m) => m.role === 'tool' && typeof m.content === 'string' && m.content.includes('12:00:00'),

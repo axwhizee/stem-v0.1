@@ -87,7 +87,7 @@ describe('AgentKernel 邮局模式', () => {
     await deliveries.next()
 
     // 历史应包含：默认首信 + first + second + third，且 second/third 合并为一次回复
-    const state = kernel.contextManager.getState(agentId)
+    const state = await kernel.contextManager.getState(agentId)
     const userContents = state.context.filter((m) => m.role === 'user').map((m) => m.content)
     assert.equal(userContents.length, 4, '默认首信 + 三次用户消息')
     assert.deepEqual(userContents.slice(1), ['first', 'second', 'third'])
@@ -125,7 +125,7 @@ describe('AgentKernel 邮局模式', () => {
     assert.equal(delivery.letters[0]?.content, `<sender id="${agentId}">工具返回了</sender>`)
 
     // onRecord 自动记录（called + success）已入邮局
-    const state = kernel.contextManager.getState(agentId)
+    const state = await kernel.contextManager.getState(agentId)
     assert.ok(state.toolRecords.some((r) => r.status === 'called'))
     assert.ok(state.toolRecords.some((r) => r.status === 'success' && r.result?.text === 'Echo: hi'))
     // tool 结果自动进入历史（工具模块发送，非 runtime 手动）
@@ -167,7 +167,7 @@ describe('AgentKernel 邮局模式', () => {
     await deliveries.next()
     assert.deepEqual(executed.sort(), ['a', 'b'])
 
-    const state = kernel.contextManager.getState(agentId)
+    const state = await kernel.contextManager.getState(agentId)
     assert.equal(state.context.filter((m) => m.role === 'tool').length, 2)
   })
 
@@ -193,5 +193,62 @@ describe('AgentKernel 邮局模式', () => {
     timers.flushAll()
     await deliveries.next()
     assert.ok(!lastRequest?.tools || lastRequest.tools.length === 0, '白名单空 → 不物化工具')
+  })
+
+  test('系统工具：agent_class_create/list（admin）创建类，且类不含实例数据', async () => {
+    const gateway = new FakeGateway(() => textEvents('ok'))
+    const { kernel, tools } = await createKernelHarness(gateway)
+    await kernel.registerSystemTools(tools)
+
+    // admin 权限上下文（创建类需 admin；实例化需 advanced）。
+    const adminCtx = { agentId: USER_ID, spaceId: 'space-1', agentPermission: 'admin' as const }
+
+    const created = await tools.execute(
+      {
+        id: 'call_1',
+        name: 'agent_class_create',
+        input: {
+          id: 'reviewer',
+          name: 'Reviewer',
+          description: '代码审查',
+          systemPrompt: 'You review code.',
+          permission: 'advanced',
+          tools: ['oc_echo'],
+        },
+      },
+      adminCtx,
+    )
+    assert.match(created.text, /已创建 agent 类 reviewer/)
+
+    const cls = await kernel.templates.get(makeAgentClassID('reviewer'))
+    assert.equal(cls.name, 'Reviewer')
+    assert.equal(cls.permission, 'advanced')
+    assert.equal(cls.tools[0]?.id, 'oc_echo')
+    assert.ok(!('userPrompt' in cls), '类只承载设定参数，不含实例数据')
+
+    const listed = await tools.execute({ id: 'call_2', name: 'agent_class_list', input: {} }, adminCtx)
+    assert.match(listed.text, /reviewer/)
+
+    // 新类可直接实例化（agent_instantiate 仍要求 classId + userPrompt）
+    const inst = await tools.execute(
+      { id: 'call_3', name: 'agent_instantiate', input: { classId: 'reviewer', userPrompt: 'review this' } },
+      adminCtx,
+    )
+    assert.match(inst.text, /已创建 agent/)
+
+    // 权限校验：normal 无权创建类
+    const normalCtx = { agentId: 'some-agent', spaceId: 'space-1', agentPermission: 'normal' as const }
+    await assert.rejects(
+      () =>
+        tools.execute(
+          {
+            id: 'call_4',
+            name: 'agent_class_create',
+            input: { id: 'x', name: 'X', description: 'x', systemPrompt: 'x' },
+          },
+          normalCtx,
+        ),
+      (e: { kind?: string }) => e.kind === 'permission_denied',
+    )
   })
 })

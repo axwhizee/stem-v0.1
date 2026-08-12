@@ -6,7 +6,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway } from '../gateway'
 import { DefaultMessageBus } from '../bus'
-import { ClassicContextAssembler, DefaultContextManager } from '../context'
+import { DefaultContextManager } from '../context'
 import type { AgentDelivery } from '../context'
 import { DefaultToolCapabilityRegistry } from '../tools'
 import type { BusSendInput } from '../bus'
@@ -35,7 +35,7 @@ function deliveryFor(agentId: string, system = cls.systemPrompt): AgentDelivery 
 async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCapabilityRegistry; template?: AgentClass }) {
   const templates = new DefaultAgentTemplateRegistry([extra?.template ?? cls])
   const instances = new DefaultAgentInstanceManager(templates)
-  const contextManager = new DefaultContextManager({ assembler: new ClassicContextAssembler() })
+  const contextManager = new DefaultContextManager()
   const sent: BusSendInput[] = []
   const bus = new DefaultMessageBus({ forward: async (msg) => void sent.push(msg) })
 
@@ -77,7 +77,7 @@ describe('DefaultAgentRuntime（被动驱动）', () => {
     assert.equal((await instances.get(agentId)).status, 'holding')
 
     // assistant 历史自动复制到邮局
-    const state = contextManager.getState(agentId)
+    const state = await contextManager.getState(agentId)
     assert.equal(state.context.filter((m) => m.role === 'assistant').length, 1)
   })
 

@@ -18,7 +18,7 @@
 │   AgentRuntime（被动驱动状态机）· AgentKernel（组合根+系统工具）        │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 2  Core Infra (core/context/, core/tools/, core/bus/)           │
-│   ContextManager（邮局）· ContextAssembler（经典组装）· MessageBus      │
+│   ContextManager（成分管理+拼装+就绪信号）· Mailbox（等待+倒计时+发送）│
 │   ToolCapabilityRegistry（工具引擎，ToolHooks/onRecord）               │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 1  Model Gateway (core/gateway/)  ← 纯 TS（opencode 隔离）       │
@@ -31,7 +31,7 @@
 
 ## 二、通信模型：单工邮局模式（核心架构）
 
-**一句话**：MessageBus 只是"送信员"，真正的信箱是上下文管理器（邮局）；所有上下文成分**异步就绪**投递到邮局，邮局在**送信倒计时**结束后把组装好的**完整上下文**主动"送信"给 agent；agent 全程**被动**。
+**一句话**：MessageBus 只是"送信员"，真正的信箱是 context 模块；ContextManager 统一管理上下文成分并拼装，Mailbox 在「上下文就绪 + 倒计时就绪」双条件满足后主动"送信"给 agent；agent 全程**被动**。
 
 ### 关键概念
 
@@ -78,35 +78,26 @@
 - `send(msg)`：只负责**转发**到邮局，不保存消息。
 - 保留理由：未来可能承载广播/审计等；当前为薄层。
 
-### 3.2 ContextManager 邮局（`core/context/ContextManager.ts`）
+### 3.2 ContextManager + Mailbox（`core/context/`，context 模块子模块化）
 
-按 `agentId` 分箱维护：
+按 `agentId` 分箱，ContextManager（成分 + 拼装 + 就绪信号）与 Mailbox（等待 + 倒计时 + 发送）职责分离：
 
 ```typescript
-interface Mailbox {
-  readonly systemPrompt?: string       // 实例化时注册
-  readonly context: ChatMessage[]      // 历史（assistant 轮 + tool 结果，按来源追加）
-  readonly pendingLetters: ChatMessage[]  // user_prompt 信件（送信后清空）
-  readonly toolRecords: ToolRecord[]   // 工具调用审计（未来定制组装用）
-  readonly sendCountdownMs: number     // 送信倒计时（模板传入）
+// ContextManager —— 对外只暴露「单一上下文接口」，三种成分不向外部暴露各自集合
+interface ContextManager {
+  register(reg: { agentId; systemPrompt?; assemble?; onDelivery; onHold? })
+  deposit(agentId, letter, from?)   // 投信；from 命中 context_wait 挂起 → 作为 tool 结果填充
+  appendHistory(agentId, message)   // 历史（assistant/tool 按来源追加）
+  appendToolRecord(agentId, record) // 工具审计
+  registerHold(waitFor, { ownerId, toolCallId })
+  getState(agentId)
 }
 ```
 
-行为：
-
-- `register(agentId, { systemPrompt, sendCountdownMs, deliveryHandler })` —— 实例化时注册。
-- `deposit(agentId, letter, from?)` —— 投信：追加 pendingLetters；**若 `from` 命中 context_wait 挂起等待** → 该 assistant_message 作为 **tool 结果**填充到等待者上下文（非信件）；否则按信件处理；触发送信/重置倒计时。
-- `registerHold(waitFor, { ownerId, toolCallId })` —— context_wait 工具注册挂起等待。
-- `appendHistory(agentId, message)` —— runtime/工具模块追加历史消息。
-- `appendToolRecord(agentId, record)` —— 工具模块自动记录。
-- 送信（上下文就绪 & 倒计时就绪）→ `assemble` → 清空信件/填充标记 → 送信 → 重新倒计时；不可送信 → 通知 kernel 保持 holding。
-- 用户（`user0`）注册时 `assemble: false`：不做组装，直接把信件汇总为一条消息送信给面板。
-
-### 3.3 ContextAssembler（`core/context/ContextAssembler.ts`）
-
-- 接口 `assemble(input) → { system, messages, tools }`。
-- **经典组装模式**（默认实现）：`system = systemPrompt`，`messages = [...context, ...pendingLetters]`，`tools = 按权限物化`。
-- 组装器可替换（为未来深度定制上下文预留扩展位）。
+- **ContextManager**：单一上下文接口统一管理 `context（历史）/ pendingLetters（信件）/ toolRecords（工具记录）`；内容就绪（有信件 / 有待填充的 tool 结果）时**立即只读拼装**出完整上下文快照（`ContextAssembler` 已合并为可注入组装策略，缺省 `classicAssemble`）→ 交给 Mailbox。
+- **Mailbox**：**不参与拼装**，只等待「上下文就绪信号（已收到新内容）+ 倒计时就绪」→ 发送（agent 收到 `AgentDelivery`；user 收到 `UserDelivery`）。发送前触发 `beforeSend` → ContextManager 把信件并入历史并清空（避免重复组装）。
+- 送信倒计时（Mailbox 维护）：初始 0（首信立即送信）；发送后开始倒计时，倒计时中新内容到达**重置**倒计时（合并滑动窗口）；结束仍就绪则发送，否则 `onHold` → holding。
+- 用户（`user0`）注册 `assemble:false`：不拼装，只把信件汇总交给 Mailbox 直通发送。
 
 ### 3.4 AgentRuntime（`core/kernel/AgentRuntime.ts`，被动驱动）
 
@@ -133,7 +124,9 @@ interface Mailbox {
 
 | 工具 | 权限 | 作用 |
 |---|---|---|
-| `agent_instantiate` | advanced | 创建 agent（必填 userPrompt + creatorId，注册总线+邮局，投递首信，**返回 agent id**） |
+| `agent_class_create` | admin | 创建新 agent 类（只承载类属性 systemPrompt/权限/工具白名单/模型/倒计时，**不含实例数据**） |
+| `agent_class_list` | admin | 列出 agent 类 |
+| `agent_instantiate` | advanced | 创建 agent（必填 classId + userPrompt，**creatorId 可显式指定**，注册总线+邮局，投递首信，**返回 agent id**） |
 | `agent_list` | advanced | 列出实例 |
 | `agent_terminate` | advanced | 终止实例（注销总线+邮局） |
 | `context_wait` | normal | 等待指定 agent 回复：其 assistant_message 作为本工具 tool 结果填充（无常规 tool 结果） |
@@ -174,9 +167,12 @@ interface Mailbox {
 
 | 项 | 规划 | 实际 |
 |---|---|---|
-| 通信 | MessageBus 保存消息、半双工 | 单工邮局模式：bus 只转发，ContextManager 持信箱与组装 |
-| AgentRuntime | 同步 while 循环 | 被动驱动：邮局送信触发，状态机 thinking/cooldown/hold |
-| Agent 状态 | `idle/running/waiting` | `idle/thinking/cooldown/hold` |
-| 实例化 | 无 userPrompt/creatorId | 必填 userPrompt + creatorId，注册总线+邮局 |
-| 上下文 | ContextProfile + 渲染器 | 邮局累积成分 + ContextAssembler 经典组装 |
+| 通信 | MessageBus 保存消息、半双工 | 单工邮局模式：bus 只转发，context 模块持信箱与组装 |
+| context 结构 | ContextManager 一体化邮局 | 子模块化：ContextManager（成分+拼装+就绪信号）→ Mailbox（等待+倒计时+发送）；ContextAssembler 合并为可注入组装策略 |
+| AgentRuntime | 同步 while 循环 | 被动驱动：Mailbox 送信触发，状态机 thinking/cooldown/hold |
+| Agent 状态 | `idle/running/waiting` | `idle/thinking/holding` |
+| 实例化 | 无 userPrompt/creatorId | 必填 userPrompt；creatorId 可显式指定，注册总线+邮局 |
+| 系统工具 | 阶段 3.1 | 提前：agent_class_create/list（admin）已实现 |
+| 上下文 | ContextProfile + 渲染器 | 邮局累积成分 + 组装策略经典组装 |
 | 工具记录 | 无 | onRecord 自动记录 tool_call 到邮局 |
+| 日志 | 规划 Telemetry | 提交 2 落地（core/logging/） |

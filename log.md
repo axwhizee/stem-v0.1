@@ -281,3 +281,33 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - sub_agent 清理（手动 `agent_terminate` / kernel 接口）。
 - 等待超时机制（context_wait 无超时，需手动清理）。
 - Telemetry / MCP / skill 工具适配。
+
+---
+
+## 阶段：类-实例分离 + context 模块子模块化（Mailbox 拆出）
+
+**日期**：2026-08-12
+
+### 目标
+
+- 提前落地阶段 3.1 的类管理工具：`agent_class_create/list`（admin），类属性与实例数据彻底分离。
+- context 模块子模块化：ContextManager（成分管理 + 拼装 + 就绪信号）与 Mailbox（等待 + 倒计时 + 发送）职责分离；ContextAssembler 合并入 ContextManager 为可注入组装策略。
+
+### 完成内容
+
+1. **系统工具**（admin 权限）：`agent_class_create`（只承载 `id/name/description/systemPrompt/permission/tools/model/sendCountdown`，**不含 userPrompt 等实例数据**，走 `AgentTemplateRegistry.register` + validate）、`agent_class_list`。
+2. **context 重构**：
+   - `Mailbox.ts` 子模块：只负责等待「上下文就绪信号 + 倒计时就绪」→ 向指定 id 发送；不参与拼装。
+   - `ContextManager.ts`：单一上下文接口（deposit/appendHistory/appendToolRecord/registerHold），内容就绪时**只读拼装**快照 → 交给 Mailbox；Mailbox 发送前 `beforeSend` → 信件并入历史清空。
+   - `ContextAssembler.ts` **删除**：合并为 `ContextManager` 内的可注入组装策略（`ContextAssembler` 函数类型 + `classicAssemble` 默认实现），未来 renderPrompt/Compressor 作为策略注入。
+   - `getState` 改为异步（组合成分状态 + Mailbox 状态 `coolingDown`）。
+
+### 验证
+
+- 49/49 测试通过（新增：agent_class_create/list 创建类、类不含实例数据、新类可实例化、normal 权限被拒）。
+- mock 模式 creator 链 / tool-assistant 工具轮均正常。
+
+### 后续（未执行）
+
+- logging 模块（提交 2）：各模块日志经 MessageBus 路由到日志订阅者。
+- `agent_class_update/remove`、模板持久化。

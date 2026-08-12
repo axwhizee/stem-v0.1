@@ -8,11 +8,14 @@
 
 import type { ToolCapability } from '../tools'
 import type { AgentKernel } from './AgentKernel'
+import type { AgentClass, PermissionLevel } from './types'
 import { makeAgentClassID } from './types'
 
 /** 生成系统工具清单（由 AgentKernel.registerSystemTools 装配）。 */
 export function createSystemTools(kernel: AgentKernel): ToolCapability[] {
   return [
+    agentClassCreate(kernel),
+    agentClassList(kernel),
     agentInstantiate(kernel),
     agentList(kernel),
     agentTerminate(kernel),
@@ -20,6 +23,78 @@ export function createSystemTools(kernel: AgentKernel): ToolCapability[] {
     busParticipants(kernel),
     contextWait(kernel),
   ]
+}
+
+/** 创建新 agent 类（admin 权限，D7/铁律 8）。只承载类属性，不含实例数据（userPrompt 等）。 */
+function agentClassCreate(kernel: AgentKernel): ToolCapability {
+  return {
+    id: 'agent_class_create',
+    description:
+      '创建新的 agent 类（模板）。类定义角色设定（systemPrompt/权限/工具白名单/模型/送信倒计时），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。创建后可用 agent_class_list 查看，用 agent_instantiate(classId) 实例化。',
+    permission: 'admin',
+    category: 'system',
+    parameters: {
+      type: 'object',
+      properties: {
+        id: { type: 'string', description: '类 id（唯一，kebab-case）' },
+        name: { type: 'string', description: '类名，如 "Coder"' },
+        description: { type: 'string', description: '类用途描述' },
+        systemPrompt: { type: 'string', description: '该类的专属系统提示词' },
+        permission: {
+          type: 'string',
+          enum: ['normal', 'advanced', 'admin'],
+          description: '权限等级（缺省 normal）',
+        },
+        tools: { type: 'array', items: { type: 'string' }, description: '工具 id 白名单（缺省=模板权限内的全部工具）' },
+        model: { type: 'string', description: '模型 id（可选，缺省用系统默认模型）' },
+        sendCountdown: { type: 'number', description: '送信倒计时毫秒（可选，缺省 1000）' },
+      },
+      required: ['id', 'name', 'description', 'systemPrompt'],
+    },
+    execute: async (input) => {
+      const args = input as {
+        id: string
+        name: string
+        description: string
+        systemPrompt: string
+        permission?: PermissionLevel
+        tools?: string[]
+        model?: string
+        sendCountdown?: number
+      }
+      const cls: AgentClass = {
+        id: makeAgentClassID(args.id),
+        name: args.name,
+        description: args.description,
+        systemPrompt: args.systemPrompt,
+        permission: args.permission ?? 'normal',
+        tools: (args.tools ?? []).map((id) => ({ id })),
+        memoryScope: [],
+        model: args.model ? { provider: 'opencode', id: args.model } : undefined,
+        sendCountdown: args.sendCountdown,
+      }
+      await kernel.templates.register(cls)
+      return { text: `已创建 agent 类 ${args.id}（${args.name}，permission=${cls.permission}）` }
+    },
+  }
+}
+
+/** 列出 agent 类。 */
+function agentClassList(kernel: AgentKernel): ToolCapability {
+  return {
+    id: 'agent_class_list',
+    description: '列出全部 agent 类（模板）及关键属性。',
+    permission: 'admin',
+    category: 'system',
+    parameters: { type: 'object', properties: {} },
+    execute: async () => {
+      const classes = await kernel.templates.list()
+      const lines = classes.map(
+        (c) => `${c.id}  ${c.name}  [${c.permission}]  tools=${c.tools.length > 0 ? c.tools.map((t) => t.id).join(',') : '-'}${c.model ? `  model=${c.model.id}` : ''}`,
+      )
+      return { text: lines.length > 0 ? `agent 类列表:\n${lines.join('\n')}` : '（暂无 agent 类）' }
+    },
+  }
 }
 
 /** 创建 agent 实例（必填 userPrompt；creatorId 缺省为调用者 id）。 */

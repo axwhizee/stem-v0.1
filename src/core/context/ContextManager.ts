@@ -1,81 +1,96 @@
 // ============================================================
-// core/context/ContextManager.ts —— 上下文管理器（邮局）
+// core/context/ContextManager.ts —— 上下文管理器（成分管理 + 拼装 + 就绪信号）
 //
-// 所有上下文成分异步就绪、按 agentId 分箱累积：
-//   - system_prompt：实例化时 register
-//   - 信件（user_prompt）：deposit（用户/agent 投信）
-//   - assistant_history：appendHistory（runtime 自动复制）
-//   - tool 记录：appendToolRecord（工具模块自动发送）
+// 对外提供「单一上下文接口」：deposit / appendHistory / appendToolRecord /
+// registerHold。三种上下文成分（历史 context / 信件 pendingLetters /
+// 工具记录 toolRecords）全部由本模块管理，不向外部暴露各自的集合。
 //
-// 送信倒计时（邮局维护的局部量）：
-//   - 初始为 0：首信到达立即组装送信
-//   - 发送完一次上下文后才开始倒计时；cooldown 中新信重置倒计时
-//   - 倒计时结束：可组装（有信）→ 组装送信；不可组装 → onHold
+// 职责划分（context 模块子模块化）：
+//   - ContextManager：成分管理 + 拼装（ContextAssembler 子模块）+ 就绪信号；
+//   - Mailbox（子模块）：只负责等待「上下文就绪 + 倒计时就绪」→ 发送。
+//   - 拼装时机：内容就绪（有信件 / 有等待填充的 tool 结果）时立即拼装出
+//     完整上下文快照（只读，不消费信件），交给 Mailbox；Mailbox 发送前
+//     触发 beforeSend → ContextManager 把信件并入历史并清空。
+//   - user0（assemble=false）：不拼装，直接汇总信件交给 Mailbox 发送。
 //
-// 用户（assemble=false）不做组装，只把信件汇总送信。
 // 存储：内存 JSON 消息列表（后续换 SQLite，接口已隔离）。
 // ============================================================
 
-import type { ChatMessage } from '../gateway'
+import type { ChatMessage, ToolDefinition } from '../gateway'
 import type { ToolRecord } from '../tools'
-import type { ContextAssembler } from './ContextAssembler'
-import type { AgentDelivery, MailboxState, MailDelivery, UserDelivery } from './types'
+import type { Mailbox, MailboxRegistration, ReadyContent, TimerFactory } from './Mailbox'
+import { DefaultMailbox } from './Mailbox'
+import type { MailboxState } from './types'
 
-export interface TimerHandle {
-  readonly cancel: () => void
+// ---------- 组装策略（原 ContextAssembler 子模块，合并内化） ----------
+
+export interface AssembleInput {
+  readonly systemPrompt: string
+  /** 历史上下文（含已并入的信件）。 */
+  readonly context: readonly ChatMessage[]
+  readonly tools?: readonly ToolDefinition[]
 }
 
-export type TimerFactory = (fn: () => void, ms: number) => TimerHandle
-
-const defaultTimer: TimerFactory = (fn, ms) => {
-  const handle = setTimeout(fn, ms)
-  return { cancel: () => clearTimeout(handle) }
+export interface AssembleResult {
+  readonly system: string
+  readonly messages: readonly ChatMessage[]
+  readonly tools?: readonly ToolDefinition[]
 }
 
-export interface MailboxRegistration {
+/** 组装策略：把成分拼成完整上下文（可替换，未来 renderPrompt/Compressor 作为策略实现）。 */
+export type ContextAssembler = (input: AssembleInput) => AssembleResult
+
+/** 经典组装（默认）：system + context 直接作为 messages。 */
+export function classicAssemble(input: AssembleInput): AssembleResult {
+  return {
+    system: input.systemPrompt,
+    messages: [...input.context],
+    tools: input.tools,
+  }
+}
+
+export interface ContextManagerOptions {
+  /** 组装策略（缺省经典组装 classicAssemble）。 */
+  readonly contextAssembler?: ContextAssembler
+  readonly defaultCountdownMs?: number
+  readonly timer?: TimerFactory
+  /** 可注入邮箱实现（缺省 DefaultMailbox）。 */
+  readonly mailbox?: Mailbox
+}
+
+/** 实例化时注册（成分信息 + 发送回调）。 */
+export interface ContextRegistration {
   readonly agentId: string
   readonly systemPrompt?: string
   readonly sendCountdownMs?: number
   /** false = 用户面板（user0）。 */
   readonly assemble?: boolean
   /** 送信回调（agent → kernel；user → 面板）。 */
-  readonly onDelivery: (delivery: MailDelivery) => void
-  /** 倒计时结束但无信可组装时调用（agent → 进入 hold）。 */
+  readonly onDelivery: (delivery: import('./types').MailDelivery) => void
+  /** 倒计时结束但无信可送时调用（agent → 进入 hold）。 */
   readonly onHold?: (agentId: string) => void
 }
 
-interface InternalMailbox {
-  readonly agentId: string
-  systemPrompt: string | undefined
-  readonly context: ChatMessage[]
-  pendingLetters: ChatMessage[]
-  readonly toolRecords: ToolRecord[]
-  sendCountdownMs: number
-  readonly assemble: boolean
-  readonly onDelivery: (delivery: MailDelivery) => void
-  readonly onHold?: (agentId: string) => void
-  timer: TimerHandle | undefined
-  /** 是否处于倒计时中（送信合并窗口）。 */
-  coolingDown: boolean
-  /** 是否有"等待填充的 tool 结果"待送信。 */
-  fillPending: boolean
-}
-
-/** 挂起等待：context_hold 注册后，等待指定 agent 的 assistant_message 作为 tool 结果填充。 */
+/** 挂起等待：context_wait 注册后，等待指定 agent 的 assistant_message 作为 tool 结果填充。 */
 export interface PendingHold {
   readonly waitFor: string
   readonly ownerId: string
   readonly toolCallId: string
 }
 
-export interface ContextManagerOptions {
-  readonly assembler: ContextAssembler
-  readonly defaultCountdownMs?: number
-  readonly timer?: TimerFactory
+interface InternalBox {
+  readonly agentId: string
+  systemPrompt: string | undefined
+  readonly context: ChatMessage[]
+  pendingLetters: ChatMessage[]
+  readonly toolRecords: ToolRecord[]
+  readonly assemble: boolean
+  /** 是否有"等待填充的 tool 结果"待送信。 */
+  fillPending: boolean
 }
 
 export interface ContextManager {
-  readonly register: (registration: MailboxRegistration) => Promise<void>
+  readonly register: (registration: ContextRegistration) => Promise<void>
   readonly unregister: (agentId: string) => Promise<void>
   /**
    * 投信（from 为发送者 id，用于 sub 等待分流）。
@@ -88,23 +103,26 @@ export interface ContextManager {
   readonly appendHistory: (agentId: string, message: ChatMessage) => Promise<void>
   /** 工具调用审计记录（工具模块自动发送）。 */
   readonly appendToolRecord: (agentId: string, record: ToolRecord) => Promise<void>
-  readonly getState: (agentId: string) => MailboxState
+  readonly getState: (agentId: string) => Promise<MailboxState>
 }
 
 export class DefaultContextManager implements ContextManager {
-  private readonly boxes = new Map<string, InternalMailbox>()
+  private readonly boxes = new Map<string, InternalBox>()
   private readonly pendingFills = new Map<string, PendingHold>()
-  private readonly assembler: ContextAssembler
-  private readonly defaultCountdownMs: number
-  private readonly timer: TimerFactory
+  private readonly assemble: ContextAssembler
+  private readonly mailbox: Mailbox
 
-  constructor(options: ContextManagerOptions) {
-    this.assembler = options.assembler
-    this.defaultCountdownMs = options.defaultCountdownMs ?? 1000
-    this.timer = options.timer ?? defaultTimer
+  constructor(options: ContextManagerOptions = {}) {
+    this.assemble = options.contextAssembler ?? classicAssemble
+    this.mailbox =
+      options.mailbox ??
+      new DefaultMailbox({
+        defaultCountdownMs: options.defaultCountdownMs,
+        timer: options.timer,
+      })
   }
 
-  async register(registration: MailboxRegistration): Promise<void> {
+  async register(registration: ContextRegistration): Promise<void> {
     if (this.boxes.has(registration.agentId)) {
       throw { kind: 'mailbox_conflict', agentId: registration.agentId }
     }
@@ -114,20 +132,22 @@ export class DefaultContextManager implements ContextManager {
       context: [],
       pendingLetters: [],
       toolRecords: [],
-      sendCountdownMs: registration.sendCountdownMs ?? this.defaultCountdownMs,
       assemble: registration.assemble ?? true,
-      onDelivery: registration.onDelivery,
-      onHold: registration.onHold,
-      timer: undefined,
-      coolingDown: false,
       fillPending: false,
     })
+    const mailboxRegistration: MailboxRegistration = {
+      agentId: registration.agentId,
+      sendCountdownMs: registration.sendCountdownMs,
+      onDelivery: registration.onDelivery,
+      onHold: registration.onHold,
+      // 发送前消费已就绪的信件/填充标记（邮箱不接触上下文成分）。
+      beforeSend: (agentId) => this.commit(agentId),
+    }
+    await this.mailbox.register(mailboxRegistration)
   }
 
   async unregister(agentId: string): Promise<void> {
-    const box = this.boxes.get(agentId)
-    if (!box) return
-    box.timer?.cancel()
+    await this.mailbox.unregister(agentId)
     this.boxes.delete(agentId)
   }
 
@@ -144,13 +164,13 @@ export class DefaultContextManager implements ContextManager {
         const owner = this.require(pending.ownerId)
         owner.context.push({ role: 'tool', content: letter.content, toolCallId: pending.toolCallId })
         owner.fillPending = true
-        this.scheduleDelivery(owner)
+        this.assembleAndNotify(owner)
         return
       }
     }
     const box = this.require(agentId)
     box.pendingLetters.push(letter)
-    this.scheduleDelivery(box)
+    this.assembleAndNotify(box)
   }
 
   async appendHistory(agentId: string, message: ChatMessage): Promise<void> {
@@ -163,75 +183,51 @@ export class DefaultContextManager implements ContextManager {
     box.toolRecords.push(record)
   }
 
-  getState(agentId: string): MailboxState {
+  async getState(agentId: string): Promise<MailboxState> {
     const box = this.require(agentId)
+    const mailboxState = await this.mailbox.getState(agentId)
     return {
       agentId: box.agentId,
       systemPrompt: box.systemPrompt,
       context: [...box.context],
       pendingLetters: [...box.pendingLetters],
       toolRecords: [...box.toolRecords],
-      sendCountdownMs: box.sendCountdownMs,
+      sendCountdownMs: mailboxState.sendCountdownMs,
       assemble: box.assemble,
+      coolingDown: mailboxState.coolingDown,
     }
   }
 
-  /** 触发送信/重置倒计时（上下文就绪时）。 */
-  private scheduleDelivery(box: InternalMailbox): void {
-    if (box.coolingDown) {
-      // 倒计时中 → 重置（合并窗口滑动）。
-      box.timer?.cancel()
-      box.timer = this.timer(() => this.onCountdown(box), box.sendCountdownMs)
-      return
-    }
-    // 无倒计时（首信 / holding 中来信 / 填充就绪）→ 立即送信。
-    this.deliver(box)
-  }
-
-  private deliver(box: InternalMailbox): void {
-    box.fillPending = false
+  /** 拼装（agent）或汇总（user）出新内容 → 交给邮箱（就绪信号）。 */
+  private assembleAndNotify(box: InternalBox): void {
+    let content: ReadyContent
     if (box.assemble) {
-      // 信件并入历史后组装，再送信
-      const letters = [...box.pendingLetters]
-      box.pendingLetters = []
-      box.context.push(...letters)
-      const system = box.systemPrompt ?? ''
-      const assembled = this.assembler.assemble({ systemPrompt: system, context: box.context })
-      const delivery: AgentDelivery = {
-        kind: 'agent',
-        agentId: box.agentId,
-        system: assembled.system,
-        messages: assembled.messages,
-        tools: assembled.tools,
+      // 只读拼装：快照 = 历史 + 待发送信件（不消费信件，发送后 commit）。
+      const result = this.assemble({
+        systemPrompt: box.systemPrompt ?? '',
+        context: [...box.context, ...box.pendingLetters],
+      })
+      content = {
+        kind: 'context',
+        system: result.system,
+        messages: result.messages,
+        tools: result.tools,
       }
-      box.onDelivery(delivery)
     } else {
-      const letters = [...box.pendingLetters]
-      box.pendingLetters = []
-      const delivery: UserDelivery = { kind: 'user', agentId: box.agentId, letters }
-      box.onDelivery(delivery)
+      content = { kind: 'letters', letters: [...box.pendingLetters] }
     }
-    this.startCountdown(box)
+    void this.mailbox.notifyReady(box.agentId, content)
   }
 
-  private startCountdown(box: InternalMailbox): void {
-    box.coolingDown = true
-    box.timer?.cancel()
-    box.timer = this.timer(() => this.onCountdown(box), box.sendCountdownMs)
+  /** 邮箱发送前调用：把已拼装进快照的信件并入历史并清空（避免重复组装）。 */
+  private commit(agentId: string): void {
+    const box = this.require(agentId)
+    box.context.push(...box.pendingLetters)
+    box.pendingLetters = []
+    box.fillPending = false
   }
 
-  private onCountdown(box: InternalMailbox): void {
-    box.timer = undefined
-    box.coolingDown = false
-    // 送信条件：上下文就绪（有待送信件 或 等待填充的 tool 结果）。
-    if (box.pendingLetters.length > 0 || box.fillPending) {
-      this.deliver(box)
-    } else {
-      box.onHold?.(box.agentId)
-    }
-  }
-
-  private require(agentId: string): InternalMailbox {
+  private require(agentId: string): InternalBox {
     const box = this.boxes.get(agentId)
     if (!box) throw { kind: 'mailbox_not_found', agentId }
     return box

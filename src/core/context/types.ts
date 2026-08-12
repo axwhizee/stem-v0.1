@@ -9,7 +9,7 @@
 import type { ChatMessage, ToolDefinition } from '../gateway'
 import type { ToolRecord } from '../tools'
 
-/** 单个信箱状态。 */
+/** 单个信箱状态（成分状态 + 邮箱状态）。 */
 export interface MailboxState {
   readonly agentId: string
   /** 实例化时注册（agent 的 system_prompt）。 */
@@ -24,6 +24,8 @@ export interface MailboxState {
   readonly sendCountdownMs: number
   /** false = 用户面板（不做上下文组装，只汇总信件）。 */
   readonly assemble: boolean
+  /** 是否处于倒计时（送信合并窗口）中。 */
+  readonly coolingDown: boolean
 }
 
 /** 送信结果：agent 收到组装后的完整上下文。 */

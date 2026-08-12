@@ -16,7 +16,7 @@ import type { LLMEvent, ModelRef, UsageEvent } from '../gateway'
 import { DefaultMessageBus } from '../bus'
 import type { MessageBus } from '../bus'
 import type { ContextAssembler, ContextManager, MailDelivery, UserDelivery } from '../context'
-import { ClassicContextAssembler, DefaultContextManager } from '../context'
+import { DefaultContextManager } from '../context'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import simpleChatTemplate from '../../../templates/SimpleChat.json'
 import coderTemplate from '../../../templates/Coder.json'
@@ -79,7 +79,7 @@ export class AgentKernel {
     this.tools = options.tools
 
     this.contextManager = new DefaultContextManager({
-      assembler: options.contextAssembler ?? new ClassicContextAssembler(),
+      contextAssembler: options.contextAssembler,
       defaultCountdownMs: options.defaultCountdownMs,
       timer: options.timer,
     })
