@@ -138,6 +138,22 @@ export interface PermissionReplied {
   readonly reply: 'once' | 'always' | 'reject'
 }
 
+/** 初始化：用户工具注册记录。 */
+export interface InitToolRegistered {
+  readonly type: 'init.tool.registered'
+  readonly at: number
+  readonly tool: string
+  readonly file: string
+}
+
+/** 初始化：用户 agent 类注册记录。 */
+export interface InitAgentRegistered {
+  readonly type: 'init.agent.registered'
+  readonly at: number
+  readonly classId: string
+  readonly file: string
+}
+
 export type LogEvent =
   | ToolInvoked
   | ApiRequestRecorded
@@ -151,3 +167,5 @@ export type LogEvent =
   | AgentMessageSent
   | PermissionAsked
   | PermissionReplied
+  | InitToolRegistered
+  | InitAgentRegistered

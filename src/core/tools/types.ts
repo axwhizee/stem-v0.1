@@ -9,8 +9,8 @@
 //     + session 用户批准决定 allow/deny/ask；registry 执行时统一确认；
 //  3. 执行生命周期暴露 ToolHooks（before/after/error），
 //     供 telemetry、审计、限流等横切能力挂载；
-//  4. kind（internal/external）是工具固有属性：internal=core 系统工具，
-//     external=宿主（shell/MCP）经注册接口接入的工具。
+//  4. kind（internal/shell/user）是工具固有属性：internal=core 系统工具，
+//     shell=宿主内置工具，user=用户 `.stem/tool/` 提供的工具。
 // ============================================================
 
 import type { PermissionAction, PermissionRules } from '../permission'
@@ -24,8 +24,13 @@ export type ToolCategory =
   | 'module' // 模块评估/改造（module_*）
   | (string & {})
 
-/** 工具来源（固有属性）：internal=core 系统工具；external=宿主注册工具。 */
-export type ToolKind = 'internal' | 'external'
+/**
+ * 工具来源（固有属性）：
+ *   - internal = core 系统工具（agent_* / context_*，Kernel 提供）；
+ *   - shell = 宿主内置工具（shell/tools/，如 read/write/edit/grep/glob）；
+ *   - user = 用户提供的工具（`.stem/tool/`，经 init 注册）。
+ */
+export type ToolKind = 'internal' | 'shell' | 'user'
 
 /** JSON Schema 子集：参数定义（给 LLM 提示 + 运行时校验共用一份）。 */
 export interface ToolPropertySchema {
@@ -108,7 +113,7 @@ export interface ToolCapability {
   readonly parameters: ToolParametersSchema
   /** 权限名（缺省 = 工具 id；多个工具可共享，如 edit/write → 'edit'）。 */
   readonly permission?: string
-  /** 工具来源（固有属性）：internal=core 系统工具；external=宿主注册工具。 */
+  /** 工具来源（固有属性）：internal=core 系统工具；shell=宿主内置；user=用户提供。 */
   readonly kind?: ToolKind
   readonly category?: ToolCategory
   /** 执行器（实现由适配层/Kernel 注入）。 */

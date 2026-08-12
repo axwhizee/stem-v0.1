@@ -27,6 +27,14 @@ export interface PermissionManagerOptions {
   readonly onLog?: LogSink
   /** 可注入请求 id 生成器（测试用）。 */
   readonly nextRequestId?: () => string
+  /**
+   * 全局默认权限规则（来自配置 `permission`，**最弱优先级**）。
+   * 评估顺序：[globalDefaults, agent 类规则, session 批准]，最后命中优先
+   * —— agent 类可覆盖全局、用户批准可覆盖 agent 类。
+   */
+  readonly globalDefaults?: PermissionRules
+  /** 权限自动批准（配置 `autoApprove`）：true 时 ask 直接放行，不弹窗。 */
+  readonly autoApprove?: boolean
 }
 
 export interface PermissionManager {
@@ -52,16 +60,21 @@ export class DefaultPermissionManager implements PermissionManager {
   private readonly askPanel: (request: PermissionRequest) => void
   private readonly onLog?: LogSink
   private readonly nextRequestId?: () => string
+  private readonly globalDefaults: PermissionRules
+  private readonly autoApprove: boolean
   private counter = 0
 
   constructor(options: PermissionManagerOptions) {
     this.askPanel = options.askPanel
     this.onLog = options.onLog
     this.nextRequestId = options.nextRequestId
+    this.globalDefaults = options.globalDefaults ?? []
+    this.autoApprove = options.autoApprove ?? false
   }
 
   async assert(input: PermissionAssertInput): Promise<void> {
-    const action = evaluate(input.permission, [...input.rules, ...this.approved])
+    // 规则集：[全局默认（最弱）, agent 类规则, ...session 批准（最强）]，最后命中优先。
+    const action = evaluate(input.permission, [...this.globalDefaults, ...input.rules, ...this.approved])
     this.onLog?.log({
       type: 'permission.asked',
       at: Date.now(),
@@ -73,7 +86,8 @@ export class DefaultPermissionManager implements PermissionManager {
     if (action === 'deny') {
       throw { kind: 'permission_denied', permission: input.permission, agentId: input.agentId } satisfies PermissionError
     }
-    // ask：挂起，等面板回复。
+    // ask：autoApprove 放行，否则挂起等面板回复。
+    if (this.autoApprove) return
     const info: PermissionRequest = {
       id: this.nextRequestId?.() ?? `perm_${++this.counter}`,
       permission: input.permission,

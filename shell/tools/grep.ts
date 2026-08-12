@@ -1,5 +1,5 @@
 // ============================================================
-// shell/tools/grep.ts —— grep 工具（kind=external，权限 grep）
+// shell/tools/grep.ts —— grep 工具（kind=shell，权限 grep）
 //
 // 参考 opencode grep：按正则递归搜索文本文件（排除 .git /
 // node_modules），返回 file:line:text。pattern 为完整正则。
@@ -20,7 +20,7 @@ export function createGrepTool(root: string): ToolCapability {
     id: 'grep',
     description: '按正则表达式递归搜索文件内容（排除 .git / node_modules），返回 file:line:text。支持 include 按 glob 过滤文件。',
     permission: 'grep',
-    kind: 'external',
+    kind: 'shell',
     category: 'business',
     parameters: {
       type: 'object',

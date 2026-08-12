@@ -1,5 +1,5 @@
 // ============================================================
-// shell/tools/write.ts —— write 工具（kind=external，权限 edit）
+// shell/tools/write.ts —— write 工具（kind=shell，权限 edit）
 //
 // 参考 opencode write：全量写入文本文件，父目录自动创建，
 // 不支持 append；权限名与 edit 共享 'edit'。
@@ -15,7 +15,7 @@ export function createWriteTool(root: string): ToolCapability {
     id: 'write',
     description: '写入文本内容到文件（全量覆盖，父目录自动创建）。路径为绝对路径或相对工作区路径。',
     permission: 'edit',
-    kind: 'external',
+    kind: 'shell',
     category: 'business',
     parameters: {
       type: 'object',

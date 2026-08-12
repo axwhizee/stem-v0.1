@@ -1,5 +1,5 @@
 // ============================================================
-// shell/tools/read.ts —— read 工具（kind=external，权限 read）
+// shell/tools/read.ts —— read 工具（kind=shell，权限 read）
 //
 // 参考 opencode read：读取文本文件（offset/limit 分页，1-based
 // 起始行，limit ≤2000）或列出目录；二进制文件拒绝文本读取。
@@ -17,7 +17,7 @@ export function createReadTool(root: string): ToolCapability {
     id: 'read',
     description: '读取文本文件内容（支持按行分页，offset 为 1-based 起始行，limit ≤ 2000）或列出目录内容。路径为绝对路径或相对工作区路径。',
     permission: 'read',
-    kind: 'external',
+    kind: 'shell',
     category: 'business',
     parameters: {
       type: 'object',

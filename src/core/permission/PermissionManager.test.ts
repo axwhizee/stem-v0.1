@@ -110,4 +110,43 @@ describe('DefaultPermissionManager', () => {
       (e: { kind?: string }) => e.kind === 'permission_not_found',
     )
   })
+
+  test('globalDefaults（配置全局权限）作为最弱优先级，agent 类可覆盖', async () => {
+    const manager = new DefaultPermissionManager({
+      askPanel: () => {},
+      globalDefaults: [{ tool: 'read', action: 'allow' }],
+    })
+    // 全局 allow → agent 类无规则 → 直接通过。
+    await manager.assert({ permission: 'read', agentId: 'a1', rules: [] })
+    // agent 类 deny 覆盖全局 allow → 拒绝。
+    await assert.rejects(
+      () => manager.assert({ permission: 'read', agentId: 'a1', rules: [{ tool: 'read', action: 'deny' }] }),
+      (e: { kind?: string }) => e.kind === 'permission_denied',
+    )
+    // 全局 deny → agent 类 ask 覆盖 → 挂起等面板。
+    const denyDefault = new DefaultPermissionManager({
+      askPanel: () => {},
+      globalDefaults: [{ tool: 'edit', action: 'deny' }],
+    })
+    const execution = denyDefault.assert({ permission: 'edit', agentId: 'a1', rules: [] })
+    await assert.rejects(
+      () => execution,
+      (e: { kind?: string }) => e.kind === 'permission_denied',
+    )
+  })
+
+  test('autoApprove=true 时 ask 直接放行，不弹窗', async () => {
+    const requests: PermissionRequest[] = []
+    const manager = new DefaultPermissionManager({
+      askPanel: (req) => void requests.push(req),
+      autoApprove: true,
+    })
+    await manager.assert({ permission: 'edit', agentId: 'a1', rules: [] })
+    assert.equal(requests.length, 0, 'autoApprove 不应弹窗')
+    // deny 仍然拒绝（autoApprove 只放行 ask）。
+    await assert.rejects(
+      () => manager.assert({ permission: 'bash', agentId: 'a1', rules: [{ tool: 'bash', action: 'deny' }] }),
+      (e: { kind?: string }) => e.kind === 'permission_denied',
+    )
+  })
 })

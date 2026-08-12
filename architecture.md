@@ -136,9 +136,10 @@ interface ContextManager {
 
 > 系统工具默认权限名 = 工具 id；示例模板（creator 等）在 `permissions` 中显式 `allow` 所需内部工具，避免弹窗打扰。
 
-### 3.8 host 外部工具（`shell/tools/`，kind=external）
+### 3.8 host 内置工具（`shell/tools/`，kind=shell）
 
 - 与 core 解耦的真实文件系统工具，经 registry 注册接口接入（未来 MCP / VSCode 工具同样经该接口）。
+- 工具来源三分类（`ToolKind`）：`internal`（core 系统工具）/ `shell`（宿主内置工具）/ `user`（用户 `.stem/tool/` 提供的工具）。
 - 参考 opencode 实现：
 
 | 工具 | 权限名 | 作用 |
@@ -149,31 +150,33 @@ interface ContextManager {
 | `grep` | grep | 正则递归搜索（排除 .git/node_modules），file:line:text |
 | `glob` | glob | glob 模式匹配文件（**/*/?/{a,b}） |
 
-- shell 装配时 `createHostTools(process.cwd())` 注册；`coder` 模板已启用这些工具。
+- shell 装配时 `createHostTools(<projectRoot>)` 注册（kind=shell）；`coder` 模板已启用这些工具。
 
-### 3.8 Gateway（`core/gateway/`）
+### 3.9 Gateway（`core/gateway/`）
 
 - 保持既有：`ModelGateway` 接口、`providers/opencodeLlm`（单点）、`FakeGateway`。
 - 并行工具调用：协议层 `tool_calls` 数组原生支持；工具轮并行执行，结果按 index 回填。
 
-### 3.9 统一权限模型（`core/permission/`，原子化 per-tool）
+### 3.10 统一权限模型（`core/permission/`，原子化 per-tool）
 
 **废弃模糊的角色等级（normal/advanced/admin）**，改为**每个工具原子化的 allow/deny/ask**，由 **agent 类权限列表**决定：
 
-- **工具**：声明 `permission`（权限名，string；缺省=工具 id；可多工具共享，如 edit/write → `'edit'`）+ `kind: 'internal' | 'external'`（固有属性：内部=core 系统工具，外部=宿主注册工具）。
+- **工具**：声明 `permission`（权限名，string；缺省=工具 id；可多工具共享，如 edit/write → `'edit'`）+ `kind: 'internal' | 'shell' | 'user'`（固有属性：内部=core 系统工具，shell=宿主内置，user=用户 `.stem/tool/` 提供）。
 - **Agent 类**：`permissions: Record<权限名, allow|deny|ask>`；**未列出的工具默认 ask**（弹窗交用户确认）。
-- **评估** `evaluate(permission, rules)`：规则集 = [agent 类规则, ...session 用户批准]，**最后命中优先**，缺省 ask。
+- **全局配置权限（最弱）**：`stem.jsonc` 的 `permission` 作为全局默认，评估规则集 = **[全局默认, agent 类规则, session 用户批准]**，最后命中优先——agent 类可覆盖全局、用户批准可覆盖 agent 类。
+- **autoApprove**：`stem.jsonc` 的 `autoApprove=true` 时 ask 直接放行，不弹窗（deny 仍拒绝）。
+- **评估** `evaluate(permission, rules)`：最后命中优先，缺省 ask。
 - **materialize**：deny 的工具不暴露给模型；allow/ask 暴露（执行时才确认）。
 - **execute**：registry 层统一 `assert` → allow 执行 / deny 抛 `permission_denied` / **ask 挂起** → PanelBus 弹窗 → 用户回复 `once`（通过本次）/ `always`（通过+写 session approved，**用户批准优先于 agent 规则**）/ `reject`（拒绝，可带反馈）。
 - 用户确认完全**面向面板**：ask 请求经 PanelBus 发到面板，CLI 用弹窗模块选择。
 
-### 3.10 PanelBus（`core/panel/`，面板消息统一通道）
+### 3.11 PanelBus（`core/panel/`，面板消息统一通道）
 
 - 所有通向面板的消息统一汇总为 `PanelMessage`：`letter`（回信）/ `permission_request`（权限弹窗）/ `notice`（未来通知）。
 - 面板端（shell/GUI）只需实现一个 consumer 消费统一消息流，内部再分发到展示层 / 弹窗模块；**core 与面板解耦，GUI 完全复用**。
 - 弹窗模块（shell/ui/dialog.ts）：队列结构，`{title, body, options, multiple?}`；CLI 数字编号选择，多选逗号分隔。
 
-### 3.11 Logging 横切（`core/logging/`）
+### 3.12 Logging 横切（`core/logging/`）
 
 - **消息总线即通信接口抽象**：各模块经注入的 `LogSink` 发日志 → 组合根接到 `bus.send({kind:'log'})` → MessageBus 路由到 `Logger`（订阅者）。
 - `LogEvent` 判别联合（对齐 docs §4.1 + 补充点）：
@@ -184,6 +187,43 @@ interface ContextManager {
   - `kernel.*`：class.registered / instance.created / status.changed / instance.terminated / message.sent——Kernel 记录。
 - `InMemoryLogger`：留档 + `query({agentId, type})` 过滤（后续持久化 + `telemetry_read` 工具）。
 - 低层模块（context/tools/runtime）**不依赖 bus**：通过注入的 `LogSink` 发日志，组合根装配。
+
+### 3.13 全局配置（`core/config/`）+ 初始化管线（`core/init/`）
+
+**唯一配置文件**（本阶段不引入 `~/.config/stem/` 多级合并）：项目空间根目录下 `.stem/stem.jsonc`（或 `.stem/stem.json`）是最终配置载体。
+
+- `core/config/`（纯 TS）：`StemConfig` 类型 + JSONC 解析/校验（`parseConfigText`）+ model 格式解析（`parseModelRef`，`提供商/模型`）；文件读写经 `ConfigStore` 接口注入（宿主实现：`shell/config/nodeConfig.ts`）。
+- 配置项：
+  - `model`：当前模型（如 `opencode-go/deepseek-v4-flash`）。
+  - `permission`：全局工具权限（最弱，见 3.10）。
+  - `autoApprove`：权限自动批准开关。
+  - `sendCountdown`：全局默认送信倒计时。
+  - `tools` / `agents`：**同步注册表（纯镜像）**，由 init 自动维护——发现 `.stem/tool/`、`.stem/agent/` 文件就登记，缺实现文件就移除。
+
+**初始化管线 `core/init/`**（`runInit(deps)`，fs/动态 import 注入）：
+
+1. 读取唯一配置（`ConfigStore.load`）。
+2. 扫描 `tool/`（`.ts`，默认导出 `ToolCapability`）、`agent/`（`.md`，YAML 头 + 正文 systemPrompt）目录。
+3. 同步注册表到 stem.jsonc（jsonc-parser 定点修改，保留注释）；已注册但无实现文件 → `orphan_registration` issue 并移除。
+4. 注册到 core：用户工具 → `ToolCapabilityRegistry`（kind 强制 `user`）；用户 agent → `AgentTemplateRegistry`。
+
+**用户 agent 文件**（`.stem/agent/*.md`，对齐 opencode agent 惯例）：
+
+```markdown
+---
+description: 代码审查员
+permission:              # 融合的工具列表 + 权限（工具 = permission 的键）
+  read: allow
+  edit: deny
+send_countdown: 800      # 可选
+---
+<system_prompt 正文>
+```
+
+- **文件名即 agent 类 id 与 name**（不要求 frontmatter 写 id/name，实例化时才命名）。
+- **工具与权限融合**：`permission` 的键即工具白名单（`AgentClass.tools` 由键生成），动作即 `AgentClass.permissions`——避免"有权限无工具 / 有工具无权限"的尴尬；与全局配置 `permission` 形态一致（全局低于 agent）。
+- 映射：description → `description`；send_countdown → `sendCountdown`；`metadata` 等附加字段忽略。
+- shell 启动即跑 `runInit`（`tmp/` 为测试项目空间），`/config` 命令展示配置与注册表。
 
 ## 四、messages 经典模式的定制化（第一步）
 

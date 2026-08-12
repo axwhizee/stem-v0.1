@@ -1,5 +1,5 @@
 // ============================================================
-// shell/tools/glob.ts —— glob 工具（kind=external，权限 glob）
+// shell/tools/glob.ts —— glob 工具（kind=shell，权限 glob）
 //
 // 参考 opencode glob：按 glob 模式递归匹配文件路径
 // （支持 ** / * / ? / {a,b}），返回匹配文件列表。
@@ -13,7 +13,7 @@ export function createGlobTool(root: string): ToolCapability {
     id: 'glob',
     description: '按 glob 模式递归匹配文件路径（支持 ** / * / ? / {a,b}），返回匹配文件列表。',
     permission: 'glob',
-    kind: 'external',
+    kind: 'shell',
     category: 'business',
     parameters: {
       type: 'object',

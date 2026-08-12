@@ -411,3 +411,48 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 
 - MCP 工具适配器（复用 ToolCapability 注册接口 + 统一权限确认）。
 - external_directory 资源级审批（当前简化掉，所有路径统一走工具权限确认）。
+
+---
+
+## 阶段：全局配置（core/config）+ 初始化管线（core/init）+ 用户 tool/agent
+
+**日期**：2026-08-12
+
+### 目标
+
+建立**唯一配置文件** `.stem/stem.jsonc`（本阶段不引入 `~/.config/stem/` 多级合并），自动发现并注册用户工具/agent：`core/config` 处理配置读写解析，`core/init` 作为初始化管线（扫描 → 同步注册表 → 注册进 core）。
+
+### 完成内容
+
+1. **core/config/**（纯 TS，fs 经接口注入）：
+   - `types.ts`：`StemConfig`（model/autoApprove/permission/sendCountdown + tools/agents 镜像注册表）、`RegisteredTool`/`RegisteredAgent`、`ConfigLoadResult`、`ConfigError`。
+   - `parse.ts`：`parseConfigText`（jsonc-parser 解析 JSONC，校验字段类型与 model `提供商/模型` 格式）、`normalizeConfig`、`parseModelRef`。
+   - `store.ts`：`ConfigStore` / `ConfigPaths` 接口（读 + 写 raw text，宿主注入实现）。
+
+2. **core/init/**（初始化管线 `runInit(deps)`，fs/动态 import 注入）：
+   - 扫描 `.stem/tool/*.ts`（默认导出 `ToolCapability`）+ `.stem/agent/*.md`（YAML 头 + 正文）。
+   - **同步注册表（纯镜像）**：新文件 → 登记；已注册但无实现文件 → `orphan_registration` issue 并移除；jsonc-parser `modify` 定点写回，**保留注释**。
+   - 注册进 core：工具 → `ToolCapabilityRegistry`（kind 强制 `user`）；agent → `AgentTemplateRegistry`。
+   - 用户 agent 文件解析（`agentParse.ts`）：**文件名即 agent 类 id/name**（不要求 frontmatter 写 id/name，实例化时才命名）；**工具与权限融合**——`permission: { read: allow, edit: deny }` 的键即工具白名单、动作即权限，避免"有权限无工具 / 有工具无权限"；description / send_countdown 映射，metadata 等附加字段忽略。
+
+3. **ToolKind 三分类**：`'internal' | 'external'` → `'internal' | 'shell' | 'user'`；`shell/tools/` 5 个工具改 `kind: 'shell'`。
+
+4. **权限配置接入**：`PermissionManager` 新增 `globalDefaults`（全局权限，最弱优先级）+ `autoApprove`（ask 直接放行）；`AgentKernelOptions` 透传 `globalPermissionDefaults` / `autoApprove`，规则集 = [全局默认, agent 类规则, session 批准]。
+
+5. **shell/config/**（node fs 宿主实现）：`resolveConfigPaths` / `createNodeConfigStore`（stem.jsonc 优先，其次 stem.json）/ `createNodeInitFs` / `nodeToolLoader`（动态 import 用户工具）/ `FALLBACK_MODEL`。
+
+6. **tmp/ 测试项目空间**：`tmp/.stem/stem.jsonc` + `tool/user_hello.ts`（示例用户工具）+ `agent/user-reviewer.md`（示例用户 agent，YAML 头 + 审查员提示词）。
+
+7. **shell/main.ts 接入**：启动时 `runInit`（模型/权限/autoApprove/倒计时从配置读取）；`/config` 命令展示配置与注册表；host 工具 root 改为项目空间 `tmp/`。
+
+### 验证
+
+- 101/101 测试通过（新增：config 解析 12 项、agent 解析 10 项、init 管线 8 项、权限 globalDefaults/autoApprove 2 项、nodeConfig 真实 fs 集成 3 项）。
+- mock 模式验证：`/config` 显示 model=`opencode-go/deepseek-v4-flash`、全局权限 `{read: allow}`、注册 `user_hello` + `user-reviewer`；`/templates` 列出用户 agent `user-reviewer`；stem.jsonc 自动写入 tools/agents 镜像且注释保留。
+- typecheck 0 错误。
+
+### 后续（未执行）
+
+- `~/.config/stem/` 全局配置 + 多级合并（`[项目 .stem, 全局]` 优先级）。
+- 运行时热更新 / watch `.stem/` 目录。
+- user 工具权限与 enabled 的用户覆盖（当前镜像只读）。

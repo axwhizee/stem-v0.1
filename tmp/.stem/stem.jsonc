@@ -1,0 +1,23 @@
+{
+  // stem 唯一配置文件：全局配置 + 同步注册表（tools/agents 由 init 自动维护）。
+  "model": "opencode-go/deepseek-v4-flash",
+  "autoApprove": false,
+  "permission": {
+    "read": "allow"
+  },
+  "sendCountdown": 1000,
+  "tools": [
+    {
+      "id": "user_hello",
+      "file": "user_hello.ts",
+      "kind": "user",
+      "enabled": true
+    }
+  ],
+  "agents": [
+    {
+      "id": "user-reviewer",
+      "file": "user-reviewer.md"
+    }
+  ]
+}

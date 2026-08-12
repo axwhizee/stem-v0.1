@@ -22,6 +22,8 @@ import { InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
 import type { PermissionManager } from '../permission'
 import { DefaultPermissionManager } from '../permission'
+import type { PermissionAction } from '../permission'
+import { permissionsToRules } from '../permission'
 import type { PanelConsumer } from '../panel'
 import { DefaultPanelBus } from '../panel'
 import type { PanelBus } from '../panel'
@@ -71,6 +73,13 @@ export interface AgentKernelOptions {
   readonly logger?: Logger
   /** 面板消息消费者（shell/GUI 注入；统一消费回信/权限请求等面板消息）。 */
   readonly onPanelMessage?: PanelConsumer
+  /**
+   * 全局默认权限（来自配置 `permission`，最弱优先级）。
+   * 评估顺序：[全局默认, agent 类规则, session 批准]，最后命中优先。
+   */
+  readonly globalPermissionDefaults?: Readonly<Record<string, PermissionAction>>
+  /** 权限自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
+  readonly autoApprove?: boolean
 }
 
 export class AgentKernel {
@@ -101,6 +110,7 @@ export class AgentKernel {
     this.panel = new DefaultPanelBus({ consumer: options.onPanelMessage })
 
     // 权限管理器：ask 挂起 → 面板弹窗；always → session 批准。
+    // 配置项注入：全局默认权限（最弱）+ autoApprove（ask 直接放行）。
     this.permissions = new DefaultPermissionManager({
       askPanel: (request) =>
         this.panel.post({
@@ -112,6 +122,10 @@ export class AgentKernel {
           at: request.at,
         }),
       onLog: { log: (event) => this.emitLog(event) },
+      globalDefaults: options.globalPermissionDefaults
+        ? permissionsToRules(options.globalPermissionDefaults)
+        : undefined,
+      autoApprove: options.autoApprove,
     })
 
     this.contextManager = new DefaultContextManager({

@@ -23,7 +23,7 @@
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { readFile } from 'node:fs/promises'
-import { isAbsolute } from 'node:path'
+import { isAbsolute, join } from 'node:path'
 import {
   AgentKernel,
   makeAgentClassID,
@@ -41,9 +41,13 @@ import type { PanelMessage } from '../src/core/panel'
 import { startMockSse, defaultScript, type MockResponse } from '../test-support/mockSse'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
 import { createHostTools } from './tools'
+import { createNodeConfigBundle, FALLBACK_MODEL } from './config'
+import { runInit, type InitReport } from '../src/core/init'
+import { parseModelRef } from '../src/core/config'
+import { permissionsToRules } from '../src/core/permission'
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
-const DEFAULT_PROJECT = '/workspace/stem-demo'
+const DEFAULT_PROJECT = process.env.STEM_PROJECT_ROOT ?? join(process.cwd(), 'tmp')
 const DEFAULT_USER_PROMPT = '你好，请做一个简短的自我介绍。'
 
 interface ShellState {
@@ -54,6 +58,8 @@ interface ShellState {
   dialogs: QueueDialog
   /** 流式输出状态（避免收信重复打印）。 */
   display: { streamedAny: boolean }
+  /** 初始化报告（config + 注册表，供 /config 展示）。 */
+  init: InitReport
 }
 
 /** 演示业务工具：回显文本。 */
@@ -103,10 +109,13 @@ const ocReadFile: ToolCapability = {
   },
 }
 
-async function buildGateway(): Promise<{ gateway: ModelGateway; source: string }> {
+async function buildGateway(modelId?: string): Promise<{ gateway: ModelGateway; source: string }> {
   const apiKey = process.env.OPENCODE_API_KEY
   if (apiKey) {
-    return { gateway: createOpencodeGateway({ apiKey }), source: `real go/zen (model=${process.env.OPENCODE_MODEL ?? DEFAULT_MODEL})` }
+    return {
+      gateway: createOpencodeGateway({ apiKey }),
+      source: `real go/zen (model=${process.env.OPENCODE_MODEL ?? modelId ?? DEFAULT_MODEL})`,
+    }
   }
   // mock 模式：按 system 区分角色，按轮次推进（创建→等待→汇报）。
   const systemRounds = new Map<string, number>()
@@ -160,14 +169,20 @@ async function buildGateway(): Promise<{ gateway: ModelGateway; source: string }
 }
 
 async function createShell(): Promise<ShellState> {
-  const { gateway, source } = await buildGateway()
+  // 1. 读取唯一配置（`<projectRoot>/.stem/stem.jsonc`）。
+  const bundle = createNodeConfigBundle(DEFAULT_PROJECT)
+  const loaded = await bundle.store.load()
+  const config = loaded.config
+  const model = parseModelRef(config.model, FALLBACK_MODEL)
+
+  const { gateway, source } = await buildGateway(model.id)
 
   const tools = new DefaultToolCapabilityRegistry()
   await tools.register(ocEcho)
   await tools.register(ocGetTime)
   await tools.register(ocReadFile)
-  // host 外部工具（kind=external）：read/write/edit/grep/glob，操作真实文件系统。
-  for (const tool of createHostTools(process.cwd())) {
+  // host 内置工具（kind=shell）：read/write/edit/grep/glob，操作真实文件系统。
+  for (const tool of createHostTools(DEFAULT_PROJECT)) {
     await tools.register(tool)
   }
 
@@ -180,11 +195,16 @@ async function createShell(): Promise<ShellState> {
     source,
     dialogs,
     display,
+    init: undefined as never,
   }
 
   const kernel = new AgentKernel({
     gateway,
-    defaultModel: { provider: 'opencode', id: process.env.OPENCODE_MODEL ?? DEFAULT_MODEL },
+    defaultModel: model,
+    defaultCountdownMs: config.sendCountdown,
+    // 配置注入：全局默认权限（最弱）+ autoApprove（ask 直接放行）。
+    globalPermissionDefaults: config.permission,
+    autoApprove: config.autoApprove,
     tools,
     onEvent: (agentId, event) => {
       if (agentId === state.currentAgentId && event.type === 'text-delta') {
@@ -196,6 +216,17 @@ async function createShell(): Promise<ShellState> {
     onPanelMessage: (message) => handlePanelMessage(state, message),
   })
   state.kernel = kernel
+
+  // 2. 初始化管线：扫描 .stem/tool + .stem/agent → 同步注册表 → 注册进 core。
+  const init = await runInit({
+    config: { store: bundle.store, paths: bundle.paths },
+    fs: bundle.fs,
+    tools: { loadTool: bundle.loadTool },
+    toolRegistry: tools,
+    templateRegistry: kernel.templates,
+  })
+  state.init = init
+  for (const issue of init.issues) console.log(`  [init] ${formatInitIssue(issue)}`)
 
   // 带工具白名单的示例模板
   await kernel.templates.register({
@@ -248,6 +279,14 @@ async function createShell(): Promise<ShellState> {
 
 function contentText(content: unknown): string {
   return typeof content === 'string' ? content : JSON.stringify(content)
+}
+
+/** 格式化初始化问题（不同 issue 形状不同）。 */
+function formatInitIssue(issue: InitReport['issues'][number]): string {
+  if (issue.kind === 'orphan_registration') {
+    return `已注册但无实现文件：${issue.type} ${issue.id}（${issue.file}）`
+  }
+  return `${issue.kind}: ${issue.message}（${issue.file}）`
 }
 
 /** 解析发送者戳，返回（senderId, text）。 */
@@ -303,10 +342,21 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
   const [cmd, ...rest] = line.split(/\s+/)
   switch (cmd) {
     case '/help':
-      console.log('命令: /new <classId> [name] [userPrompt] · /use <agentId> · /agents · /templates · /tools · /source · /help · /exit')
+      console.log('命令: /new <classId> [name] [userPrompt] · /use <agentId> · /agents · /templates · /tools · /config · /source · /help · /exit')
       return false
     case '/exit':
       return true
+    case '/config': {
+      const init = state.init
+      console.log(`  config: ${DEFAULT_PROJECT}/.stem/stem.jsonc`)
+      console.log(`  model: ${init.config.model ?? '(未配置)'}`)
+      console.log(`  autoApprove: ${init.config.autoApprove ?? false}`)
+      console.log(`  sendCountdown: ${init.config.sendCountdown ?? '(未配置)'}`)
+      console.log(`  全局权限: ${Object.keys(init.config.permission ?? {}).length > 0 ? JSON.stringify(init.config.permission) : '(空，默认 ask)'}`)
+      console.log(`  注册工具: ${init.tools.length > 0 ? init.tools.map((t) => `${t.id}(${t.file})`).join(', ') : '-'}`)
+      console.log(`  注册 agent: ${init.agents.length > 0 ? init.agents.map((a) => `${a.id}(${a.file})`).join(', ') : '-'}`)
+      return false
+    }
     case '/source':
       console.log(state.source)
       return false
@@ -411,7 +461,10 @@ async function main(): Promise<number> {
   console.log('====================================================')
   console.log(' stem core 调试 shell（临时面板 user0）')
   console.log(` gateway: ${state.source}`)
-  console.log(` 模板: ${BUILTIN_TEMPLATES.map((t) => t.id).join(', ')}, tool-assistant, creator`)
+  console.log(` 配置: ${DEFAULT_PROJECT}/.stem/stem.jsonc（唯一配置文件）`)
+  console.log(` 注册用户工具: ${state.init.tools.length > 0 ? state.init.tools.map((t) => t.id).join(', ') : '-'}`)
+  console.log(` 注册用户 agent: ${state.init.agents.length > 0 ? state.init.agents.map((a) => a.id).join(', ') : '-'}`)
+  console.log(` 模板: ${BUILTIN_TEMPLATES.map((t) => t.id).join(', ')}, tool-assistant, creator${state.init.agents.length > 0 ? ', ' + state.init.agents.map((a) => a.id).join(', ') : ''}`)
   console.log(` 当前实例: ${state.currentAgentId} (小助手)`)
   console.log(' 工具演示: /new tool-assistant 再问 "echo hello"；/new creator 再问 "创建一个助手读取时间"')
   console.log(' 直接输入对话；/help 查看命令；/exit 退出')
