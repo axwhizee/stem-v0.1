@@ -1,14 +1,14 @@
 // ============================================================
 // core/logging/Logger.ts —— 日志记录器（Recorder）
 //
-// 作为 MessageBus 的「log 订阅者」：各模块把 LogEvent 经消息总线
-// 发送到本模块（组合根把 bus 的 log 路由接到这里）。本模块只负责
-// 留档与查询（内存，后续可持久化），供评估/进化（telemetry_read）。
+// 各模块把 LogEvent 经注入的 LogSink 直接发到本模块（组合根
+// 装配，无总线中转）。本模块只负责留档与查询（内存，后续可持久化），
+// 供评估/进化（telemetry_read）。
 // ============================================================
 
 import type { LogEvent } from './events'
 
-/** 日志出口（各模块经此发日志；组合根接到 bus 的 log 路由）。 */
+/** 日志出口（各模块经此发日志；组合根装配到日志记录器）。 */
 export interface LogSink {
   readonly log: (event: LogEvent) => void
 }

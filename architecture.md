@@ -11,115 +11,114 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ Layer 4  Host / 面板 (shell/ 当前为 CLI，未来 VSCode)                  │
-│   面板 = user0：接入总线与邮局，发送消息 / 接收汇总展示                 │
+│   面板 = user0：注册上下文（assemble=false），发消息 / 收汇总展示       │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 3  Agent Kernel (core/kernel/)  ← 纯 TS，零平台依赖             │
 │   AgentTemplateRegistry · AgentInstanceManager · AgentSpaceManager     │
 │   AgentRuntime（被动驱动状态机）· AgentKernel（组合根+系统工具）        │
 ├──────────────────────────────────────────────────────────────────────┤
-│ Layer 2  Core Infra (core/context/, core/tools/, core/bus/, core/permission/, core/panel/) │
-│   ContextManager（成分管理+拼装+就绪信号）· Mailbox（等待+倒计时+发送）│
+│ Layer 2  Core Infra (core/context/, core/tools/, core/permission/, core/panel/) │
+│   仓库 Repository（存储）· 管理员 ContextManager（处理）· 快递员 Courier（发送）│
 │   ToolCapabilityRegistry（工具引擎，统一权限确认）· PermissionManager · PanelBus │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 1  Model Gateway (core/gateway/)  ← 纯 TS（opencode 隔离）       │
 │   ModelGateway · providers/(opencodeLlm / fetch) · FakeGateway         │
 └──────────────────────────────────────────────────────────────────────┘
-  横切  Logging (core/logging/) —— 各模块日志经 MessageBus → 记录器（内存留档 + 查询）
+  横切  Logging (core/logging/) —— 各模块 LogEvent 经注入 LogSink 直达记录器（无总线）
 ```
 
-依赖方向（单向）：`shell → kernel → context/tools/bus → gateway`。core 目录零平台依赖（禁止 `import 'vscode'` 与平台全局）。
+依赖方向（单向）：`shell → kernel → context/tools → gateway`。core 目录零平台依赖（禁止 `import 'vscode'` 与平台全局）。
 
-## 二、通信模型：单工邮局模式（核心架构）
+## 二、通信模型：仓库 · 管理员 · 快递员（重建邮局）
 
-**一句话**：MessageBus 只是"送信员"，真正的信箱是 context 模块；ContextManager 统一管理上下文成分并拼装，Mailbox 在「上下文就绪 + 倒计时就绪」双条件满足后主动"送信"给 agent；agent 全程**被动**。
+**一句话**：无集中式总线。上下文按"仓库（存储）→ 管理员（处理）→ 快递员（发送）"三模块协作；agent 通信直接投递到上下文管理员；log / permission_reply 走注入接口。
 
 ### 关键概念
 
 - **AgentClass（模板）** 承载设定参数：`id / name / description / system_prompt / model / permission / tools / memoryScope / send_countdown`。
 - **AgentInstance** 承载：`id / classRef / creatorId / displayName / spaceId / status / history`。
-- **用户面板**：在总线与邮局中与 agent **一视同仁**，id 固定 `user0`；有送信倒计时但**不做上下文组装**，只做 user_prompt 汇总展示。
-- **消息 ≠ 上下文**：总线承载通信消息；上下文由邮局按 agent id 组装（本阶段经典组装模式）。
+- **用户面板**：与 agent 一视同仁，id 固定 `user0`；注册进上下文（assemble=false 不组装，只汇总信件）。
+- **仓库（Repository）**：上下文本体的唯一存储，每条消息记录 `message / agentId / at / tokens（估算） / valid / from`；任何消息先入库，触发 onChange（管理员处理入口）。
+- **管理员（ContextManager）**：收到「上下文待处理事件」→ 打发送者戳（user 消息用 from 元数据生成 `<sender id>`）、context_wait 判定（命中挂起 → 作为 tool 结果填充）、组装（classic/coding-hybrid 模式）→ 通知快递员「上下文待发送事件」。
+- **快递员（Courier）**：按 agentId 维护发送倒计时（初始 0 立即送；发送后开始；来信重置），发送时从仓库按 valid 顺序取有效消息。
+- **消息 ≠ 上下文**：通信消息直接投递；上下文由管理员按模式组装。
 
-### 上下文成分与就绪来源（全部异步）
-
-| 成分 | 就绪时机 | 来源 |
-|---|---|---|
-| `system_prompt` | 实例化注册到邮局时 | AgentInstanceManager |
-| `user_prompt`（信件） | 用户/agent 投信，倒计时结束时累积完成 | 用户面板 / bus_send / 自动寄信 |
-| `assistant_message`（历史） | agent 每轮模型返回后，runtime 自动复制到邮局 | AgentRuntime |
-| `tool_call` 记录（历史） | 工具被触发 / 得到反馈时自动记录 | ToolCapabilityRegistry（onRecord） |
-
-### 送信倒计时（邮局维护的局部量）
+### 送信倒计时（快递员维护的局部量）
 
 - 倒计时**初始为 0**：首信到达立即组装送信（无需等待）。
 - **仅发送完一次上下文后**才进入倒计时（= 合并下一批来信的滑动窗口），倒计时期间新来信**重置**倒计时。
-- **送信条件**：上下文各成分就绪（有信件累积 或 有待填充的 tool 结果）**且**倒计时就绪；否则保持 holding。
+- **送信条件**：上下文就绪（管理员已处理/组装）**且**倒计时就绪；否则保持 holding。
 - 默认 `sendCountdownMs = 1000ms`（模板可配）。
 
-### 单工消息流
+### 消息流
 
 ```
-发送方 ──信件──▶ MessageBus ──▶ 邮局(deposit: 按id累积 + 重置倒计时)
-                                      │
-                      倒计时结束(或首信) → ContextAssembler 组装完整上下文
-                                      │
-                  ──bus 送信──▶ 收件方（agent 由 kernel 处理；user 由面板处理）
-                                        │
-                     完整上下文 → LLM → thinking → 工具轮 → 最终assistant
-                                        │
-                     runtime: 自动复制assistant→邮局; 最终回复加发送者戳→寄信给创建者
+发送方 ──投递──▶ 管理员 deposit（from 元数据）→ 仓库 append（入库 + 触发 onChange）
+                                                      │
+                         管理员 handleChange：打戳 / context_wait 判定 / 组装
+                                                      │
+                                 ──上下文待发送事件──▶ 快递员 notifyReady
+                                                      │
+                              倒计时就绪 → 从仓库取 valid 消息 → 发送
+                                                      │
+                      完整上下文 → LLM → thinking → 工具轮 → 最终 assistant
+                                                      │
+                     runtime: 复制 assistant→仓库；最终回复投递给创建者
 ```
 
 ## 三、模块职责与内部实现
 
-### 3.1 MessageBus（`core/bus/MessageBus.ts`，通信接口抽象）
+### 3.1 上下文三模块（`core/context/`：仓库 / 管理员 / 快递员）
 
-- 参与者注册/注销/查询（`user0` + 所有 agent，实例化时自动注册）。
-- `send(msg)` 按消息 kind **路由**：agent 消息（`user_prompt/agent_message/result/system`）→ `forward`（邮局 deposit）；`log` 消息 → `onLog`（日志记录器）。
-- 承担 Agent IPC 与日志通道两类职责（日志见 §三.8）。
+**无集中式总线**（已废弃 MessageBus）——agent 通信经 kernel `sendMessage(from, to, payload)` 直接投递到上下文管理员；log / permission_reply 走注入接口。
 
-### 3.2 ContextManager + Mailbox（`core/context/`，context 模块子模块化）
+- **仓库（Repository.ts）**：上下文本体的唯一存储，每条消息记录 `message / agentId / at / tokens（字符/4 估算） / valid / from`；`register` 时把 systemPrompt 作为首条 system message；任何消息先入库（`append`）并触发 `onChange(agentId)`（管理员处理入口）。
+- **管理员（ContextManager.ts）**：收到待处理事件 → 打发送者戳（user 消息用 from 生成 `<sender id="from">`，替代原 runtime 拼戳）、context_wait 判定（from 命中挂起 → 作为 tool 结果填充）、组装（`ContextAssembler` 可注入，classic/coding-hybrid）→ 通知快递员。
+- **快递员（Courier.ts）**：按 agentId 维护发送倒计时（初始 0 立即送；发送后开始；来信重置 = 合并窗口），发送时从仓库按 valid 顺序取有效消息（agent 收 `AgentDelivery`（含 `messageIds`）；user0 收 `UserDelivery` 信件汇总）。
 
-按 `agentId` 分箱，ContextManager（成分 + 拼装 + 就绪信号）与 Mailbox（等待 + 倒计时 + 发送）职责分离：
+### 3.2 仓库·管理员·快递员 协作（`core/context/` 内部）
+
+按 `agentId` 分箱，仓库（存储）/ 管理员（处理）/ 快递员（发送）职责分离：
 
 ```typescript
-// ContextManager —— 对外只暴露「单一上下文接口」，三种成分不向外部暴露各自集合
+// 管理员 —— 处理入口 + 对外单一上下文接口
 interface ContextManager {
   register(reg: { agentId; systemPrompt?; assemble?; onDelivery; onHold? })
   deposit(agentId, letter, from?)   // 投信；from 命中 context_wait 挂起 → 作为 tool 结果填充
   appendHistory(agentId, message)   // 历史（assistant/tool 按来源追加）
-  appendToolRecord(agentId, record) // 工具审计
+  appendToolRecord(agentId, record) // 工具审计（仅日志占位，不干扰仓库）
   registerHold(waitFor, { ownerId, toolCallId })
   getState(agentId)
+  handleChange(agentId)             // 仓库 onChange 入口
 }
 ```
 
-- **ContextManager**：单一上下文接口统一管理 `context（历史）/ pendingLetters（信件）/ toolRecords（工具记录）`；内容就绪（有信件 / 有待填充的 tool 结果）时**立即只读拼装**出完整上下文快照（`ContextAssembler` 已合并为可注入组装策略，缺省 `classicAssemble`）→ 交给 Mailbox。
-- **Mailbox**：**不参与拼装**，只等待「上下文就绪信号（已收到新内容）+ 倒计时就绪」→ 发送（agent 收到 `AgentDelivery`；user 收到 `UserDelivery`）。发送前触发 `beforeSend` → ContextManager 把信件并入历史并清空（避免重复组装）。
-- 送信倒计时（Mailbox 维护）：初始 0（首信立即送信）；发送后开始倒计时，倒计时中新内容到达**重置**倒计时（合并滑动窗口）；结束仍就绪则发送，否则 `onHold` → holding。
-- 用户（`user0`）注册 `assemble:false`：不拼装，只把信件汇总交给 Mailbox 直通发送。
+- **仓库（Repository）**：统一消息记录 `[system, user, assistant, tool, ...]`，每条带 `at / tokens / valid / from`；systemPrompt 在 register 时作为首条 system message 入库（不在单独字段）。
+- **管理员（ContextManager）**：收到 `onChange` → 打发送者戳（user 消息补 `<sender id="from">`）、context_wait 判定（from 命中挂起 → 该回复作为 tool 结果填充到 owner，而非信件）、组装（`ContextAssembler` 可注入，缺省 `classicAssemble`）→ `courier.notifyReady`。
+- **快递员（Courier）**：**不参与处理**，只等待「上下文就绪信号（管理员已处理）+ 倒计时就绪」→ 发送时从仓库按 valid 顺序取有效消息（agent 收 `AgentDelivery`（含 `messageIds`）；user 收 `UserDelivery` 信件汇总）。
+- 送信倒计时（Courier 维护）：初始 0（首信立即送信）；发送后开始倒计时，倒计时中新内容就绪**重置**倒计时（合并滑动窗口）；结束仍就绪则发送，否则 `onHold` → holding。
+- 用户（`user0`）注册 `assemble:false`：不组装，只把信件汇总交给 Courier 直通发送（diff 上次发送的消息 id 集）。
 
 ### 3.4 AgentRuntime（`core/kernel/AgentRuntime.ts`，被动驱动）
 
-- **不是同步 run**：向 kernel 注册后，由邮局送信回调驱动（`processDelivery`）。
-- 状态机：`idle →(邮局送信)→ thinking(请求已发) →(LLM 返回，assistant 或 tool_call)→ holding(等待下一次送信) →…`。
-- 收到组装好的完整上下文 → 发 LLM → 工具轮（并行执行）→ 每轮 assistant 消息自动复制到邮局历史 → 最终纯文本回复：
-  - 自动加**发送者戳** `<sender id="<agentId>">内容</sender>`；
-  - 自动寄信给**创建者**（creatorId）。
-- 状态反映在实例的 `status` 属性（kernel 维护）。
+- **不是同步 run**：向 kernel 注册后，由快递员送信回调驱动（`processDelivery`）。
+- 状态机：`idle →(快递员送信)→ thinking(请求已发) →(LLM 返回，assistant 或 tool_call)→ holding(等待下一次送信) →…`。
+- 收到完整上下文（`AgentDelivery`）→ 发 LLM → **kernel 检查 assistant 中 tool_call 并调用工具**（工具结果经 `appendHistory` 入仓库）→ 每轮 assistant 消息自动复制到仓库 → 最终纯文本回复：
+  - **不再拼发送者戳**（发送者戳由管理员打标签时统一生成）；
+  - 最终回复直接投递给**创建者**（creatorId）上下文。
 
 ### 3.5 AgentInstanceManager（`core/kernel/AgentInstanceManager.ts`）
 
 - 实例化必填：`classId` + **`userPrompt`** + **`creatorId`**（用户默认 `user0`；agent 创建时可指定 id，默认随机 4 位 hash，**冲突报错**）。
-- 实例化流程自动执行：注册总线参与者 → 注册邮局（systemPrompt + sendCountdown + deliveryHandler）→ userPrompt 作为第一封信投递。
-- 系统工具 `agent_instantiate` 因此**不 hold 等待**：创建即投递，由邮局驱动子 agent。
+- 实例化流程自动执行：注册上下文（仓库/管理员/快递员，systemPrompt + sendCountdown + deliveryHandler）→ userPrompt 作为第一封信投递（from=creatorId）。
+- 系统工具 `agent_instantiate` 因此**不 hold 等待**：创建即投递，由快递员驱动子 agent。
 
 ### 3.6 ToolCapabilityRegistry（`core/tools/`）
 
 - 注册/查询/materialize（按权限规则过滤工具可见性）/execute（**统一权限确认** + 参数校验 + ToolHooks）。
 - 内部工具（kind=internal，systemTools 注册）与外部工具（kind=external，宿主/未来 MCP 经注册接口接入）统一注册，工具来源为固有属性。
-- **`onRecord` 回调**（kernel 装配时注入）：工具被触发/成功/失败时自动产生 `ToolRecord` 发送给邮局 —— 不依赖 runtime 手动发送。
-- 工具结果消息由工具模块自动追加到邮局历史（经典组装的一部分）。
+- **`onRecord` 回调**（kernel 装配时注入）：工具被触发/成功/失败时自动产生 `ToolRecord`（审计），工具结果消息经 `appendHistory` 进入仓库 —— 不依赖 runtime 手动发送。
+- 工具结果消息由工具模块自动追加到仓库（经典组装的一部分）。
 
 ### 3.7 系统工具（`core/kernel/systemTools.ts`，Kernel 注册，kind=internal）
 
@@ -127,12 +126,12 @@ interface ContextManager {
 |---|---|---|
 | `agent_class_create` | agent_class_create | 创建新 agent 类（类属性 + `permissions` 权限列表，**不含实例数据**） |
 | `agent_class_list` | agent_class_list | 列出 agent 类 |
-| `agent_instantiate` | agent_instantiate | 创建 agent（必填 classId + userPrompt，**creatorId 可显式指定**，注册总线+邮局，投递首信，**返回 agent id**） |
+| `agent_instantiate` | agent_instantiate | 创建 agent（必填 classId + userPrompt，**creatorId 可显式指定**，注册上下文，投递首信，**返回 agent id**） |
 | `agent_list` | agent_list | 列出实例 |
-| `agent_terminate` | agent_terminate | 终止实例（注销总线+邮局） |
-| `context_wait` | context_wait | 等待指定 agent 回复：其 assistant_message 作为本工具 tool 结果填充（无常规 tool 结果） |
-| `bus_send` | bus_send | 经总线发消息（单目标；并行调用实现一对多） |
-| `bus_participants` | bus_participants | 查询总线注册 id 列表 |
+| `agent_terminate` | agent_terminate | 终止实例（注销上下文） |
+| `context_wait` | context_wait | 等待指定 agent 回复：其回复作为本工具 tool 结果填充（无常规 tool 结果） |
+| `bus_send` | bus_send | 发送消息（单目标；并行调用实现一对多，经 kernel.sendMessage） |
+| `bus_participants` | bus_participants | 查询参与者 id 列表（instances + user0） |
 
 > 系统工具默认权限名 = 工具 id；示例模板（creator 等）在 `permissions` 中显式 `allow` 所需内部工具，避免弹窗打扰。
 
@@ -178,12 +177,12 @@ interface ContextManager {
 
 ### 3.12 Logging 横切（`core/logging/`）
 
-- **消息总线即通信接口抽象**：各模块经注入的 `LogSink` 发日志 → 组合根接到 `bus.send({kind:'log'})` → MessageBus 路由到 `Logger`（订阅者）。
+- **各模块经注入的 `LogSink` 发日志** → 组合根接到 `Logger`（无总线中转）。
 - `LogEvent` 判别联合（对齐 docs §4.1 + 补充点）：
   - `tool.invoked`：工具调用（called/success/error + durationMs + 结果/错误）——ToolCapabilityRegistry 记录。
   - `gateway.apiRequest`：模型调用（model/provider/tokens/latencyMs/cost）——AgentRuntime 每轮记录。
   - `context.assembled`：上下文构成 + **成分就绪时间**（letters/history/tools 时间戳）+ **完整上下文留档**——ContextManager 记录。
-  - `mailbox.countdown` / `mailbox.delivered`：倒计时触发/重置/发送状态——Mailbox 记录。
+  - `mailbox.countdown` / `mailbox.delivered`：倒计时触发/重置/发送状态——Courier 记录。
   - `kernel.*`：class.registered / instance.created / status.changed / instance.terminated / message.sent——Kernel 记录。
 - `InMemoryLogger`：留档 + `query({agentId, type})` 过滤（后续持久化 + `telemetry_read` 工具）。
 - 低层模块（context/tools/runtime）**不依赖 bus**：通过注入的 `LogSink` 发日志，组合根装配。
@@ -234,19 +233,19 @@ send_countdown: 800      # 可选
 ## 五、端到端时序（验收任务）
 
 ```
-1. 用户(user0) ──msg──▶ bus ──▶ 邮局[创造者]（首信，立即送信）
-2. 创造者: thinking → tool_call(agent_instantiate, userPrompt="读取当前时间并告知")
-3. 工具: 创建子agent(id+creatorId) → 注册总线/邮局(systemPrompt+倒计时) → 投递userPrompt首信
-4. 子agent: 邮局送信 → thinking → tool_call(oc_get_time) → 工具自动记录 → 最终回复时间
-5. 子agent: 加戳寄信给创造者 → cooldown → hold
-6. 创造者: 收到信件 → 组装 → thinking → 回复用户时间 → 加戳寄信给 user0
-7. 用户面板: user0 信箱收信汇总 → 显示
+1. 用户(user0) ──sendMessage──▶ 管理员 deposit(from=user0) → 仓库 append（system 已在首位）→ onChange
+2. 管理员 handleChange: 打戳 → 组装 → 快递员 notifyReady（首信倒计时 0 立即发送）
+3. 快递员: 从仓库取 valid 消息 → 发送 AgentDelivery → 创造者 processDelivery
+4. 创造者: thinking → tool_call(agent_instantiate) → kernel 调工具 → 创建子agent(id+creatorId)
+5. 子agent: 注册上下文 → 首信投递 → 快递员发送 → thinking → tool_call(oc_get_time) → 工具结果入仓库
+6. 子agent: 最终回复投递给创造者（管理员打戳）→ context_wait 命中 → 作为 tool 结果填充创造者
+7. 创造者: 继续轮 → 回复用户时间 → 投递给 user0 → 管理员打戳 → 快递员发信件 → 面板显示
 ```
 
 ## 六、技术选型
 
-- TypeScript + tsx（运行/测试）+ node:test；零运行时依赖（工具 schema 校验自研子集）。
-- 邮局存储：本阶段**内存 JSON 消息列表**；后续换 SQLite（`ContextManager` 存储接口已隔离）。
+- TypeScript + tsx（运行/测试）+ node:test；运行时依赖 jsonc-parser / yaml（工具 schema 校验自研子集）。
+- 仓库存储：本阶段**内存 JSON 消息列表**；后续换 SQLite（`Repository` 存储接口已隔离）。
 - 倒计时：全局 `setTimeout`（core 内标准 API，非平台依赖）。
 - LLM 端点：真实 go/zen（`https://opencode.ai/zen/go/v1/chat/completions`）或 mock SSE 兜底。
 
@@ -254,15 +253,17 @@ send_countdown: 800      # 可选
 
 | 项 | 规划 | 实际 |
 |---|---|---|
-| 通信 | MessageBus 保存消息、半双工 | 单工邮局模式：bus 只转发，context 模块持信箱与组装 |
-| context 结构 | ContextManager 一体化邮局 | 子模块化：ContextManager（成分+拼装+就绪信号）→ Mailbox（等待+倒计时+发送）；ContextAssembler 合并为可注入组装策略 |
-| AgentRuntime | 同步 while 循环 | 被动驱动：Mailbox 送信触发，状态机 thinking/cooldown/hold |
+| 通信 | MessageBus 保存消息、半双工 | **无总线**：仓库→管理员→快递员三模块；agent 通信经 kernel.sendMessage 直接投递；log/permission_reply 走注入接口 |
+| context 结构 | ContextManager 一体化邮局 | **重建邮局**：Repository（存储本体+valid/tokens/from 元数据）→ ContextManager（处理/打戳/组装）→ Courier（倒计时+发送）；ContextAssembler 为可注入组装策略 |
+| 发送者戳 | runtime 生成 `<sender id>` | **管理员统一打戳**（用 from 元数据），runtime 只发原始文本 |
+| AgentRuntime | 同步 while 循环 | 被动驱动：快递员送信触发，状态机 thinking/cooldown/hold；kernel 检查 tool_call 并调工具 |
 | Agent 状态 | `idle/running/waiting` | `idle/thinking/holding` |
-| 实例化 | 无 userPrompt/creatorId | 必填 userPrompt；creatorId 可显式指定，注册总线+邮局 |
+| 实例化 | 无 userPrompt/creatorId | 必填 userPrompt；creatorId 可显式指定，注册上下文，system 入库 |
 | 系统工具 | 阶段 3.1 | 提前：agent_class_create/list 已实现（权限名=工具 id） |
-| 上下文 | ContextProfile + 渲染器 | 邮局累积成分 + 组装策略经典组装 |
-| 工具记录 | 无 | onRecord 自动记录 tool_call 到邮局 |
-| MessageBus | 只转发 agent 消息 | 通信接口抽象：agent 消息 → 邮局；log → 日志；permission_reply → 权限管理器 |
-| 日志 | 规划 Telemetry（未实现） | core/logging/ 落地：各模块 LogEvent 经总线路由到 InMemoryLogger |
+| 上下文 | ContextProfile + 渲染器 | 仓库有效消息 + 组装策略经典组装 |
+| 工具记录 | 无 | onRecord 自动审计 + tool 结果入仓库 |
+| MessageBus | 只转发 agent 消息 | **废弃**：sender戳入管理员，log 入 Logger，permission_reply 直连权限管理器 |
+| 参与者 | bus 注册表 | 复用 instances + user0（无独立注册表） |
+| 日志 | 规划 Telemetry（未实现） | core/logging/ 落地：各模块 LogEvent 经注入 LogSink 直达 InMemoryLogger |
 | 权限 | `PermissionLevel`（normal/advanced/admin 角色等级） | **统一原子化 per-tool**：工具 permission 名 + agent 类 permissions 列表（allow/deny/ask），缺省 ask 交用户确认；core/permission/ |
 | 面板通信 | user0 邮局收信 | **PanelBus 统一通道**：回信/权限请求/通知 → 面板弹窗模块（shell/ui/dialog） |

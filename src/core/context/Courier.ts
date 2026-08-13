@@ -1,20 +1,19 @@
 // ============================================================
-// core/context/Mailbox.ts —— 邮箱子模块（发送判定 + 倒计时）
+// core/context/Courier.ts —— 快递员子模块（倒计时 + 发送）
 //
 // 职责（严格单一）：
-//   - 不参与上下文拼装（拼装是 ContextManager 的职责）；
-//   - 只负责等待「上下文就绪信号 + 倒计时就绪」两个条件，然后
-//     向指定 agentId 发送消息（agent 收到完整上下文 / user 收到信件汇总）。
+//   - 不参与上下文处理/组装（管理员 ContextManager 的职责）；
+//   - 按 agentId 维护发送倒计时（初始 0 立即发送；发送后开始；
+//     倒计时中新内容就绪则重置 —— 合并滑动窗口）；
+//   - 收到「上下文待发送事件」（notifyReady）且倒计时就绪时，
+//     从仓库取有效消息（按顺序）发送给对应 agent / 用户面板。
 //
-// 就绪信号来源：ContextManager 在拼装/汇总出新的「待发送内容」后
-// 调用 notifyReady(agentId, content)。Mailbox 持有最新待发送内容，
-// 并管理送信倒计时（初始 0 立即送信；发送后开始倒计时；倒计时中新
-// 内容到达则重置倒计时 —— 合并滑动窗口）。倒计时结束仍有待发送内容
-// 则发送，否则 onHold。
+// 发送条件：上下文就绪（管理员已组装/打戳）& 倒计时就绪。
 // ============================================================
 
-import type { ChatMessage, ToolDefinition } from '../gateway'
+import type { ChatMessage } from '../gateway'
 import type { LogEvent } from '../logging'
+import type { Repository } from './Repository'
 import type { AgentDelivery, MailDelivery, UserDelivery } from './types'
 
 export interface TimerHandle {
@@ -28,49 +27,41 @@ const defaultTimer: TimerFactory = (fn, ms) => {
   return { cancel: () => clearTimeout(handle) }
 }
 
-/** 待发送内容：ContextManager 拼装（agent）/ 汇总（user）完成后交给邮箱。 */
-export type ReadyContent =
-  | {
-      readonly kind: 'context'
-      readonly system: string
-      readonly messages: readonly ChatMessage[]
-      readonly tools?: readonly ToolDefinition[]
-    }
-  | { readonly kind: 'letters'; readonly letters: readonly ChatMessage[] }
-
-export interface MailboxRegistration {
+export interface CourierRegistration {
   readonly agentId: string
   readonly sendCountdownMs?: number
   /** 发送回调（agent → kernel；user → 面板）。 */
   readonly onDelivery: (delivery: MailDelivery) => void
   /** 倒计时结束但无待发送内容时调用（agent → 进入 hold）。 */
   readonly onHold?: (agentId: string) => void
-  /** 发送前回调（ContextManager 注入：消费已就绪的信件/填充标记）。 */
-  readonly beforeSend: (agentId: string) => void
+  /** false = 用户面板（不组装，只汇总信件）。 */
+  readonly assemble?: boolean
 }
 
-export interface MailboxState {
+export interface CourierOptions {
+  readonly defaultCountdownMs?: number
+  readonly timer?: TimerFactory
+  /** 仓库（发送时按有效性取消息）。 */
+  readonly repository: Repository
+  /** 日志出口（组合根注入 → core/logging）。 */
+  readonly onLog?: (event: LogEvent) => void
+}
+
+export interface CourierState {
   readonly agentId: string
   readonly sendCountdownMs: number
   /** 是否处于倒计时（送信合并窗口）中。 */
   readonly coolingDown: boolean
-  /** 是否有待发送的就绪内容。 */
+  /** 是否有待发送的就绪信号。 */
   readonly pending: boolean
 }
 
-export interface MailboxOptions {
-  readonly defaultCountdownMs?: number
-  readonly timer?: TimerFactory
-  /** 日志出口（组合根注入 → bus → core/logging）。 */
-  readonly onLog?: (event: LogEvent) => void
-}
-
-export interface Mailbox {
-  readonly register: (registration: MailboxRegistration) => Promise<void>
+export interface Courier {
+  readonly register: (registration: CourierRegistration) => Promise<void>
   readonly unregister: (agentId: string) => Promise<void>
-  /** ContextManager 在拼装/汇总出新内容时调用（就绪信号 + 内容）。 */
-  readonly notifyReady: (agentId: string, content: ReadyContent) => Promise<void>
-  readonly getState: (agentId: string) => MailboxState
+  /** 管理员处理完成后的「上下文待发送事件」。 */
+  readonly notifyReady: (agentId: string) => Promise<void>
+  readonly getState: (agentId: string) => CourierState
 }
 
 interface InternalBox {
@@ -78,39 +69,43 @@ interface InternalBox {
   readonly sendCountdownMs: number
   readonly onDelivery: (delivery: MailDelivery) => void
   readonly onHold?: (agentId: string) => void
-  readonly beforeSend: (agentId: string) => void
+  readonly assemble: boolean
+  /** 就绪信号（管理员已完成处理，等待倒计时）。 */
+  ready: boolean
+  /** 上次发送的消息 id 集（供 user 面板 diff 信件）。 */
+  lastSentIds: readonly string[]
   timer: TimerHandle | undefined
-  /** 是否处于倒计时中（送信合并窗口）。 */
   coolingDown: boolean
-  /** 待发送内容（就绪信号 + 完整上下文/信件汇总）。 */
-  ready: ReadyContent | undefined
 }
 
-export class DefaultMailbox implements Mailbox {
+export class DefaultCourier implements Courier {
   private readonly boxes = new Map<string, InternalBox>()
   private readonly defaultCountdownMs: number
   private readonly timer: TimerFactory
+  private readonly repository: Repository
   private readonly onLog?: (event: LogEvent) => void
 
-  constructor(options: MailboxOptions = {}) {
+  constructor(options: CourierOptions) {
     this.defaultCountdownMs = options.defaultCountdownMs ?? 1000
     this.timer = options.timer ?? defaultTimer
+    this.repository = options.repository
     this.onLog = options.onLog
   }
 
-  async register(registration: MailboxRegistration): Promise<void> {
+  async register(registration: CourierRegistration): Promise<void> {
     if (this.boxes.has(registration.agentId)) {
-      throw { kind: 'mailbox_conflict', agentId: registration.agentId }
+      throw { kind: 'courier_conflict', agentId: registration.agentId }
     }
     this.boxes.set(registration.agentId, {
       agentId: registration.agentId,
       sendCountdownMs: registration.sendCountdownMs ?? this.defaultCountdownMs,
       onDelivery: registration.onDelivery,
       onHold: registration.onHold,
-      beforeSend: registration.beforeSend,
+      assemble: registration.assemble ?? true,
+      ready: false,
+      lastSentIds: [],
       timer: undefined,
       coolingDown: false,
-      ready: undefined,
     })
   }
 
@@ -121,9 +116,9 @@ export class DefaultMailbox implements Mailbox {
     this.boxes.delete(agentId)
   }
 
-  async notifyReady(agentId: string, content: ReadyContent): Promise<void> {
+  async notifyReady(agentId: string): Promise<void> {
     const box = this.require(agentId)
-    box.ready = content
+    box.ready = true
     if (box.coolingDown) {
       // 倒计时中 → 重置（合并窗口滑动，发送最新内容）。
       this.emit({ type: 'mailbox.countdown', at: Date.now(), agentId, action: 'reset' })
@@ -135,41 +130,53 @@ export class DefaultMailbox implements Mailbox {
     this.deliver(box)
   }
 
-  getState(agentId: string): MailboxState {
+  getState(agentId: string): CourierState {
     const box = this.require(agentId)
     return {
       agentId: box.agentId,
       sendCountdownMs: box.sendCountdownMs,
       coolingDown: box.coolingDown,
-      pending: box.ready !== undefined,
+      pending: box.ready,
     }
   }
 
   private deliver(box: InternalBox): void {
-    const content = box.ready
-    box.ready = undefined
-    if (content === undefined) return
-    // 发送前通知 ContextManager 消费（信件并入历史 / 清空填充标记）。
-    box.beforeSend(box.agentId)
-    const delivery: MailDelivery =
-      content.kind === 'context'
-        ? {
-            kind: 'agent',
-            agentId: box.agentId,
-            system: content.system,
-            messages: content.messages,
-            tools: content.tools,
-          }
-        : { kind: 'user', agentId: box.agentId, letters: content.letters }
+    box.ready = false
+    // 从仓库取有效消息（按顺序）。
+    const valid = this.repository.listValid(box.agentId)
+    if (valid.length === 0) return
+    const delivery: MailDelivery = box.assemble ? this.buildAgentDelivery(box.agentId, valid) : this.buildUserDelivery(box.agentId)
     this.emit({
       type: 'mailbox.delivered',
       at: Date.now(),
       agentId: box.agentId,
       kind: delivery.kind,
-      messageCount: content.kind === 'context' ? content.messages.length : content.letters.length,
+      messageCount: delivery.kind === 'agent' ? delivery.messages.length : delivery.letters.length,
     })
     box.onDelivery(delivery)
     this.startCountdown(box)
+  }
+
+  private buildAgentDelivery(agentId: string, valid: readonly import('./types').StoredMessage[]): AgentDelivery {
+    const systemIndex = valid.findIndex((m) => m.message.role === 'system')
+    const system = systemIndex >= 0 ? contentOf(valid[systemIndex]!.message) : ''
+    const rest = valid.filter((m) => m.message.role !== 'system')
+    return {
+      kind: 'agent',
+      agentId,
+      system,
+      messages: rest.map((m) => m.message),
+      messageIds: valid.map((m) => m.id),
+    }
+  }
+
+  private buildUserDelivery(agentId: string): UserDelivery {
+    const valid = this.repository.listValid(agentId)
+    // user 面板：只汇总新信件（自上次发送后新增的 user 消息）。
+    const last = new Set(this.require(agentId).lastSentIds)
+    const fresh = valid.filter((m) => !last.has(m.id) && m.message.role === 'user')
+    this.require(agentId).lastSentIds = valid.map((m) => m.id)
+    return { kind: 'user', agentId, letters: fresh.map((m) => m.message) }
   }
 
   private startCountdown(box: InternalBox): void {
@@ -182,8 +189,8 @@ export class DefaultMailbox implements Mailbox {
   private onCountdown(box: InternalBox): void {
     box.timer = undefined
     box.coolingDown = false
-    // 送信条件：倒计时就绪 & 有待发送内容（上下文就绪）。
-    if (box.ready !== undefined) {
+    // 送信条件：倒计时就绪 & 有待发送信号（上下文就绪）。
+    if (box.ready) {
       this.emit({ type: 'mailbox.countdown', at: Date.now(), agentId: box.agentId, action: 'fire' })
       this.deliver(box)
     } else {
@@ -198,7 +205,11 @@ export class DefaultMailbox implements Mailbox {
 
   private require(agentId: string): InternalBox {
     const box = this.boxes.get(agentId)
-    if (!box) throw { kind: 'mailbox_not_found', agentId }
+    if (!box) throw { kind: 'courier_not_found', agentId }
     return box
   }
+}
+
+function contentOf(message: ChatMessage): string {
+  return typeof message.content === 'string' ? message.content : ''
 }

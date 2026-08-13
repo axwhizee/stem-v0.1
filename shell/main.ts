@@ -323,7 +323,7 @@ function handlePanelMessage(state: ShellState, message: PanelMessage): void {
       const reply = selected[0] as PermissionReply | undefined
       if (!reply) return
       const input: PermissionReplyInput = { requestId: message.requestId, reply }
-      void state.kernel.bus.send({ kind: 'permission_reply', reply: input, at: Date.now() })
+      void state.kernel.permissions.reply(input)
     })
     // 若该弹窗立即激活（队列空闲），打印弹窗；否则已由队列中的激活弹窗占据。
     if (state.dialogs.active) console.log('\n' + formatDialog(state.dialogs.activeRequest!))

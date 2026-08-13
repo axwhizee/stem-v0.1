@@ -2,13 +2,31 @@
 // core/context/index.ts —— 唯一出口
 // ============================================================
 
-export type { MailboxState, AgentDelivery, UserDelivery, MailDelivery } from './types'
+export type {
+  StoredMessage,
+  RepositoryState,
+  AssembleInput,
+  AssembleResult,
+  ContextAssembler,
+  AgentDelivery,
+  UserDelivery,
+  MailDelivery,
+  PendingHold,
+} from './types'
+export { classicAssemble } from './types'
 
-export type { AssembleInput, AssembleResult, ContextAssembler } from './ContextManager'
-export { classicAssemble } from './ContextManager'
+export type { RepositoryOptions, AppendInput, Repository } from './Repository'
+export { DefaultRepository, estimateTokens } from './Repository'
 
-export type { TimerHandle, TimerFactory, ReadyContent, MailboxRegistration, MailboxOptions, Mailbox } from './Mailbox'
-export { DefaultMailbox } from './Mailbox'
+export type {
+  TimerHandle,
+  TimerFactory,
+  CourierRegistration,
+  CourierOptions,
+  CourierState,
+  Courier,
+} from './Courier'
+export { DefaultCourier } from './Courier'
 
-export type { PendingHold, ContextRegistration, ContextManagerOptions, ContextManager } from './ContextManager'
+export type { ContextRegistration, ContextManagerOptions, ContextManager } from './ContextManager'
 export { DefaultContextManager } from './ContextManager'

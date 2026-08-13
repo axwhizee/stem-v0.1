@@ -128,8 +128,8 @@ describe('agent 链：用户 → 创造者 → 子 agent（读时间）→ conte
 
     const state = await kernel.contextManager.getState(creatorId)
     // context_wait 的 tool 结果应包含子 agent 的回信文本
-    const waitResult = state.context.find(
-      (m) => m.role === 'tool' && typeof m.content === 'string' && m.content.includes('12:00:00'),
+    const waitResult = state.messages.find(
+      (m) => m.message.role === 'tool' && typeof m.message.content === 'string' && m.message.content.includes('12:00:00'),
     )
     assert.ok(waitResult, '子 agent 回信应作为 context_wait 的 tool 结果进入创造者上下文')
   })

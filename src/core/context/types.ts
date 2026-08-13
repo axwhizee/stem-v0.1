@@ -1,31 +1,78 @@
 // ============================================================
-// core/context/types.ts —— 邮局领域类型（纯 TS，零平台依赖）
+// core/context/types.ts —— 上下文领域类型（纯 TS，零平台依赖）
 //
-// 上下文管理器（邮局）按 agentId 分箱持有上下文成分；
-// 组装结果通过总线"送信"给收件方（agent 由 kernel 处理，
-// user 由面板处理，两者一视同仁）。
+// 新架构（重建邮局：仓库 / 管理员 / 快递员）：
+//   - 仓库（Repository）：存储所有 agent 的完整上下文消息记录（唯一本体）；
+//   - 管理员（ContextManager）：处理/累积/打戳/组装（classic/hybrid 模式）；
+//   - 快递员（Courier）：按 agentId 维护倒计时，从仓库取有效消息发送。
 // ============================================================
 
 import type { ChatMessage, ToolDefinition } from '../gateway'
 import type { ToolRecord } from '../tools'
 
-/** 单个信箱状态（成分状态 + 邮箱状态）。 */
-export interface MailboxState {
+/** 仓库中的单条消息记录（上下文本体的最小单元）。 */
+export interface StoredMessage {
+  readonly id: string
+  /** 所属 agent id。 */
   readonly agentId: string
-  /** 实例化时注册（agent 的 system_prompt）。 */
-  readonly systemPrompt?: string
-  /** 历史消息（assistant 轮 + tool 结果按来源追加）。 */
-  readonly context: readonly ChatMessage[]
-  /** 待送信的信件（user_prompt 累积；送信后清空）。 */
-  readonly pendingLetters: readonly ChatMessage[]
-  /** 工具调用审计（未来深度定制上下文用；经典组装不消费）。 */
-  readonly toolRecords: readonly ToolRecord[]
-  /** 送信倒计时（模板传入）。 */
-  readonly sendCountdownMs: number
-  /** false = 用户面板（不做上下文组装，只汇总信件）。 */
-  readonly assemble: boolean
-  /** 是否处于倒计时（送信合并窗口）中。 */
-  readonly coolingDown: boolean
+  /** 完整消息（system/user/assistant/tool）。 */
+  readonly message: ChatMessage
+  /** 入库时间戳（毫秒）。 */
+  readonly at: number
+  /** token 估算（字符/4 占位；真实记账后续接入）。 */
+  readonly tokens: number
+  /** 是否有效：false = 已被管理员标记（压缩/淘汰），发送时跳过。 */
+  readonly valid: boolean
+  /** 发送者 id（仅 user 消息；assistant/tool 无）。 */
+  readonly from?: string
+}
+
+/** 仓库状态（供展示/调试/测试）。 */
+export interface RepositoryState {
+  readonly agentId: string
+  /** 全部记录（含无效）。 */
+  readonly messages: readonly StoredMessage[]
+  /** 有效消息（按顺序，供组装）。 */
+  readonly validMessages: readonly StoredMessage[]
+  /** 已注册的 agent id 集合。 */
+  readonly registered: readonly string[]
+}
+
+/** 组装输入：从仓库有效记录提取。 */
+export interface AssembleInput {
+  readonly agentId: string
+  /** 仓库有效消息（含开头的 system message）。 */
+  readonly messages: readonly StoredMessage[]
+  readonly tools?: readonly ToolDefinition[]
+}
+
+/** 组装结果（快递员发送用）。 */
+export interface AssembleResult {
+  readonly system: string
+  readonly messages: readonly ChatMessage[]
+  /** 本次发送的仓库消息 id 列表（含 system，供 runtime/未来记账）。 */
+  readonly messageIds: readonly string[]
+  readonly tools?: readonly ToolDefinition[]
+}
+
+/** 组装策略：把有效记录组装成完整上下文（可替换，classic/coding-hybrid 模式）。 */
+export type ContextAssembler = (input: AssembleInput) => AssembleResult
+
+/** 经典组装（默认）：system + 全部有效消息直接作为上下文。 */
+export function classicAssemble(input: AssembleInput): AssembleResult {
+  const systemIndex = input.messages.findIndex((m) => m.message.role === 'system')
+  const system = systemIndex >= 0 ? contentOf(input.messages[systemIndex]!.message) : ''
+  const rest = input.messages.filter((m) => m.message.role !== 'system')
+  return {
+    system,
+    messages: rest.map((m) => m.message),
+    messageIds: input.messages.map((m) => m.id),
+    tools: input.tools,
+  }
+}
+
+function contentOf(message: ChatMessage): string {
+  return typeof message.content === 'string' ? message.content : ''
 }
 
 /** 送信结果：agent 收到组装后的完整上下文。 */
@@ -34,6 +81,8 @@ export interface AgentDelivery {
   readonly agentId: string
   readonly system: string
   readonly messages: readonly ChatMessage[]
+  /** 本次发送涉及的仓库消息 id（供 runtime/未来 token 记账）。 */
+  readonly messageIds: readonly string[]
   readonly tools?: readonly ToolDefinition[]
 }
 
@@ -45,3 +94,12 @@ export interface UserDelivery {
 }
 
 export type MailDelivery = AgentDelivery | UserDelivery
+
+/** 挂起等待：context_wait 注册后，等待指定 agent 的回复作为 tool 结果填充。 */
+export interface PendingHold {
+  readonly waitFor: string
+  readonly ownerId: string
+  readonly toolCallId: string
+}
+
+export type { ToolRecord }

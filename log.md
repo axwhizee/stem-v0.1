@@ -456,3 +456,42 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - `~/.config/stem/` 全局配置 + 多级合并（`[项目 .stem, 全局]` 优先级）。
 - 运行时热更新 / watch `.stem/` 目录。
 - user 工具权限与 enabled 的用户覆盖（当前镜像只读）。
+
+---
+
+## 阶段：上下文模块重构（重建邮局：仓库 / 管理员 / 快递员）+ 废弃总线
+
+**日期**：2026-08-12
+
+### 目标
+
+按「重建邮局」方案重构 context 模块为三模块：**仓库**（上下文本体存储）/ **管理员**（处理/打戳/组装）/ **快递员**（倒计时+发送）；**废弃集中式 MessageBus**，agent 通信直接投递、log/permission_reply 走注入接口。
+
+### 完成内容
+
+1. **core/context/ 三模块**：
+   - `Repository.ts`（仓库）：唯一存储，每条消息记录 `message / agentId / at / tokens（字符/4 估算） / valid / from`；`register` 时 systemPrompt 作为首条 system message 入库；任何消息 `append` 后触发 `onChange`。
+   - `ContextManager.ts`（管理员）：收到待处理事件 → **打发送者戳**（user 消息用 from 元数据生成 `<sender id="from">`，替代原 runtime 拼戳）、context_wait 判定（from 命中挂起 → 回复作为 tool 结果填充 owner）、组装（ContextAssembler 可注入，classic/coding-hybrid）→ `courier.notifyReady`。
+   - `Courier.ts`（快递员，原 Mailbox 改造）：倒计时逻辑保留（初始 0 立即送；发送后开始；来信重置），**发送时从仓库按 valid 顺序取有效消息**；agent 收 `AgentDelivery`（新增 `messageIds`）、user0 收 `UserDelivery`（diff 上次发送消息 id 集）。
+   - 删除旧 `Mailbox.ts`。
+
+2. **废弃 core/bus/（MessageBus）**：
+   - agent 通信 → kernel `sendMessage(from, to, payload)` 直接投递到管理员；
+   - log → 各模块 LogSink 组合根直达 Logger（无总线中转）；
+   - permission_reply → 面板直接调 `kernel.permissions.reply(input)`（shell/main.ts 已改）；
+   - 参与者查询 → 复用 instances + user0（`kernel.listParticipants()`），`bus_participants` 工具改查该接口。
+
+3. **AgentRuntime**：移除 bus；最终回复**不再拼发送者戳**，直接投递给创建者；每轮 assistant 复制到仓库（`appendHistory`）；工具结果经 `appendHistory` 入仓库（`appendToolRecord` 仅审计，不写仓库）。
+
+4. **AgentKernel**：装配仓库/管理员/快递员；`sendMessage` 替代 bus.send；实例化/注册/终止流程更新。
+
+### 验证
+
+- 101/101 测试通过（更新 runtime/kernel/agentChain 测试到新架构；新增仓库/快递员路径）。
+- mock 模式验证：简单对话（`<sender id="user0">` 戳正确）、echo 工具轮、creator 链（agent_instantiate + context_wait + 子 agent 读时间 → 回传）均正常。
+
+### 后续（未执行）
+
+- 仓库真实 token 记账（基于 gateway usage 差值校正；当前 tokens 为字符/4 估算占位）。
+- coding-hybrid 模式（五段排布：原则信息/对话脉络/精炼历史/元代码空间/实时 toolcall 结果）。
+- 仓库持久化（SQLite/文件）。

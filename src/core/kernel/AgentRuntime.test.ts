@@ -5,11 +5,9 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway } from '../gateway'
-import { DefaultMessageBus } from '../bus'
-import { DefaultContextManager } from '../context'
+import { DefaultRepository, DefaultCourier, DefaultContextManager } from '../context'
 import type { AgentDelivery } from '../context'
 import { DefaultToolCapabilityRegistry } from '../tools'
-import type { AgentBusMessage } from '../bus'
 import { DefaultAgentTemplateRegistry } from './AgentTemplateRegistry'
 import { DefaultAgentInstanceManager } from './AgentInstanceManager'
 import { DefaultAgentRuntime } from './AgentRuntime'
@@ -29,15 +27,23 @@ const cls: AgentClass = {
 const model = { provider: 'opencode', id: 'test-model' }
 
 function deliveryFor(agentId: string, system = cls.systemPrompt): AgentDelivery {
-  return { kind: 'agent', agentId, system, messages: [{ role: 'user', content: 'hi' }] }
+  return { kind: 'agent', agentId, system, messages: [{ role: 'user', content: 'hi' }], messageIds: ['m-1'] }
 }
 
 async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCapabilityRegistry; template?: AgentClass }) {
   const templates = new DefaultAgentTemplateRegistry([extra?.template ?? cls])
   const instances = new DefaultAgentInstanceManager(templates)
-  const contextManager = new DefaultContextManager()
-  const sent: AgentBusMessage[] = []
-  const bus = new DefaultMessageBus({ forward: async (msg) => void sent.push(msg) })
+  const repository = new DefaultRepository()
+  const courier = new DefaultCourier({ repository, defaultCountdownMs: 0 })
+  const contextManager = new DefaultContextManager({ repository, courier })
+  repository.onChange = (agentId) => contextManager.handleChange(agentId)
+  // 收集寄给 user0 的信件。
+  const letters: Array<{ from: string; content: string }> = []
+  const originalDeposit = contextManager.deposit.bind(contextManager)
+  contextManager.deposit = (agentId, letter, from) => {
+    if (agentId === 'user0') letters.push({ from: from ?? '', content: String(letter.content) })
+    return originalDeposit(agentId, letter, from)
+  }
 
   const instance = await instances.instantiate({
     classId: cls.id,
@@ -46,39 +52,40 @@ async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCa
     spaceId: makeAgentSpaceID('space-1'),
   })
   await contextManager.register({ agentId: instance.id, systemPrompt: cls.systemPrompt, onDelivery: () => {} })
+  // user0 作为接收者注册（最终回复投递目标）。
+  await contextManager.register({ agentId: 'user0', assemble: false, onDelivery: () => {} })
 
   const runtime = new DefaultAgentRuntime({
     gateway,
     instances,
     templates,
     contextManager,
-    bus,
+    repository,
     tools: extra?.tools,
     defaultModel: model,
   })
-  return { runtime, instances, contextManager, sent, agentId: instance.id }
+  return { runtime, instances, contextManager, repository, letters, agentId: instance.id }
 }
 
 describe('DefaultAgentRuntime（被动驱动）', () => {
-  test('processDelivery：LLM 文本回复 → 加发送者戳 → 寄信给创建者 → holding', async () => {
+  test('processDelivery：LLM 文本回复 → 寄信给创建者 → holding', async () => {
     const gateway = new FakeGateway(() => [
       { type: 'text-delta', text: 'hello' },
       { type: 'usage', inputTokens: 5, outputTokens: 3 },
       { type: 'finish', reason: 'stop' },
     ])
-    const { runtime, instances, sent, agentId, contextManager } = await makeRuntime(gateway)
+    const { runtime, instances, letters, agentId, contextManager } = await makeRuntime(gateway)
 
     await runtime.processDelivery(deliveryFor(agentId))
 
-    const msg = sent.at(-1)
-    assert.ok(msg)
-    assert.equal(msg.to, 'user0')
-    assert.equal(msg.payload, `<sender id="${agentId}">hello</sender>`)
+    // 最终回复投递到创建者（user0）上下文（发原始文本，戳由管理员生成）。
+    assert.equal(letters.length, 1)
+    assert.equal(letters[0]?.content, 'hello')
     assert.equal((await instances.get(agentId)).status, 'holding')
 
-    // assistant 历史自动复制到邮局
+    // assistant 历史自动复制到仓库
     const state = await contextManager.getState(agentId)
-    assert.equal(state.context.filter((m) => m.role === 'assistant').length, 1)
+    assert.equal(state.messages.filter((m) => m.message.role === 'assistant').length, 1)
   })
 
   test('工具轮：tool_call → 执行 → 结果入会话 → 续轮 → 最终回复', async () => {
@@ -100,7 +107,7 @@ describe('DefaultAgentRuntime（被动驱动）', () => {
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
     })
-    const { runtime, sent, agentId } = await makeRuntime(gateway, {
+    const { runtime, letters, agentId } = await makeRuntime(gateway, {
       tools,
       template: { ...cls, tools: [{ id: 'oc_echo' }] },
     })
@@ -108,7 +115,7 @@ describe('DefaultAgentRuntime（被动驱动）', () => {
     await runtime.processDelivery(deliveryFor(agentId))
 
     assert.equal(round, 2, '工具轮 + 续轮')
-    assert.equal(sent.at(-1)?.payload, `<sender id="${agentId}">工具完成</sender>`)
+    assert.equal(letters.at(-1)?.content, '工具完成')
   })
 
   test('notifyHold → 状态 holding', async () => {

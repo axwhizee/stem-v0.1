@@ -14,8 +14,7 @@ import type { ModelGateway } from '../gateway'
 import type { ChatMessage, LLMEvent, LLMRequest, ModelRef, ToolCallEvent, UsageEvent } from '../gateway'
 import type { LogSink } from '../logging'
 import { permissionsToRules } from '../permission'
-import type { MessageBus } from '../bus'
-import type { AgentDelivery, ContextManager } from '../context'
+import type { AgentDelivery, ContextManager, Repository } from '../context'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import type { AgentTemplateRegistry } from './AgentTemplateRegistry'
 import type { AgentInstanceManager } from './AgentInstanceManager'
@@ -27,7 +26,8 @@ export interface AgentRuntimeDeps {
   readonly instances: AgentInstanceManager
   readonly templates: AgentTemplateRegistry
   readonly contextManager: ContextManager
-  readonly bus: MessageBus
+  /** 上下文仓库（assistant/tool 消息入库）。 */
+  readonly repository: Repository
   /** 工具注册表（缺省不启用工具轮）。 */
   readonly tools?: ToolCapabilityRegistry
   /** 模板未配置 model 时使用的默认模型。 */
@@ -37,7 +37,7 @@ export interface AgentRuntimeDeps {
   readonly estimateCost?: (usage: UsageEvent | undefined) => number
   /** 流式事件全局透传（shell 面板显示用）。 */
   readonly onEvent?: (agentId: AgentID, event: LLMEvent) => void
-  /** 日志出口（组合根注入 → bus → core/logging）。 */
+  /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: LogSink
 }
 
@@ -166,20 +166,15 @@ export class DefaultAgentRuntime implements AgentRuntime {
       session = [...session, ...results]
     }
 
-    // 统计与状态（最终保持 holding，等待邮局下一次送信）
+    // 统计与状态（最终保持 holding，等待快递员下一次送信）
     instance.turnCount += 1
     instance.totalCost += this.estimateCost(usage)
 
-    // 最终回复：自动加发送者戳 → 寄信给创建者。
+    // 最终回复：寄给创建者（发原始文本，发送者戳由管理员打标签时统一生成）。
     const finalText = allText.join('')
-    const stamped = `<sender id="${instance.id}">${finalText}</sender>`
-    await this.deps.bus.send({
-      kind: 'result',
-      from: instance.id,
-      to: instance.creatorId,
-      payload: stamped,
-      at: Date.now(),
-    })
+    if (finalText !== '') {
+      await this.deps.contextManager.deposit(instance.creatorId, { role: 'user', content: finalText }, instance.id)
+    }
   }
 
   async notifyHold(agentId: AgentID): Promise<void> {

@@ -88,10 +88,15 @@ describe('AgentKernel 邮局模式', () => {
 
     // 历史应包含：默认首信 + first + second + third，且 second/third 合并为一次回复
     const state = await kernel.contextManager.getState(agentId)
-    const userContents = state.context.filter((m) => m.role === 'user').map((m) => m.content)
+    const userContents = state.messages.filter((m) => m.message.role === 'user').map((m) => m.message.content)
     assert.equal(userContents.length, 4, '默认首信 + 三次用户消息')
-    assert.deepEqual(userContents.slice(1), ['first', 'second', 'third'])
-    assert.equal(state.context.filter((m) => m.role === 'assistant').length, 2)
+    // 管理员统一打发送者戳（from=user0）。
+    assert.deepEqual(userContents.slice(1), [
+      '<sender id="user0">first</sender>',
+      '<sender id="user0">second</sender>',
+      '<sender id="user0">third</sender>',
+    ])
+    assert.equal(state.messages.filter((m) => m.message.role === 'assistant').length, 2)
   })
 
   test('工具轮：tool_call → 执行 → 结果入上下文 → 模型续轮；onRecord 自动记录', async () => {
@@ -123,12 +128,10 @@ describe('AgentKernel 邮局模式', () => {
     const delivery = (await deliveries.next())!
     assert.equal(delivery.letters[0]?.content, `<sender id="${agentId}">工具返回了</sender>`)
 
-    // onRecord 自动记录（called + success）已入邮局
+    // onRecord 自动记录（called + success）已入邮局（tool 结果消息进入仓库）
     const state = await kernel.contextManager.getState(agentId)
-    assert.ok(state.toolRecords.some((r) => r.status === 'called'))
-    assert.ok(state.toolRecords.some((r) => r.status === 'success' && r.result?.text === 'Echo: hi'))
-    // tool 结果自动进入历史（工具模块发送，非 runtime 手动）
-    assert.ok(state.context.some((m) => m.role === 'tool' && m.content === 'Echo: hi'))
+    // tool 结果自动进入仓库（工具模块发送，非 runtime 手动）
+    assert.ok(state.messages.some((m) => m.message.role === 'tool' && m.message.content === 'Echo: hi'))
   })
 
   test('并行工具调用：一次 assistant 多个 tool_call 并行执行', async () => {
@@ -166,7 +169,7 @@ describe('AgentKernel 邮局模式', () => {
     assert.deepEqual(executed.sort(), ['a', 'b'])
 
     const state = await kernel.contextManager.getState(agentId)
-    assert.equal(state.context.filter((m) => m.role === 'tool').length, 2)
+    assert.equal(state.messages.filter((m) => m.message.role === 'tool').length, 2)
   })
 
   test('tool 白名单隔离：无权限模板不会把时间工具物化给 LLM', async () => {

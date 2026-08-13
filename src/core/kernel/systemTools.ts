@@ -182,7 +182,7 @@ function agentTerminate(kernel: AgentKernel): ToolCapability {
 function busSend(kernel: AgentKernel): ToolCapability {
   return {
     id: 'bus_send',
-    description: '通过总线向指定参与者发送消息（单目标，一对多请并行调用多次）。消息自动添加发送者戳。',
+    description: '向指定参与者发送消息（单目标，一对多请并行调用多次）。消息自动添加发送者戳。',
     permission: 'bus_send',
     kind: 'internal',
     category: 'system',
@@ -196,8 +196,7 @@ function busSend(kernel: AgentKernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const { to, message } = input as { to: string; message: string }
-      const stamped = `<sender id="${ctx.agentId}">${message}</sender>`
-      await kernel.bus.send({ kind: 'agent_message', from: ctx.agentId, to, payload: stamped, at: Date.now() })
+      await kernel.sendMessage(ctx.agentId, to, message)
       return { text: `已发送消息给 ${to}` }
     },
   }
@@ -212,9 +211,9 @@ function busParticipants(kernel: AgentKernel): ToolCapability {
     kind: 'internal',
     category: 'system',
     parameters: { type: 'object', properties: {} },
-    execute: () => {
-      const ids = kernel.bus.listParticipants().map((p) => p.id)
-      return { text: ids.length > 0 ? `总线参与者: ${ids.join(', ')}` : '（总线暂无参与者）' }
+    execute: async () => {
+      const ids = await kernel.listParticipants()
+      return { text: ids.length > 0 ? `参与者: ${ids.join(', ')}` : '（暂无参与者）' }
     },
   }
 }

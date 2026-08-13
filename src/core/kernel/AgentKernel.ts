@@ -1,22 +1,20 @@
 // ============================================================
 // core/kernel/AgentKernel.ts —— Kernel 组合根（core 内部装配）
 //
-// 装配：模板注册表 / 实例管理 / 空间 / 总线 / 邮局（上下文管理器）
+// 装配：模板注册表 / 实例管理 / 空间 / 上下文仓库 + 管理员 + 快递员
 //      / 运行时 / 工具注册表。
-// 职责：
-//   - instantiateAgent：实例化 + 注册总线 + 注册邮局 + 投递首信
-//   - registerUser：用户面板（user0）注册总线 + 邮局
-//   - sendUserMessage：用户消息入口
-//   - registerSystemTools：系统管理工具（agent_*/bus_*）
-//   - 工具 onRecord → 邮局（工具自动记录，不依赖 runtime）
+//
+// 通信模型（重建邮局，无总线）：
+//   - sendMessage(from, to, payload) → 管理员 deposit（打戳 + 入库 + 触发处理）；
+//   - log / permission_reply 走注入接口（LogSink / PermissionManager），不设总线。
+// 参与者查询：复用 instances + user0（无独立注册表）。
 // ============================================================
 
 import type { ModelGateway } from '../gateway'
 import type { LLMEvent, ModelRef, UsageEvent } from '../gateway'
-import { DefaultMessageBus } from '../bus'
-import type { MessageBus } from '../bus'
-import type { ContextAssembler, ContextManager, MailDelivery, UserDelivery } from '../context'
-import { DefaultContextManager } from '../context'
+import type { ContextAssembler, MailDelivery, Repository, Courier, UserDelivery } from '../context'
+import { DefaultRepository, DefaultCourier, DefaultContextManager } from '../context'
+import type { ContextManager } from '../context'
 import type { Logger } from '../logging'
 import { InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
@@ -48,7 +46,7 @@ export const BUILTIN_TEMPLATES: readonly AgentClass[] = [
   coderTemplate as unknown as AgentClass,
 ]
 
-/** 用户面板固定 id（与 agent 在总线/邮局中一视同仁）。 */
+/** 用户面板固定 id。 */
 export const USER_ID = 'user0'
 
 export interface AgentKernelOptions {
@@ -69,7 +67,7 @@ export interface AgentKernelOptions {
   readonly onEvent?: (agentId: AgentID, event: LLMEvent) => void
   /** 用户面板收信回调（user0 信箱送信时调用）。 */
   readonly onUserDelivery?: (delivery: UserDelivery) => void
-  /** 日志记录器（缺省内存版；组合根把各模块日志经 bus 路由到这里）。 */
+  /** 日志记录器（缺省内存版）。 */
   readonly logger?: Logger
   /** 面板消息消费者（shell/GUI 注入；统一消费回信/权限请求等面板消息）。 */
   readonly onPanelMessage?: PanelConsumer
@@ -86,15 +84,19 @@ export class AgentKernel {
   readonly templates: AgentTemplateRegistry
   readonly instances: AgentInstanceManager
   readonly spaces: AgentSpaceManager
-  readonly bus: MessageBus
+  /** 上下文仓库（上下文本体的唯一存储）。 */
+  readonly repository: Repository
+  /** 上下文管理员（处理/打戳/组装）。 */
   readonly contextManager: ContextManager
+  /** 快递员（倒计时 + 发送）。 */
+  readonly courier: Courier
   readonly runtime: AgentRuntime
   readonly tools?: ToolCapabilityRegistry
   /** 权限管理器（registry 统一确认；ask 挂起经 PanelBus 交面板）。 */
   readonly permissions: PermissionManager
   /** 面板消息总线（core → 面板统一通道）。 */
   readonly panel: PanelBus
-  /** 日志记录器（MessageBus log 路由的订阅者）。 */
+  /** 日志记录器。 */
   readonly logger: Logger
   private readonly userDeliveryHandler?: (delivery: UserDelivery) => void
 
@@ -110,7 +112,6 @@ export class AgentKernel {
     this.panel = new DefaultPanelBus({ consumer: options.onPanelMessage })
 
     // 权限管理器：ask 挂起 → 面板弹窗；always → session 批准。
-    // 配置项注入：全局默认权限（最弱）+ autoApprove（ask 直接放行）。
     this.permissions = new DefaultPermissionManager({
       askPanel: (request) =>
         this.panel.post({
@@ -128,36 +129,31 @@ export class AgentKernel {
       autoApprove: options.autoApprove,
     })
 
+    // 重建邮局：仓库（存储）→ 管理员（处理，经 onChange 驱动）→ 快递员（发送）。
+    this.repository = new DefaultRepository({ onLog: (event) => this.emitLog(event) })
+    this.courier = new DefaultCourier({
+      defaultCountdownMs: options.defaultCountdownMs,
+      timer: options.timer,
+      repository: this.repository,
+      onLog: (event) => this.emitLog(event),
+    })
     this.contextManager = new DefaultContextManager({
       contextAssembler: options.contextAssembler,
       defaultCountdownMs: options.defaultCountdownMs,
       timer: options.timer,
+      repository: this.repository,
+      courier: this.courier,
       onLog: (event) => this.emitLog(event),
     })
-
-    // 总线路由：agent 消息 → 邮局；log → 日志；permission_reply → 权限管理器。
-    this.bus = new DefaultMessageBus({
-      forward: (msg) => {
-        this.emitLog({
-          type: 'kernel.message.sent',
-          at: msg.at,
-          from: msg.from,
-          to: msg.to,
-          kind: msg.kind,
-          payloadSize: msg.payload.length,
-        })
-        return this.contextManager.deposit(msg.to, { role: 'user', content: msg.payload }, msg.from)
-      },
-      onLog: (event) => this.logger.log(event),
-      onPermissionReply: (reply) => void this.permissions.reply(reply),
-    })
+    // 仓库 onChange → 管理员处理入口。
+    this.repository.onChange = (agentId) => this.contextManager.handleChange(agentId)
 
     this.runtime = new DefaultAgentRuntime({
       gateway: options.gateway,
       instances: this.instances,
       templates: this.templates,
       contextManager: this.contextManager,
-      bus: this.bus,
+      repository: this.repository,
       tools: options.tools,
       defaultModel: options.defaultModel,
       maxSteps: options.maxSteps,
@@ -166,8 +162,7 @@ export class AgentKernel {
       onLog: { log: (event) => this.emitLog(event) },
     })
 
-    // 工具自动记录 → 邮局（触发/成功/失败），不依赖 runtime 手动发送。
-    // context_wait 工具无常规 tool 结果（结果由邮局在等待对象回信时填充）。
+    // 工具自动记录 → 仓库（触发/成功/失败），不依赖 runtime 手动发送。
     this.tools?.setRecordSink?.((record, ctx) => {
       void this.contextManager.appendToolRecord(ctx.agentId, record)
       if (record.status === 'success' && record.result) {
@@ -190,14 +185,13 @@ export class AgentKernel {
         })
       }
     })
-    // 工具调用日志 → bus；权限确认 → PermissionManager。
+    // 工具调用日志；权限确认 → PermissionManager。
     this.tools?.setLogSink?.({ log: (event) => this.emitLog(event) })
     this.tools?.setPermissionSink?.(this.permissions)
   }
 
-  /** 注册用户面板（user0）到总线 + 邮局（不组装，只汇总信件）。 */
+  /** 注册用户面板（user0）到上下文（不组装，只汇总信件）。 */
   async registerUser(displayName = 'User'): Promise<void> {
-    await this.bus.register({ id: USER_ID, kind: 'user', displayName })
     await this.contextManager.register({
       agentId: USER_ID,
       assemble: false,
@@ -217,10 +211,26 @@ export class AgentKernel {
 
   /** 用户发送消息（默认发往当前选中的 agent）。 */
   async sendUserMessage(agentId: string, text: string): Promise<void> {
-    await this.bus.send({ kind: 'user_prompt', from: USER_ID, to: agentId, payload: text, at: Date.now() })
+    await this.sendMessage(USER_ID, agentId, text)
   }
 
-  /** 实例化：创建实例 + 注册总线 + 注册邮局(systemPrompt + 倒计时 + 送信回调) + 投递首信。 */
+  /**
+   * agent 间通信（无总线，直接投递到上下文管理员）。
+   * from/to 为参与者 id（user0 或 agent 实例 id）。
+   */
+  async sendMessage(from: string, to: string, payload: string): Promise<void> {
+    this.emitLog({
+      type: 'kernel.message.sent',
+      at: Date.now(),
+      from,
+      to,
+      kind: 'agent_message',
+      payloadSize: payload.length,
+    })
+    await this.contextManager.deposit(to, { role: 'user', content: payload }, from)
+  }
+
+  /** 实例化：创建实例 + 注册上下文（仓库/管理员/快递员）+ 投递首信。 */
   async instantiateAgent(opts: Omit<InstantiateOptions, 'spaceId'>, project: ProjectRef): Promise<AgentID> {
     const space = await this.spaces.getOrCreate(project)
     return this.instantiateInSpace(opts, space.id)
@@ -237,8 +247,6 @@ export class AgentKernel {
       creatorId: instance.creatorId,
     })
 
-    await this.bus.register({ id: instance.id, kind: 'agent', displayName: instance.displayName })
-
     const template = await this.templates.get(instance.classRef)
     await this.contextManager.register({
       agentId: instance.id,
@@ -249,8 +257,8 @@ export class AgentKernel {
       onHold: (id) => void this.runtime.notifyHold(makeAgentID(id)),
     })
 
-    // userPrompt 作为首封信投递（邮局驱动，不 hold 等待）。
-    await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt })
+    // userPrompt 作为首封信投递（from=user0，管理员打戳）。
+    await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt }, instance.creatorId)
     return instance.id
   }
 
@@ -261,10 +269,9 @@ export class AgentKernel {
     }
   }
 
-  /** 终止实例：注销邮局 + 总线 + 实例。 */
+  /** 终止实例：注销上下文（仓库/管理员/快递员）+ 实例。 */
   async terminateAgent(agentId: string): Promise<void> {
     await this.contextManager.unregister(agentId)
-    await this.bus.unregister(agentId)
     await this.instances.terminate(makeAgentID(agentId))
     this.emitLog({ type: 'kernel.instance.terminated', at: Date.now(), agentId })
   }
@@ -296,6 +303,17 @@ export class AgentKernel {
     return agents.map((agent) => agent.id)
   }
 
+  /** 参与者列表（复用实例 + user0，无独立注册表）。 */
+  async listParticipants(): Promise<string[]> {
+    const spaces = await this.spaces.list()
+    const ids: string[] = [USER_ID]
+    for (const space of spaces) {
+      const agents = await this.instances.listBySpace(space.id)
+      ids.push(...agents.map((a) => a.id))
+    }
+    return ids
+  }
+
   private handleDelivery(delivery: MailDelivery): void {
     if (delivery.kind === 'agent') {
       void this.runtime.processDelivery(delivery)
@@ -308,8 +326,8 @@ export class AgentKernel {
     this.emitLog({ type: 'kernel.class.registered', at: Date.now(), classId: cls.id })
   }
 
-  /** 发送日志事件（经消息总线 → 日志记录器）。 */
+  /** 发送日志事件（直接写入日志记录器，无总线中转）。 */
   private emitLog(event: LogEvent): void {
-    void this.bus.send({ kind: 'log', event, at: Date.now() })
+    this.logger.log(event)
   }
 }

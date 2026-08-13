@@ -1,63 +1,35 @@
 // ============================================================
-// core/context/ContextManager.ts —— 上下文管理器（成分管理 + 拼装 + 就绪信号）
+// core/context/ContextManager.ts —— 管理员子模块（上下文处理）
 //
-// 对外提供「单一上下文接口」：deposit / appendHistory / appendToolRecord /
-// registerHold。三种上下文成分（历史 context / 信件 pendingLetters /
-// 工具记录 toolRecords）全部由本模块管理，不向外部暴露各自的集合。
+// 职责（重建邮局的逻辑层）：
+//   - 收到「上下文待处理事件」（仓库 onChange）→ 处理该 agent：
+//       1. context_wait 判定：from 命中挂起等待 → 作为 tool 结果填充到 owner；
+//       2. 打发送者戳：user 消息累积时用 from 元数据生成 `<sender id=...>`；
+//       3. 组装（classic/coding-hybrid 模式，可注入策略）；
+//       4. 通知快递员「上下文待发送事件」。
+//   - 打标签（发送者戳）行为由本模块完成，而非 kernel（D11 分层）。
 //
-// 职责划分（context 模块子模块化）：
-//   - ContextManager：成分管理 + 拼装（ContextAssembler 子模块）+ 就绪信号；
-//   - Mailbox（子模块）：只负责等待「上下文就绪 + 倒计时就绪」→ 发送。
-//   - 拼装时机：内容就绪（有信件 / 有等待填充的 tool 结果）时立即拼装出
-//     完整上下文快照（只读，不消费信件），交给 Mailbox；Mailbox 发送前
-//     触发 beforeSend → ContextManager 把信件并入历史并清空。
-//   - user0（assemble=false）：不拼装，直接汇总信件交给 Mailbox 发送。
-//
-// 存储：内存 JSON 消息列表（后续换 SQLite，接口已隔离）。
+// 存储交给仓库（Repository），发送交给快递员（Courier）。
 // ============================================================
 
-import type { ChatMessage, ToolDefinition } from '../gateway'
+import type { ChatMessage } from '../gateway'
 import type { LogEvent } from '../logging'
 import type { ToolRecord } from '../tools'
-import type { Mailbox, MailboxRegistration, ReadyContent, TimerFactory } from './Mailbox'
-import { DefaultMailbox } from './Mailbox'
-import type { MailboxState } from './types'
-
-// ---------- 组装策略（原 ContextAssembler 子模块，合并内化） ----------
-
-export interface AssembleInput {
-  readonly systemPrompt: string
-  /** 历史上下文（含已并入的信件）。 */
-  readonly context: readonly ChatMessage[]
-  readonly tools?: readonly ToolDefinition[]
-}
-
-export interface AssembleResult {
-  readonly system: string
-  readonly messages: readonly ChatMessage[]
-  readonly tools?: readonly ToolDefinition[]
-}
-
-/** 组装策略：把成分拼成完整上下文（可替换，未来 renderPrompt/Compressor 作为策略实现）。 */
-export type ContextAssembler = (input: AssembleInput) => AssembleResult
-
-/** 经典组装（默认）：system + context 直接作为 messages。 */
-export function classicAssemble(input: AssembleInput): AssembleResult {
-  return {
-    system: input.systemPrompt,
-    messages: [...input.context],
-    tools: input.tools,
-  }
-}
+import type { Courier, CourierRegistration } from './Courier'
+import type { Repository } from './Repository'
+import type { AssembleInput, AssembleResult, ContextAssembler, MailDelivery, RepositoryState } from './types'
+import { classicAssemble } from './types'
 
 export interface ContextManagerOptions {
   /** 组装策略（缺省经典组装 classicAssemble）。 */
   readonly contextAssembler?: ContextAssembler
   readonly defaultCountdownMs?: number
-  readonly timer?: TimerFactory
-  /** 可注入邮箱实现（缺省 DefaultMailbox）。 */
-  readonly mailbox?: Mailbox
-  /** 日志出口（组合根注入 → bus → core/logging）。 */
+  readonly timer?: import('./Courier').TimerFactory
+  /** 仓库（组合根注入）。 */
+  readonly repository: Repository
+  /** 快递员（组合根注入）。 */
+  readonly courier: Courier
+  /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: (event: LogEvent) => void
 }
 
@@ -66,30 +38,19 @@ export interface ContextRegistration {
   readonly agentId: string
   readonly systemPrompt?: string
   readonly sendCountdownMs?: number
-  /** false = 用户面板（user0）。 */
+  /** false = 用户面板（user0，不组装只汇总）。 */
   readonly assemble?: boolean
   /** 送信回调（agent → kernel；user → 面板）。 */
-  readonly onDelivery: (delivery: import('./types').MailDelivery) => void
+  readonly onDelivery: (delivery: MailDelivery) => void
   /** 倒计时结束但无信可送时调用（agent → 进入 hold）。 */
   readonly onHold?: (agentId: string) => void
 }
 
-/** 挂起等待：context_wait 注册后，等待指定 agent 的 assistant_message 作为 tool 结果填充。 */
-export interface PendingHold {
-  readonly waitFor: string
-  readonly ownerId: string
-  readonly toolCallId: string
-}
-
 interface InternalBox {
   readonly agentId: string
-  systemPrompt: string | undefined
-  readonly context: ChatMessage[]
-  pendingLetters: ChatMessage[]
-  readonly toolRecords: ToolRecord[]
   readonly assemble: boolean
-  /** 是否有"等待填充的 tool 结果"待送信。 */
-  fillPending: boolean
+  /** 挂起等待：waitFor agent id → 挂起记录。 */
+  readonly pendingFills: Map<string, { waitFor: string; ownerId: string; toolCallId: string }>
   /** 各成分最近就绪时间（毫秒，供日志）。 */
   lastLetterAt: number | undefined
   lastHistoryAt: number | undefined
@@ -100,161 +61,169 @@ export interface ContextManager {
   readonly register: (registration: ContextRegistration) => Promise<void>
   readonly unregister: (agentId: string) => Promise<void>
   /**
-   * 投信（from 为发送者 id，用于 sub 等待分流）。
+   * 投信（from 为发送者 id，用于打戳与 context_wait 分流）。
    * 若 from 命中挂起等待 → 作为 tool 结果填充到等待者上下文（非 user_prompt）。
    */
   readonly deposit: (agentId: string, letter: ChatMessage, from?: string) => Promise<void>
-  /** 注册挂起等待：等待 waitFor 的 assistant_message 作为 tool 结果填充到 owner 上下文。 */
+  /** 注册挂起等待：等待 waitFor 的回复作为 tool 结果填充到 owner 上下文。 */
   readonly registerHold: (waitFor: string, opts: { ownerId: string; toolCallId: string }) => Promise<void>
   /** 追加历史（runtime 复制 assistant；工具模块注入 tool 结果）。 */
   readonly appendHistory: (agentId: string, message: ChatMessage) => Promise<void>
   /** 工具调用审计记录（工具模块自动发送）。 */
   readonly appendToolRecord: (agentId: string, record: ToolRecord) => Promise<void>
-  readonly getState: (agentId: string) => Promise<MailboxState>
+  readonly getState: (agentId: string) => Promise<RepositoryState>
+  /** 底层仓库（供 kernel/工具读取）。 */
+  readonly repository: Repository
+  /** 仓库 onChange 处理入口（组合根装配时注入给仓库）。 */
+  readonly handleChange: (agentId: string) => void
 }
 
 export class DefaultContextManager implements ContextManager {
+  readonly repository: Repository
   private readonly boxes = new Map<string, InternalBox>()
-  private readonly pendingFills = new Map<string, PendingHold>()
   private readonly assemble: ContextAssembler
-  private readonly mailbox: Mailbox
+  private readonly courier: Courier
   private readonly onLog?: (event: LogEvent) => void
 
-  constructor(options: ContextManagerOptions = {}) {
+  constructor(options: ContextManagerOptions) {
     this.assemble = options.contextAssembler ?? classicAssemble
+    this.repository = options.repository
+    this.courier = options.courier
     this.onLog = options.onLog
-    this.mailbox =
-      options.mailbox ??
-      new DefaultMailbox({
-        defaultCountdownMs: options.defaultCountdownMs,
-        timer: options.timer,
-        onLog: options.onLog,
-      })
   }
 
   async register(registration: ContextRegistration): Promise<void> {
     if (this.boxes.has(registration.agentId)) {
       throw { kind: 'mailbox_conflict', agentId: registration.agentId }
     }
-    this.boxes.set(registration.agentId, {
+    const box: InternalBox = {
       agentId: registration.agentId,
-      systemPrompt: registration.systemPrompt,
-      context: [],
-      pendingLetters: [],
-      toolRecords: [],
       assemble: registration.assemble ?? true,
-      fillPending: false,
+      pendingFills: new Map(),
       lastLetterAt: undefined,
       lastHistoryAt: undefined,
       lastToolAt: undefined,
-    })
-    const mailboxRegistration: MailboxRegistration = {
+    }
+    this.boxes.set(registration.agentId, box)
+
+    // 仓库开辟记录（systemPrompt 作为首条 system message）。
+    await this.repository.register(registration.agentId, registration.systemPrompt)
+
+    // 快递员注册。
+    const courierRegistration: CourierRegistration = {
       agentId: registration.agentId,
       sendCountdownMs: registration.sendCountdownMs,
       onDelivery: registration.onDelivery,
       onHold: registration.onHold,
-      // 发送前消费已就绪的信件/填充标记（邮箱不接触上下文成分）。
-      beforeSend: (agentId) => this.commit(agentId),
+      assemble: registration.assemble,
     }
-    await this.mailbox.register(mailboxRegistration)
+    await this.courier.register(courierRegistration)
   }
 
   async unregister(agentId: string): Promise<void> {
-    await this.mailbox.unregister(agentId)
+    await this.courier.unregister(agentId)
+    await this.repository.unregister(agentId)
     this.boxes.delete(agentId)
   }
 
   async registerHold(waitFor: string, opts: { ownerId: string; toolCallId: string }): Promise<void> {
-    this.pendingFills.set(waitFor, { waitFor, ownerId: opts.ownerId, toolCallId: opts.toolCallId })
+    const box = this.require(opts.ownerId)
+    box.pendingFills.set(waitFor, { waitFor, ownerId: opts.ownerId, toolCallId: opts.toolCallId })
   }
 
   async deposit(agentId: string, letter: ChatMessage, from?: string): Promise<void> {
-    // 发送者命中挂起等待 → 该 assistant_message 作为 tool 结果填充，而非信件。
+    // context_wait 分流：发送者命中挂起等待 → 该回复作为 tool 结果填充（非信件）。
     if (from !== undefined) {
-      const pending = this.pendingFills.get(from)
+      const pending = this.findPendingFor(from)
       if (pending) {
-        this.pendingFills.delete(from)
         const owner = this.require(pending.ownerId)
-        owner.context.push({ role: 'tool', content: letter.content, toolCallId: pending.toolCallId })
+        owner.pendingFills.delete(from)
         owner.lastHistoryAt = Date.now()
-        owner.fillPending = true
-        this.assembleAndNotify(owner)
+        await this.repository.append(pending.ownerId, {
+          message: { role: 'tool', content: letter.content, toolCallId: pending.toolCallId },
+        })
         return
       }
     }
     const box = this.require(agentId)
-    box.pendingLetters.push(letter)
     box.lastLetterAt = Date.now()
-    this.assembleAndNotify(box)
+    // 先入库（含 from），管理员处理时统一打戳。
+    await this.repository.append(agentId, { message: letter, from })
   }
 
   async appendHistory(agentId: string, message: ChatMessage): Promise<void> {
     const box = this.require(agentId)
-    box.context.push(message)
     box.lastHistoryAt = Date.now()
+    await this.repository.append(agentId, { message })
   }
 
   async appendToolRecord(agentId: string, record: ToolRecord): Promise<void> {
     const box = this.require(agentId)
-    box.toolRecords.push(record)
     box.lastToolAt = Date.now()
+    // 工具审计记录仅占位（工具调用日志由工具模块经 LogSink 上报，见 Kernel 装配）。
   }
 
-  async getState(agentId: string): Promise<MailboxState> {
-    const box = this.require(agentId)
-    const mailboxState = await this.mailbox.getState(agentId)
-    return {
-      agentId: box.agentId,
-      systemPrompt: box.systemPrompt,
-      context: [...box.context],
-      pendingLetters: [...box.pendingLetters],
-      toolRecords: [...box.toolRecords],
-      sendCountdownMs: mailboxState.sendCountdownMs,
-      assemble: box.assemble,
-      coolingDown: mailboxState.coolingDown,
-    }
+  async getState(agentId: string): Promise<RepositoryState> {
+    return this.repository.getState(agentId)
   }
 
-  /** 拼装（agent）或汇总（user）出新内容 → 交给邮箱（就绪信号）+ 留档日志。 */
-  private assembleAndNotify(box: InternalBox): void {
-    let content: ReadyContent
-    if (box.assemble) {
-      // 只读拼装：快照 = 历史 + 待发送信件（不消费信件，发送后 commit）。
-      const result = this.assemble({
-        systemPrompt: box.systemPrompt ?? '',
-        context: [...box.context, ...box.pendingLetters],
+  /** 仓库 onChange 入口：打戳 + 组装 + 通知快递员。 */
+  readonly handleChange: (agentId: string) => void = (agentId) => {
+    const box = this.boxes.get(agentId)
+    if (!box) return
+    // 1. 打发送者戳（把所有未打戳的 user 消息补上戳）。
+    this.applyStamps(box)
+    // 2. 组装快照（供日志）。
+    const assembled = this.snapshot(box)
+    // 3. 通知快递员「上下文待发送事件」。
+    void this.courier.notifyReady(agentId)
+    if (assembled !== undefined) {
+      this.onLog?.({
+        type: 'context.assembled',
+        at: Date.now(),
+        agentId,
+        assemble: box.assemble,
+        messageCount: assembled.messageIds.length,
+        messages: assembled.messages,
+        readyAt: {
+          letters: box.lastLetterAt,
+          history: box.lastHistoryAt,
+          tools: box.lastToolAt,
+        },
       })
-      content = {
-        kind: 'context',
-        system: result.system,
-        messages: result.messages,
-        tools: result.tools,
-      }
-    } else {
-      content = { kind: 'letters', letters: [...box.pendingLetters] }
     }
-    this.onLog?.({
-      type: 'context.assembled',
-      at: Date.now(),
-      agentId: box.agentId,
-      assemble: box.assemble,
-      messageCount: content.kind === 'context' ? content.messages.length : content.letters.length,
-      messages: content.kind === 'context' ? content.messages : [],
-      readyAt: {
-        letters: box.lastLetterAt,
-        history: box.lastHistoryAt,
-        tools: box.lastToolAt,
-      },
-    })
-    void this.mailbox.notifyReady(box.agentId, content)
   }
 
-  /** 邮箱发送前调用：把已拼装进快照的信件并入历史并清空（避免重复组装）。 */
-  private commit(agentId: string): void {
-    const box = this.require(agentId)
-    box.context.push(...box.pendingLetters)
-    box.pendingLetters = []
-    box.fillPending = false
+  /** 把所有未打戳的 user 消息（含 from）补上发送者戳。 */
+  private applyStamps(box: InternalBox): void {
+    const valid = this.repository.listValid(box.agentId)
+    for (const stored of valid) {
+      if (stored.from === undefined || stored.message.role !== 'user') continue
+      const text = contentOf(stored.message)
+      if (text.startsWith('<sender id=')) continue // 已打戳
+      const stamped: ChatMessage = { role: 'user', content: `<sender id="${stored.from}">${text}</sender>` }
+      void this.repository.updateMessage(box.agentId, stored.id, stamped)
+    }
+  }
+
+  /** 组装（agent）或汇总（user）：返回本次快照供日志。 */
+  private snapshot(box: InternalBox): AssembleResult | undefined {
+    const valid = this.repository.listValid(box.agentId)
+    if (valid.length === 0) return undefined
+    if (!box.assemble) {
+      // user0：只汇总信件。
+      const letters = valid.filter((m) => m.message.role === 'user')
+      return { system: '', messages: letters.map((m) => m.message), messageIds: letters.map((m) => m.id) }
+    }
+    return this.assemble({ agentId: box.agentId, messages: valid } as AssembleInput)
+  }
+
+  private findPendingFor(senderId: string): { ownerId: string; toolCallId: string } | undefined {
+    for (const box of this.boxes.values()) {
+      const pending = box.pendingFills.get(senderId)
+      if (pending) return pending
+    }
+    return undefined
   }
 
   private require(agentId: string): InternalBox {
@@ -262,4 +231,8 @@ export class DefaultContextManager implements ContextManager {
     if (!box) throw { kind: 'mailbox_not_found', agentId }
     return box
   }
+}
+
+function contentOf(message: ChatMessage): string {
+  return typeof message.content === 'string' ? message.content : ''
 }
