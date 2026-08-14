@@ -119,21 +119,21 @@ export interface AgentMessageSent {
   readonly payloadSize: number
 }
 
-/** 权限请求记录（评估动作 + 是否挂起确认）。 */
-export interface PermissionAsked {
-  readonly type: 'permission.asked'
+/** 访问请求记录（评估动作 + 是否挂起确认）。 */
+export interface AccessAsked {
+  readonly type: 'access.asked'
   readonly at: number
   readonly agentId: string
-  readonly permission: string
-  readonly action: 'allow' | 'deny' | 'ask'
+  readonly accessKey: string
+  readonly action: 'allow' | 'ask' | 'deny' | 'ignore'
 }
 
-/** 权限回复记录。 */
-export interface PermissionReplied {
-  readonly type: 'permission.replied'
+/** 访问回复记录。 */
+export interface AccessReplied {
+  readonly type: 'access.replied'
   readonly at: number
   readonly agentId: string
-  readonly permission: string
+  readonly accessKey: string
   readonly requestId: string
   readonly reply: 'once' | 'always' | 'reject'
 }
@@ -165,7 +165,7 @@ export type LogEvent =
   | AgentStatusChanged
   | AgentTerminated
   | AgentMessageSent
-  | PermissionAsked
-  | PermissionReplied
+  | AccessAsked
+  | AccessReplied
   | InitToolRegistered
   | InitAgentRegistered

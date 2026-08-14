@@ -16,7 +16,7 @@ export function createReadTool(root: string): ToolCapability {
   return {
     id: 'read',
     description: '读取文本文件内容（支持按行分页，offset 为 1-based 起始行，limit ≤ 2000）或列出目录内容。路径为绝对路径或相对工作区路径。',
-    permission: 'read',
+    accessKey: 'read',
     kind: 'shell',
     category: 'business',
     parameters: {

@@ -14,7 +14,7 @@ export function createWriteTool(root: string): ToolCapability {
   return {
     id: 'write',
     description: '写入文本内容到文件（全量覆盖，父目录自动创建）。路径为绝对路径或相对工作区路径。',
-    permission: 'edit',
+    accessKey: 'edit',
     kind: 'shell',
     category: 'business',
     parameters: {

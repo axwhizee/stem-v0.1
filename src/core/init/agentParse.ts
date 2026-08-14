@@ -20,12 +20,12 @@
 // ============================================================
 
 import { parse as parseYaml } from 'yaml'
-import type { PermissionAction } from '../permission'
+import type { ToolAccess } from '../tools'
 
 /** YAML 头（已归一化；未知字段如 metadata 忽略）。 */
 export interface AgentFrontmatter {
   readonly description?: string
-  /** 融合的工具权限：工具名 → allow|deny|ask（键即工具白名单）。 */
+  /** 融合的工具访问：工具名 → allow|ask|deny|ignore（键即工具白名单）。 */
   readonly permission?: Readonly<Record<string, string>>
   readonly send_countdown?: number
 }
@@ -37,8 +37,8 @@ export interface ParsedAgentFile {
   /** agent 类 name（= 文件名）。 */
   readonly name: string
   readonly description: string
-  /** 融合的权限（工具 → 动作）。 */
-  readonly permissions: Readonly<Record<string, PermissionAction>>
+  /** 融合的工具访问（工具 → 动作）。 */
+  readonly toolAccess: Readonly<Record<string, ToolAccess>>
   /** 工具白名单（= permission 的键，缺省空）。 */
   readonly tools: readonly string[]
   readonly sendCountdown?: number
@@ -62,16 +62,16 @@ export function parseAgentFile(text: string, filename: string): ParsedAgentFile 
   const id = filename
   const name = filename
   const description = head.description ?? name
-  const permissions = normalizePermissions(head.permission, fail)
+  const toolAccess = normalizePermissions(head.permission, fail)
   // 融合：工具白名单 = permission 的键（缺省无工具）。
-  const tools = Object.keys(permissions)
+  const tools = Object.keys(toolAccess)
   const systemPrompt = extractPrompt(text)
 
   return {
     id,
     name,
     description,
-    permissions,
+    toolAccess,
     tools,
     ...(head.send_countdown !== undefined ? { sendCountdown: head.send_countdown } : {}),
     systemPrompt,
@@ -121,16 +121,16 @@ export function extractPrompt(text: string): string {
   return (match?.[1] ?? '').trim()
 }
 
-const ACTIONS: readonly string[] = ['allow', 'deny', 'ask']
+const ACTIONS: readonly string[] = ['allow', 'deny', 'ask', 'ignore']
 
 function normalizePermissions(
   raw: Readonly<Record<string, string>> | undefined,
   fail: (message: string) => never,
-): Readonly<Record<string, PermissionAction>> {
-  const result: Record<string, PermissionAction> = {}
+): Readonly<Record<string, ToolAccess>> {
+  const result: Record<string, ToolAccess> = {}
   for (const [tool, action] of Object.entries(raw ?? {})) {
-    if (!ACTIONS.includes(action)) fail(`permission.${tool} 非法（允许 allow/deny/ask）`)
-    result[tool] = action as PermissionAction
+    if (!ACTIONS.includes(action)) fail(`permission.${tool} 非法（允许 allow/ask/deny/ignore）`)
+    result[tool] = action as ToolAccess
   }
   return result
 }

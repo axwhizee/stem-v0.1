@@ -10,7 +10,7 @@ import type { AgentClass, AgentClassID } from '../kernel'
 import { makeAgentClassID } from '../kernel'
 import type { ToolCapability } from '../tools'
 import { DefaultToolCapabilityRegistry } from '../tools'
-import { DefaultAgentTemplateRegistry } from '../kernel'
+import { DefaultTemplateRegistry } from '../kernel'
 import { runInit } from './init'
 import type { InitDeps, InitFs } from './types'
 
@@ -83,7 +83,7 @@ function makeDeps(opts: {
     fs,
     tools: { loadTool },
     toolRegistry: new DefaultToolCapabilityRegistry(),
-    templateRegistry: new DefaultAgentTemplateRegistry(),
+    templateRegistry: new DefaultTemplateRegistry(),
     onLog: { log: () => {} },
   }
   return { deps, saved: () => saved[0] ?? '', savedCalls: () => saveCalls }
@@ -181,7 +181,7 @@ test('用户 agent 注册为完整 AgentClass（id/name 取自文件名）', asy
   assert.equal(cls.id, makeAgentClassID('reviewer'))
   assert.equal(cls.name, 'reviewer')
   assert.equal(cls.description, 'reviewer')
-  assert.deepEqual(cls.permissions, { read: 'allow' })
+  assert.deepEqual(cls.toolAccess, { read: 'allow' })
   assert.deepEqual(cls.tools.map((t) => t.id), ['read'])
   assert.equal(cls.sendCountdown, 500)
   assert.match(cls.systemPrompt, /Review system/)

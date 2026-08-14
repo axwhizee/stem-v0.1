@@ -5,7 +5,7 @@
 //   1. 读取唯一配置（ConfigStore）；
 //   2. 扫描 `.stem/tool/`、`.stem/agent/` 目录；
 //   3. 同步注册表到 stem.jsonc（纯镜像：发现文件就登记、缺实现就移除）；
-//   4. 注册到 core（工具注册表 + AgentTemplateRegistry）。
+//   4. 注册到 core（工具注册表 + TemplateRegistry）。
 // 平台能力（fs / 动态 import）全部由宿主注入。
 // ============================================================
 
@@ -40,7 +40,7 @@ export interface InitDeps {
   /** 工具注册表（注册用户工具）。 */
   readonly toolRegistry: import('../tools').ToolCapabilityRegistry
   /** 模板注册表（注册用户 agent 类）。 */
-  readonly templateRegistry: import('../kernel').AgentTemplateRegistry
+  readonly templateRegistry: import('../kernel').TemplateRegistry
   /** 日志出口（组合根注入 → bus → core/logging）。 */
   readonly onLog?: import('../logging').LogSink
 }

@@ -12,7 +12,7 @@ export function createGlobTool(root: string): ToolCapability {
   return {
     id: 'glob',
     description: '按 glob 模式递归匹配文件路径（支持 ** / * / ? / {a,b}），返回匹配文件列表。',
-    permission: 'glob',
+    accessKey: 'glob',
     kind: 'shell',
     category: 'business',
     parameters: {

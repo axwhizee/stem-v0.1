@@ -17,7 +17,7 @@ import { FakeGateway } from '../gateway'
 import type { LLMRequest, LLMEvent } from '../gateway'
 import type { AgentClass } from './types'
 import { makeAgentClassID } from './types'
-import { BUILTIN_TEMPLATES, USER_ID } from './AgentKernel'
+import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 import { createKernelHarness } from '../../../test-support/kernelHarness'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
@@ -28,7 +28,7 @@ const creatorTemplate: AgentClass = {
   description: '能创建子 agent 的调度者',
   systemPrompt: 'creator-sys: 你是调度者，可以创建子 agent 获取信息。',
   tools: [{ id: 'agent_instantiate' }, { id: 'agent_list' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-  permissions: {
+  toolAccess: {
     agent_instantiate: 'allow',
     agent_list: 'allow',
     context_wait: 'allow',
@@ -44,7 +44,7 @@ const toolAgentTemplate: AgentClass = {
   description: '带时间工具的助手',
   systemPrompt: 'tool-sys: 你是执行者，可以用工具查询信息并回复。',
   tools: [{ id: 'oc_get_time' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-  permissions: { oc_get_time: 'allow', bus_send: 'allow', bus_participants: 'allow' },
+  toolAccess: { oc_get_time: 'allow', bus_send: 'allow', bus_participants: 'allow' },
   memoryScope: [],
 }
 

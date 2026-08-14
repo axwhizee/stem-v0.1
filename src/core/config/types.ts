@@ -11,7 +11,7 @@
 //   - `model` 采用 opencode 格式 `提供商/模型`（如 `opencode-go/deepseek-v4-flash`）。
 // ============================================================
 
-import type { PermissionAction } from '../permission'
+import type { ToolAccess } from '../tools'
 
 /** 已注册的用户工具条目（纯镜像，init 自动维护）。 */
 export interface RegisteredTool {
@@ -42,8 +42,8 @@ export interface StemConfig {
   readonly model?: string
   /** 是否开启权限自动批准（true 时 ask 直接放行，不弹窗）。 */
   readonly autoApprove?: boolean
-  /** 全局工具权限（弱于 agent 类专门指定的权限；未列出默认 ask）。 */
-  readonly permission?: Readonly<Record<string, PermissionAction>>
+  /** 全局工具访问（弱于 agent 类专门指定与祖先链；未列出默认 ask，internal 系统工具默认 ignore）。 */
+  readonly permission?: Readonly<Record<string, ToolAccess>>
   /** 全局默认送信倒计时（毫秒；agent 文件/类未指定时使用）。 */
   readonly sendCountdown?: number
   /** 已注册的用户工具（纯镜像，init 自动维护）。 */

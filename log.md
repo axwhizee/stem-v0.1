@@ -495,3 +495,61 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - 仓库真实 token 记账（基于 gateway usage 差值校正；当前 tokens 为字符/4 估算占位）。
 - coding-hybrid 模式（五段排布：原则信息/对话脉络/精炼历史/元代码空间/实时 toolcall 结果）。
 - 仓库持久化（SQLite/文件）。
+
+---
+
+## 阶段：工具访问四态融合 + 族谱树 + user0 元化 + 命名简化
+
+**日期**：2026-08-14
+
+### 目标
+
+1. **权限模块融合进 tools**：废弃 `core/permission/`，工具访问状态成为 agent 工具字典的属性值（四态 `allow/ask/deny/ignore`）。
+2. **族谱树**：agent 明确父子关系（同地位独立个体），父可销毁子；user0 是原点/元 agent。
+3. **系统级工具默认隐藏**：`kind=internal` 默认 `ignore`，显式 `allow` 才暴露。
+4. **命名简化**：kernel 子模块去 Agent 前缀。
+
+### 完成内容
+
+1. **`core/tools/` 工具访问四态**：
+   - `access.ts`：`evaluateAccess`（分层评估，层间取最严格 = 单向收缩）+ `restrictAccess`（偏序 `deny ≺ ask ≺ {allow, ignore}`）+ `toolAccessToRules`。
+   - `AccessManager.ts`（替代 PermissionManager）：`assert`（allow/ignore 通过 / deny 抛 `access_denied` / ask 挂起弹窗）+ `reply`（once/always/reject）+ **元 agent（user0）短路 allow**。
+   - `types.ts`：`ToolAccess` / `ToolAccessRule` / `ToolAccessRules` / `AccessRequest` / `AccessReply` / `AccessAssertInput` / `AccessError`；`ToolCapability.permission` → `accessKey`；`ToolContext.rules` → `accessLayers`。
+   - `ToolCapabilityRegistry`：materialize 过滤 deny/ignore（internal 默认 ignore）；execute 走 AccessManager。
+   - **删除 `core/permission/`**（types/evaluate/PermissionManager/index）。
+
+2. **族谱树 `core/kernel/LineageTree.ts`**（无状态关系查询视图）：
+   - `AgentInstance.parentId`（创建时确定、不可变；user0 为 null 即根）。
+   - 单一事实源：parentId 挂实例上，LineageTree 实时推导，无独立存储/无需同步。
+   - `getParent / getChildren / getAncestors / getDescendants / isAncestorOf / resolveAccessLayers`（权限继承）。
+   - 销毁权（fail-closed）：仅祖先（含 user0）可销毁；有活跃子默认拒绝，`recursive` 级联；元 agent 不可销毁。
+
+3. **user0 元化**：
+   - `registerUser()` 实例化 user0 为元 agent（`classRef='__meta__'`、`parentId=null`），进入实例体系。
+   - 元权限：AccessManager 对 user0 短路 allow（作为偏序最大值对后代零污染）。
+
+4. **权限继承（单向收缩）**：
+   - kernel 合成完整访问层 `[全局(最弱), 祖先链(父→子), agent 类]`，AccessManager 追加 session 批准。
+   - 子 ≤ 父：任何一层 deny → 全局 deny，deny 不可被后序规则撤销。
+   - session 批准（always/once）仅当前实例，不传播后代。
+
+5. **系统工具新增/增强**：
+   - 新增 `agent_inspect` / `agent_ancestry` / `agent_descendants`。
+   - `agent_terminate` 增参 `recursive` + 销毁权校验（by=ctx.agentId）。
+
+6. **命名简化**（kernel 子模块去 Agent 前缀，领域类型 `AgentClass/AgentInstance/AgentID` 保留）：
+   - `AgentKernel` → `Kernel`、`AgentInstanceManager` → `InstanceManager`、`AgentTemplateRegistry` → `TemplateRegistry`、`AgentSpaceManager` → `SpaceManager`、`AgentRuntime` → `Runtime`（含同名文件 git mv）。
+
+7. **同步**：shell/main.ts（access.reply、globalToolAccessDefaults）、shell/tools/*（accessKey）、config/parse（四态校验）、init/agentParse（toolAccess）、panel/types（accessKey）、logging（access.asked/replied）、templates/*.json（toolAccess）。
+
+### 验证
+
+- 106/106 测试通过（新增 access.test 9 项 + LineageTree.test 7 项；更新 tools/kernel/init/shell 测试）。
+- typecheck 0 错误（忽略 reference/）。
+
+### 后续（未执行）
+
+- `agent_class_update` 接入：类 toolAccess 运行时变更经动态传导自动收紧全部实例。
+- 仓库真实 token 记账（基于 gateway usage 差值校正）。
+- coding-hybrid 模式（五段排布）。
+- 仓库/族谱持久化（SQLite/文件）。

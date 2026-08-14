@@ -4,7 +4,7 @@
 // 提供：手动倒计时（同步触发）、用户收信等待队列、标准 kernel 构造。
 // ============================================================
 
-import { AgentKernel, makeAgentClassID, USER_ID } from '../src/core/kernel'
+import { Kernel, makeAgentClassID, USER_ID } from '../src/core/kernel'
 import type { UserDelivery } from '../src/core/context'
 import { DefaultToolCapabilityRegistry } from '../src/core/tools'
 import type { FakeGateway } from '../src/core/gateway'
@@ -60,7 +60,7 @@ export function userDeliveryQueue() {
 }
 
 export interface Harness {
-  kernel: AgentKernel
+  kernel: Kernel
   timers: ReturnType<typeof manualTimers>
   deliveries: ReturnType<typeof userDeliveryQueue>
   tools: DefaultToolCapabilityRegistry
@@ -70,7 +70,7 @@ export async function createKernelHarness(
   gateway: FakeGateway,
   opts: {
     countdownMs?: number
-    templates?: ConstructorParameters<typeof AgentKernel>[0]['templates']
+    templates?: ConstructorParameters<typeof Kernel>[0]['templates']
     onEvent?: (agentId: string, event: never) => void
   } = {},
 ): Promise<Harness> {
@@ -78,7 +78,7 @@ export async function createKernelHarness(
   const deliveries = userDeliveryQueue()
   const tools = new DefaultToolCapabilityRegistry()
 
-  const kernel = new AgentKernel({
+  const kernel = new Kernel({
     gateway,
     defaultModel: { provider: 'opencode', id: 'test-model' },
     tools,

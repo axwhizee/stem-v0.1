@@ -9,7 +9,7 @@
 //        - 已注册但无实现文件 → 移除（orphan_registration issue）；
 //   4. 注册到 core：
 //        - 用户工具 → ToolCapabilityRegistry（kind 强制 'user'）；
-//        - 用户 agent → AgentTemplateRegistry（解析 YAML 头 + 正文）。
+//        - 用户 agent → TemplateRegistry（解析 YAML 头 + 正文）。
 //   5. 写回配置（仅当注册表变化时）。
 // ============================================================
 
@@ -117,7 +117,7 @@ async function loadUserAgents(deps: InitDeps, files: readonly string[], issues: 
         description: parsed.description,
         systemPrompt: parsed.systemPrompt,
         tools: parsed.tools.map((id) => ({ id })),
-        permissions: parsed.permissions,
+        toolAccess: parsed.toolAccess,
         memoryScope: [],
         ...(parsed.sendCountdown !== undefined ? { sendCountdown: parsed.sendCountdown } : {}),
       }

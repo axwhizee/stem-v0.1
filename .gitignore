@@ -1,8 +1,12 @@
+# TypeScript
 node_modules/
 dist/
 out/
 *.tsbuildinfo
 .DS_Store
 
-# 本地参考资料（opencode / vscode 源码，体积大且非本项目产物）
+# 参考
 reference/
+
+# 临时
+prompt.md

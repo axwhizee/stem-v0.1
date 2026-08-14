@@ -1,5 +1,5 @@
 // ============================================================
-// core/kernel/AgentRuntime.test.ts —— 运行时单元测试（被动驱动）
+// core/kernel/Runtime.test.ts —— 运行时单元测试（被动驱动）
 // ============================================================
 
 import { describe, test } from 'node:test'
@@ -8,9 +8,9 @@ import { FakeGateway } from '../gateway'
 import { DefaultRepository, DefaultCourier, DefaultContextManager } from '../context'
 import type { AgentDelivery } from '../context'
 import { DefaultToolCapabilityRegistry } from '../tools'
-import { DefaultAgentTemplateRegistry } from './AgentTemplateRegistry'
-import { DefaultAgentInstanceManager } from './AgentInstanceManager'
-import { DefaultAgentRuntime } from './AgentRuntime'
+import { DefaultTemplateRegistry } from './TemplateRegistry'
+import { DefaultInstanceManager } from './InstanceManager'
+import { DefaultRuntime } from './Runtime'
 import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentSpaceID } from './types'
 
@@ -20,7 +20,7 @@ const cls: AgentClass = {
   description: 'chat agent',
   systemPrompt: 'You are assistant.',
   tools: [],
-  permissions: {},
+  toolAccess: {},
   memoryScope: [],
 }
 
@@ -31,8 +31,8 @@ function deliveryFor(agentId: string, system = cls.systemPrompt): AgentDelivery 
 }
 
 async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCapabilityRegistry; template?: AgentClass }) {
-  const templates = new DefaultAgentTemplateRegistry([extra?.template ?? cls])
-  const instances = new DefaultAgentInstanceManager(templates)
+  const templates = new DefaultTemplateRegistry([extra?.template ?? cls])
+  const instances = new DefaultInstanceManager(templates)
   const repository = new DefaultRepository()
   const courier = new DefaultCourier({ repository, defaultCountdownMs: 0 })
   const contextManager = new DefaultContextManager({ repository, courier })
@@ -55,7 +55,7 @@ async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCa
   // user0 作为接收者注册（最终回复投递目标）。
   await contextManager.register({ agentId: 'user0', assemble: false, onDelivery: () => {} })
 
-  const runtime = new DefaultAgentRuntime({
+  const runtime = new DefaultRuntime({
     gateway,
     instances,
     templates,
@@ -67,7 +67,7 @@ async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCa
   return { runtime, instances, contextManager, repository, letters, agentId: instance.id }
 }
 
-describe('DefaultAgentRuntime（被动驱动）', () => {
+describe('DefaultRuntime（被动驱动）', () => {
   test('processDelivery：LLM 文本回复 → 寄信给创建者 → holding', async () => {
     const gateway = new FakeGateway(() => [
       { type: 'text-delta', text: 'hello' },

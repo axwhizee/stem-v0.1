@@ -1,5 +1,5 @@
 // ============================================================
-// core/kernel/AgentTemplateRegistry.ts —— 模板注册表（AgentClass）
+// core/kernel/TemplateRegistry.ts —— 模板注册表（AgentClass）
 //
 // 一切 Agent 都来自 AgentClass 模板（D7）。本模块提供注册/查询/
 // 校验，内置示例模板（SimpleChat / Coder）从 templates/*.json 加载，
@@ -7,18 +7,20 @@
 // ============================================================
 
 import type { AgentClass, AgentClassID, KernelError } from './types'
-import type { PermissionAction } from '../permission'
+import type { ToolAccess } from '../tools'
 
-export interface AgentTemplateRegistry {
+export interface TemplateRegistry {
   readonly register: (cls: AgentClass) => Promise<void>
   readonly update: (id: AgentClassID, patch: Partial<AgentClass>) => Promise<void>
   readonly remove: (id: AgentClassID) => Promise<void>
   readonly get: (id: AgentClassID) => Promise<AgentClass>
+  /** 同步读取（供 LineageTree.accessLayerOf 在同步路径解析访问层）。 */
+  readonly getSync: (id: AgentClassID) => AgentClass | undefined
   readonly list: () => Promise<AgentClass[]>
   readonly validate: (cls: AgentClass) => Promise<void>
 }
 
-export class DefaultAgentTemplateRegistry implements AgentTemplateRegistry {
+export class DefaultTemplateRegistry implements TemplateRegistry {
   private readonly templates = new Map<AgentClassID, AgentClass>()
 
   constructor(builtin: readonly AgentClass[] = []) {
@@ -53,6 +55,10 @@ export class DefaultAgentTemplateRegistry implements AgentTemplateRegistry {
     return cls
   }
 
+  getSync(id: AgentClassID): AgentClass | undefined {
+    return this.templates.get(id)
+  }
+
   async list(): Promise<AgentClass[]> {
     return [...this.templates.values()]
   }
@@ -65,14 +71,14 @@ export class DefaultAgentTemplateRegistry implements AgentTemplateRegistry {
     if (!cls.name || typeof cls.name !== 'string') fail('name 不能为空')
     if (!cls.systemPrompt || typeof cls.systemPrompt !== 'string') fail('systemPrompt 不能为空')
     if (!cls.description || typeof cls.description !== 'string') fail('description 不能为空')
-    for (const [tool, action] of Object.entries(cls.permissions ?? {})) {
-      if (!isPermissionAction(action)) fail(`权限列表 ${tool}=${String(action)} 非法（允许 allow/deny/ask）`)
+    for (const [tool, action] of Object.entries(cls.toolAccess ?? {})) {
+      if (!isToolAccess(action)) fail(`工具访问列表 ${tool}=${String(action)} 非法（允许 allow/ask/deny/ignore）`)
     }
   }
 }
 
-function isPermissionAction(value: unknown): value is PermissionAction {
-  return value === 'allow' || value === 'deny' || value === 'ask'
+function isToolAccess(value: unknown): value is ToolAccess {
+  return value === 'allow' || value === 'deny' || value === 'ask' || value === 'ignore'
 }
 
 function error(e: KernelError): KernelError {

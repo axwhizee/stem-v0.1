@@ -16,7 +16,7 @@ export function createEditTool(root: string): ToolCapability {
     id: 'edit',
     description:
       '编辑文件：用 newString 精确替换 oldString（必须完全匹配，含空白与缩进）。oldString 不能为空；若匹配多处需设 replaceAll=true。',
-    permission: 'edit',
+    accessKey: 'edit',
     kind: 'shell',
     category: 'business',
     parameters: {

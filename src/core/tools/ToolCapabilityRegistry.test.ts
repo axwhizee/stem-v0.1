@@ -5,18 +5,18 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DefaultToolCapabilityRegistry } from './ToolCapabilityRegistry'
-import type { ToolCapability, ToolContext, ToolError, ToolParametersSchema } from './types'
-import type { PermissionManager, PermissionRequest, PermissionRules } from '../permission'
-import { DefaultPermissionManager } from '../permission'
+import type { ToolCapability, ToolContext, ToolError, ToolParametersSchema, ToolAccessRules, AccessRequest } from './types'
+import type { AccessManager } from './AccessManager'
+import { DefaultAccessManager } from './AccessManager'
 import { validateArgs } from './validate'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
-const emptyRules: PermissionRules = []
-const allowEchoRules: PermissionRules = [{ tool: 'oc_echo', action: 'allow' }]
-const denyEchoRules: PermissionRules = [{ tool: 'oc_echo', action: 'deny' }]
+const emptyRules: ToolAccessRules = []
+const allowEchoRules: ToolAccessRules = [{ key: 'oc_echo', action: 'allow' }]
+const denyEchoRules: ToolAccessRules = [{ key: 'oc_echo', action: 'deny' }]
 
-const baseCtx: ToolContext = { agentId: 'a1', spaceId: 's1', rules: allowEchoRules }
+const baseCtx: ToolContext = { agentId: 'a1', spaceId: 's1', accessLayers: [allowEchoRules] }
 
 const echoTool: ToolCapability = {
   id: 'oc_echo',
@@ -92,22 +92,32 @@ describe('DefaultToolCapabilityRegistry', () => {
     )
   })
 
-  test('materialize：deny 的工具不暴露，其余转 LLM ToolDefinition', async () => {
+  test('materialize：deny/ignore 的工具不暴露，其余转 LLM ToolDefinition', async () => {
     const registry = new DefaultToolCapabilityRegistry()
     await registry.register(echoTool)
     await registry.register(telemetryTool)
 
-    const allowBoth: PermissionRules = [
-      { tool: 'oc_echo', action: 'allow' },
-      { tool: 'telemetry_read', action: 'allow' },
+    const allowBoth: ToolAccessRules = [
+      { key: 'oc_echo', action: 'allow' },
+      { key: 'telemetry_read', action: 'allow' },
     ]
-    const all = registry.materialize(allowBoth)
+    const all = registry.materialize([allowBoth])
     assert.deepEqual(all.map((t) => t.name).sort(), ['oc_echo', 'telemetry_read'])
     assert.equal(all[0]?.parameters.type, 'object')
 
     // deny telemetry_read → 只暴露 echo
-    const denyTelemetry: PermissionRules = [{ tool: 'telemetry_read', action: 'deny' }]
-    assert.deepEqual(registry.materialize(denyTelemetry).map((t) => t.name), ['oc_echo'])
+    const denyTelemetry: ToolAccessRules = [{ key: 'telemetry_read', action: 'deny' }]
+    assert.deepEqual(registry.materialize([denyTelemetry]).map((t) => t.name), ['oc_echo'])
+  })
+
+  test('materialize：internal 系统工具默认 ignore（隐藏），显式 allow 才暴露', async () => {
+    const registry = new DefaultToolCapabilityRegistry()
+    await registry.register({ ...echoTool, kind: 'internal' })
+    // 无规则：internal 默认 ignore → 不暴露
+    assert.deepEqual(registry.materialize([emptyRules]).map((t) => t.name), [])
+    // 显式 allow → 暴露
+    const allowInternal: ToolAccessRules = [{ key: 'oc_echo', action: 'allow' }]
+    assert.deepEqual(registry.materialize([allowInternal]).map((t) => t.name), ['oc_echo'])
   })
 
   test('execute：allow 规则直接执行', async () => {
@@ -117,64 +127,64 @@ describe('DefaultToolCapabilityRegistry', () => {
     assert.equal(result.text, 'Echo: hi')
   })
 
-  test('execute：deny 规则 → permission_denied（不弹窗）', async () => {
-    const permission: PermissionManager = new DefaultPermissionManager({ askPanel: () => {} })
-    const registry = new DefaultToolCapabilityRegistry({ permission })
+  test('execute：deny 规则 → access_denied（不弹窗）', async () => {
+    const access: AccessManager = new DefaultAccessManager({ askPanel: () => {} })
+    const registry = new DefaultToolCapabilityRegistry({ access })
     await registry.register(echoTool)
-    const ctx: ToolContext = { ...baseCtx, rules: denyEchoRules }
+    const ctx: ToolContext = { ...baseCtx, accessLayers: [denyEchoRules] }
     await assert.rejects(
       () => registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'x' } }, ctx),
       (e: unknown) => {
         const err = e as ToolError
-        return err.kind === 'permission_denied' && err.permission === 'oc_echo'
+        return err.kind === 'access_denied' && err.accessKey === 'oc_echo'
       },
     )
   })
 
   test('execute：ask（缺省/无规则）→ 挂起 → once 批准后执行', async () => {
-    let request: PermissionRequest | undefined
-    const permission: PermissionManager = new DefaultPermissionManager({ askPanel: (req) => void (request = req) })
-    const registry = new DefaultToolCapabilityRegistry({ permission })
+    let request: AccessRequest | undefined
+    const access: AccessManager = new DefaultAccessManager({ askPanel: (req) => void (request = req) })
+    const registry = new DefaultToolCapabilityRegistry({ access })
     await registry.register(echoTool)
 
-    const ctx: ToolContext = { agentId: 'a1', spaceId: 's1', rules: emptyRules }
+    const ctx: ToolContext = { agentId: 'a1', spaceId: 's1', accessLayers: [emptyRules] }
     const execution = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, ctx)
     await tick()
-    assert.ok(request, '无规则 → 默认 ask，应产生权限请求')
+    assert.ok(request, '无规则 → 默认 ask，应产生访问确认请求')
 
-    await permission.reply({ requestId: request!.id, reply: 'once' })
+    await access.reply({ requestId: request!.id, reply: 'once' })
     const result = await execution
     assert.equal(result.text, 'Echo: hi')
   })
 
-  test('execute：ask → reject → permission_rejected', async () => {
-    let request: PermissionRequest | undefined
-    const permission: PermissionManager = new DefaultPermissionManager({ askPanel: (req) => void (request = req) })
-    const registry = new DefaultToolCapabilityRegistry({ permission })
+  test('execute：ask → reject → access_rejected', async () => {
+    let request: AccessRequest | undefined
+    const access: AccessManager = new DefaultAccessManager({ askPanel: (req) => void (request = req) })
+    const registry = new DefaultToolCapabilityRegistry({ access })
     await registry.register(echoTool)
 
-    const execution = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, { ...baseCtx, rules: emptyRules })
+    const execution = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, { ...baseCtx, accessLayers: [emptyRules] })
     await tick()
-    await permission.reply({ requestId: request!.id, reply: 'reject', message: '不需要' })
+    await access.reply({ requestId: request!.id, reply: 'reject', message: '不需要' })
     await assert.rejects(
       () => execution,
       (e: unknown) => {
         const err = e as ToolError
-        return err.kind === 'permission_rejected' && err.feedback === '不需要'
+        return err.kind === 'access_rejected' && err.feedback === '不需要'
       },
     )
   })
 
   test('execute：ask → always 后同类工具不再询问（session 批准）', async () => {
-    const requests: PermissionRequest[] = []
-    const permission: PermissionManager = new DefaultPermissionManager({ askPanel: (req) => void requests.push(req) })
-    const registry = new DefaultToolCapabilityRegistry({ permission })
+    const requests: AccessRequest[] = []
+    const access: AccessManager = new DefaultAccessManager({ askPanel: (req) => void requests.push(req) })
+    const registry = new DefaultToolCapabilityRegistry({ access })
     await registry.register(echoTool)
 
-    const ctx: ToolContext = { agentId: 'a1', spaceId: 's1', rules: emptyRules }
+    const ctx: ToolContext = { agentId: 'a1', spaceId: 's1', accessLayers: [emptyRules] }
     const first = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, ctx)
     await tick()
-    await permission.reply({ requestId: requests[0]!.id, reply: 'always' })
+    await access.reply({ requestId: requests[0]!.id, reply: 'always' })
     await first
 
     const second = await registry.execute({ id: 'c2', name: 'oc_echo', input: { text: 'again' } }, ctx)

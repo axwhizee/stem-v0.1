@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { runInit } from '../../src/core/init'
 import { DefaultToolCapabilityRegistry } from '../../src/core/tools'
-import { DefaultAgentTemplateRegistry } from '../../src/core/kernel'
+import { DefaultTemplateRegistry } from '../../src/core/kernel'
 import { createNodeConfigBundle } from './nodeConfig'
 
 async function makeProjectSpace(): Promise<string> {
@@ -52,7 +52,7 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
 
     const bundle = createNodeConfigBundle(dir)
     const toolRegistry = new DefaultToolCapabilityRegistry()
-    const templateRegistry = new DefaultAgentTemplateRegistry()
+    const templateRegistry = new DefaultTemplateRegistry()
 
     const report = await runInit({
       config: { store: bundle.store, paths: bundle.paths },
@@ -104,7 +104,7 @@ test('真实 fs：已注册但无实现文件 → orphan issue 并从镜像移�
       fs: bundle.fs,
       tools: { loadTool: bundle.loadTool },
       toolRegistry: new DefaultToolCapabilityRegistry(),
-      templateRegistry: new DefaultAgentTemplateRegistry(),
+      templateRegistry: new DefaultTemplateRegistry(),
       onLog: { log: () => {} },
     })
 

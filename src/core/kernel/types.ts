@@ -6,7 +6,7 @@
 // ============================================================
 
 import type { ModelRef } from '../gateway'
-import type { PermissionAction } from '../permission'
+import type { ToolAccess } from '../tools'
 
 // ---------- branded id ----------
 
@@ -25,6 +25,9 @@ export type ProjectRef = string
 export function makeAgentClassID(id: string): AgentClassID {
   return id as AgentClassID
 }
+
+/** 元 agent 类（user0 专用，注册表不承载，代码级常量）。 */
+export const META_CLASS_ID: AgentClassID = '__meta__' as AgentClassID
 
 export function makeAgentID(id: string): AgentID {
   return id as AgentID
@@ -68,10 +71,10 @@ export interface AgentClass {
   /** 该类实例可用的工具白名单。 */
   readonly tools: readonly ToolRef[]
   /**
-   * 权限列表（统一原子化 per-tool）：Record<权限名, allow|deny|ask>。
-   * 未列出的工具默认 ask（弹窗交用户确认）；deny 的工具不暴露给模型。
+   * 工具访问列表（统一原子化 per-tool，融合权限模型）：Record<访问键, allow|ask|deny|ignore>。
+   * 未列出的工具默认 ask（弹窗确认）；deny 不暴露；internal 系统工具默认 ignore（隐藏，显式 allow 才暴露）。
    */
-  readonly permissions: Readonly<Record<string, PermissionAction>>
+  readonly toolAccess: Readonly<Record<string, ToolAccess>>
   /** 可访问的上下文资产标签（ContextAssetPool 接入后启用）。 */
   readonly memoryScope: readonly string[]
   /** 可选模型偏好。 */
@@ -89,6 +92,8 @@ export interface AgentInstance {
   readonly classRef: AgentClassID
   /** 创建者 id（用户默认 'user0'；agent 创建时为其 id）。 */
   readonly creatorId: string
+  /** 族谱父（user0 为 null 即根）；创建时确定、不可变。 */
+  readonly parentId: AgentID | null
   /** 用户可命名（可接管改名）。 */
   displayName: string
   /** 区分用户创建 vs 调度创建。 */

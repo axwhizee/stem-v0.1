@@ -19,7 +19,7 @@ export function createGrepTool(root: string): ToolCapability {
   return {
     id: 'grep',
     description: '按正则表达式递归搜索文件内容（排除 .git / node_modules），返回 file:line:text。支持 include 按 glob 过滤文件。',
-    permission: 'grep',
+    accessKey: 'grep',
     kind: 'shell',
     category: 'business',
     parameters: {

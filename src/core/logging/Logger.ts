@@ -70,8 +70,8 @@ function eventMatchesAgent(event: LogEvent, agentId: string): boolean {
     case 'kernel.instance.created':
     case 'kernel.status.changed':
     case 'kernel.instance.terminated':
-    case 'permission.asked':
-    case 'permission.replied':
+    case 'access.asked':
+    case 'access.replied':
       return event.agentId === agentId
     case 'kernel.message.sent':
       return event.from === agentId || event.to === agentId

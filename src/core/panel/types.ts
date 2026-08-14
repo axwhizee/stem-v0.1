@@ -3,7 +3,7 @@
 //
 // 所有通向面板的消息统一汇总为 PanelMessage：
 //   - letter：agent 回信（原 user0 邮局 delivery 的展示消息，含发送者戳）
-//   - permission_request：权限确认请求（弹窗模块消费）
+//   - permission_request：工具访问确认请求（弹窗模块消费）
 //   - notice：普通通知（未来扩展，如 agent 状态变化等）
 //
 // 面板端（shell/GUI）只需实现一个 consumer 消费统一消息流，
@@ -20,11 +20,11 @@ export interface LetterPanelMessage {
   readonly at: number
 }
 
-/** 权限确认请求（弹窗模块消费）。 */
+/** 工具访问确认请求（弹窗模块消费）。 */
 export interface PermissionPanelMessage {
   readonly type: 'permission_request'
   readonly requestId: string
-  readonly permission: string
+  readonly accessKey: string
   readonly agentId: string
   readonly metadata?: Readonly<Record<string, unknown>>
   readonly at: number

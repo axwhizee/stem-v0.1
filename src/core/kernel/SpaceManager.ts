@@ -1,22 +1,22 @@
 // ============================================================
-// core/kernel/AgentSpaceManager.ts —— Agent 空间（最小版）
+// core/kernel/SpaceManager.ts —— Agent 空间（最小版）
 //
 // 一个项目/工作区 = 一个 AgentSpace（D12）。本阶段仅维护
-// space → project 映射与空间列表；实例归属由 AgentInstanceManager
+// space → project 映射与空间列表；实例归属由 InstanceManager
 // 维护（spaceId 字段）。完整版（共享资产池）见 Task 2.1。
 // ============================================================
 
 import type { AgentSpace, AgentSpaceID, ProjectRef } from './types'
 import { makeAgentSpaceID } from './types'
 
-export interface AgentSpaceManager {
+export interface SpaceManager {
   readonly getOrCreate: (project: ProjectRef) => Promise<AgentSpace>
   readonly get: (spaceId: AgentSpaceID) => Promise<AgentSpace>
   readonly list: () => Promise<AgentSpace[]>
   readonly remove: (spaceId: AgentSpaceID) => Promise<void>
 }
 
-export class DefaultAgentSpaceManager implements AgentSpaceManager {
+export class DefaultSpaceManager implements SpaceManager {
   private readonly spaces = new Map<AgentSpaceID, AgentSpace>()
   private counter = 0
 

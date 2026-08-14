@@ -1,13 +1,14 @@
 // ============================================================
-// core/kernel/AgentKernel.ts —— Kernel 组合根（core 内部装配）
+// core/kernel/Kernel.ts —— Kernel 组合根（core 内部装配）
 //
-// 装配：模板注册表 / 实例管理 / 空间 / 上下文仓库 + 管理员 + 快递员
-//      / 运行时 / 工具注册表。
+// 装配：模板注册表 / 实例管理 / 空间 / 族谱树 / 上下文仓库+管理员+快递员
+//      / 运行时 / 工具访问管理器 / 工具注册表。
 //
 // 通信模型（重建邮局，无总线）：
 //   - sendMessage(from, to, payload) → 管理员 deposit（打戳 + 入库 + 触发处理）；
-//   - log / permission_reply 走注入接口（LogSink / PermissionManager），不设总线。
+//   - log / access_reply 走注入接口（LogSink / AccessManager），不设总线。
 // 参与者查询：复用 instances + user0（无独立注册表）。
+// user0 是元 agent（族谱树根 parentId=null，元权限短路 allow）。
 // ============================================================
 
 import type { ModelGateway } from '../gateway'
@@ -18,24 +19,24 @@ import type { ContextManager } from '../context'
 import type { Logger } from '../logging'
 import { InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
-import type { PermissionManager } from '../permission'
-import { DefaultPermissionManager } from '../permission'
-import type { PermissionAction } from '../permission'
-import { permissionsToRules } from '../permission'
+import type { AccessManager, ToolAccess, ToolAccessRules } from '../tools'
+import { DefaultAccessManager, toolAccessToRules } from '../tools'
 import type { PanelConsumer } from '../panel'
 import { DefaultPanelBus } from '../panel'
 import type { PanelBus } from '../panel'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import simpleChatTemplate from '../../../templates/SimpleChat.json'
 import coderTemplate from '../../../templates/Coder.json'
-import { DefaultAgentTemplateRegistry } from './AgentTemplateRegistry'
-import type { AgentTemplateRegistry } from './AgentTemplateRegistry'
-import { DefaultAgentInstanceManager } from './AgentInstanceManager'
-import type { AgentInstanceManager, InstantiateOptions } from './AgentInstanceManager'
-import { DefaultAgentSpaceManager } from './AgentSpaceManager'
-import type { AgentSpaceManager } from './AgentSpaceManager'
-import { DefaultAgentRuntime } from './AgentRuntime'
-import type { AgentRuntime } from './AgentRuntime'
+import { DefaultTemplateRegistry } from './TemplateRegistry'
+import type { TemplateRegistry } from './TemplateRegistry'
+import { DefaultInstanceManager } from './InstanceManager'
+import type { InstanceManager, InstantiateOptions } from './InstanceManager'
+import { DefaultSpaceManager } from './SpaceManager'
+import type { SpaceManager } from './SpaceManager'
+import { DefaultRuntime } from './Runtime'
+import type { Runtime } from './Runtime'
+import { DefaultLineageTree } from './LineageTree'
+import type { LineageTree } from './LineageTree'
 import { createSystemTools } from './systemTools'
 import type { AgentClass, AgentClassID, AgentID, AgentSpaceID, ProjectRef } from './types'
 import { makeAgentID } from './types'
@@ -49,7 +50,7 @@ export const BUILTIN_TEMPLATES: readonly AgentClass[] = [
 /** 用户面板固定 id。 */
 export const USER_ID = 'user0'
 
-export interface AgentKernelOptions {
+export interface KernelOptions {
   readonly gateway: ModelGateway
   /** 模板未配置 model 时的默认模型。 */
   readonly defaultModel: ModelRef
@@ -72,61 +73,71 @@ export interface AgentKernelOptions {
   /** 面板消息消费者（shell/GUI 注入；统一消费回信/权限请求等面板消息）。 */
   readonly onPanelMessage?: PanelConsumer
   /**
-   * 全局默认权限（来自配置 `permission`，最弱优先级）。
-   * 评估顺序：[全局默认, agent 类规则, session 批准]，最后命中优先。
+   * 全局默认工具访问（来自配置 `permission`，最弱优先级）。
+   * 评估顺序：[全局默认, 祖先链(父→子), agent 类, session 批准]，层间取最严格。
    */
-  readonly globalPermissionDefaults?: Readonly<Record<string, PermissionAction>>
-  /** 权限自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
+  readonly globalToolAccessDefaults?: Readonly<Record<string, ToolAccess>>
+  /** 工具访问自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
   readonly autoApprove?: boolean
 }
 
-export class AgentKernel {
-  readonly templates: AgentTemplateRegistry
-  readonly instances: AgentInstanceManager
-  readonly spaces: AgentSpaceManager
+export class Kernel {
+  readonly templates: TemplateRegistry
+  readonly instances: InstanceManager
+  readonly spaces: SpaceManager
+  /** 族谱树（无状态关系查询视图，依赖 instances 实时推导）。 */
+  readonly lineage: LineageTree
   /** 上下文仓库（上下文本体的唯一存储）。 */
   readonly repository: Repository
   /** 上下文管理员（处理/打戳/组装）。 */
   readonly contextManager: ContextManager
   /** 快递员（倒计时 + 发送）。 */
   readonly courier: Courier
-  readonly runtime: AgentRuntime
+  readonly runtime: Runtime
   readonly tools?: ToolCapabilityRegistry
-  /** 权限管理器（registry 统一确认；ask 挂起经 PanelBus 交面板）。 */
-  readonly permissions: PermissionManager
+  /** 工具访问确认管理器（registry 统一确认；ask 挂起经 PanelBus 交面板）。 */
+  readonly access: AccessManager
   /** 面板消息总线（core → 面板统一通道）。 */
   readonly panel: PanelBus
   /** 日志记录器。 */
   readonly logger: Logger
   private readonly userDeliveryHandler?: (delivery: UserDelivery) => void
 
-  constructor(options: AgentKernelOptions) {
+  constructor(options: KernelOptions) {
     this.userDeliveryHandler = options.onUserDelivery
-    this.templates = new DefaultAgentTemplateRegistry(options.templates ?? BUILTIN_TEMPLATES)
-    this.instances = new DefaultAgentInstanceManager(this.templates)
-    this.spaces = new DefaultAgentSpaceManager()
+    this.templates = new DefaultTemplateRegistry(options.templates ?? BUILTIN_TEMPLATES)
+    this.instances = new DefaultInstanceManager(this.templates)
+    this.spaces = new DefaultSpaceManager()
     this.tools = options.tools
     this.logger = options.logger ?? new InMemoryLogger()
 
-    // 面板消息总线（统一汇总回信/权限请求等面板消息，GUI 可完全复用）。
+    // 面板消息总线（统一汇总回信/访问确认请求等面板消息，GUI 可完全复用）。
     this.panel = new DefaultPanelBus({ consumer: options.onPanelMessage })
 
-    // 权限管理器：ask 挂起 → 面板弹窗；always → session 批准。
-    this.permissions = new DefaultPermissionManager({
+    // 族谱树（无状态视图）：实时基于 instances 推导 parent/children/ancestors。
+    this.lineage = new DefaultLineageTree({
+      getInstance: (id) => this.instances.getSync(id),
+      getAllInstances: () => this.instances.listAllSync(),
+      accessLayerOf: (instance) => {
+        const template = this.templates.getSync(instance.classRef)
+        return template ? toolAccessToRules(template.toolAccess) : undefined
+      },
+    })
+
+    // 工具访问确认管理器：ask 挂起 → 面板弹窗；always → session 批准。
+    this.access = new DefaultAccessManager({
       askPanel: (request) =>
         this.panel.post({
           type: 'permission_request',
           requestId: request.id,
-          permission: request.permission,
+          accessKey: request.accessKey,
           agentId: request.agentId,
           metadata: request.metadata,
           at: request.at,
         }),
       onLog: { log: (event) => this.emitLog(event) },
-      globalDefaults: options.globalPermissionDefaults
-        ? permissionsToRules(options.globalPermissionDefaults)
-        : undefined,
       autoApprove: options.autoApprove,
+      metaAgentId: USER_ID,
     })
 
     // 重建邮局：仓库（存储）→ 管理员（处理，经 onChange 驱动）→ 快递员（发送）。
@@ -148,7 +159,7 @@ export class AgentKernel {
     // 仓库 onChange → 管理员处理入口。
     this.repository.onChange = (agentId) => this.contextManager.handleChange(agentId)
 
-    this.runtime = new DefaultAgentRuntime({
+    this.runtime = new DefaultRuntime({
       gateway: options.gateway,
       instances: this.instances,
       templates: this.templates,
@@ -160,6 +171,12 @@ export class AgentKernel {
       estimateCost: options.estimateCost,
       onEvent: options.onEvent,
       onLog: { log: (event) => this.emitLog(event) },
+      // 完整访问层：[全局（最弱）, 祖先链(父→子), agent 类]。
+      resolveAccessLayers: (agentId) => [
+        options.globalToolAccessDefaults ? toolAccessToRules(options.globalToolAccessDefaults) : [],
+        ...this.lineage.resolveAccessLayers(agentId),
+        this.resolveClassLayer(agentId),
+      ],
     })
 
     // 工具自动记录 → 仓库（触发/成功/失败），不依赖 runtime 手动发送。
@@ -185,13 +202,22 @@ export class AgentKernel {
         })
       }
     })
-    // 工具调用日志；权限确认 → PermissionManager。
+    // 工具调用日志；访问确认 → AccessManager。
     this.tools?.setLogSink?.({ log: (event) => this.emitLog(event) })
-    this.tools?.setPermissionSink?.(this.permissions)
+    this.tools?.setAccessSink?.(this.access)
   }
 
-  /** 注册用户面板（user0）到上下文（不组装，只汇总信件）。 */
+  /** 某 agent 的类访问层（由实例 classRef 对应模板的 toolAccess 生成）。 */
+  private resolveClassLayer(agentId: AgentID): ToolAccessRules {
+    const instance = this.instances.getSync(agentId)
+    const template = instance ? this.templates.getSync(instance.classRef) : undefined
+    return template ? toolAccessToRules(template.toolAccess) : []
+  }
+
+  /** 注册用户面板（user0）：元 agent 实例化（族谱树根 parentId=null）+ 上下文（不组装，只汇总信件）。 */
   async registerUser(displayName = 'User'): Promise<void> {
+    // user0 作为元 agent 进入实例体系（族谱树根；元权限由 AccessManager 短路 allow）。
+    await this.instances.registerMetaAgent({ id: makeAgentID(USER_ID), displayName })
     await this.contextManager.register({
       agentId: USER_ID,
       assemble: false,
@@ -269,10 +295,13 @@ export class AgentKernel {
     }
   }
 
-  /** 终止实例：注销上下文（仓库/管理员/快递员）+ 实例。 */
-  async terminateAgent(agentId: string): Promise<void> {
+  /** 终止实例：销毁权校验（by 是祖先或 user0）+ 注销上下文 + 实例。 */
+  async terminateAgent(agentId: string, opts?: { by?: string; recursive?: boolean }): Promise<void> {
     await this.contextManager.unregister(agentId)
-    await this.instances.terminate(makeAgentID(agentId))
+    await this.instances.terminate(makeAgentID(agentId), {
+      by: makeAgentID(opts?.by ?? USER_ID),
+      recursive: opts?.recursive,
+    })
     this.emitLog({ type: 'kernel.instance.terminated', at: Date.now(), agentId })
   }
 

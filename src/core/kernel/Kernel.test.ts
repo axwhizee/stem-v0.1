@@ -1,5 +1,5 @@
 // ============================================================
-// core/kernel/AgentKernel.test.ts —— 集成测试（邮局模式）
+// core/kernel/Kernel.test.ts —— 集成测试（邮局模式）
 //
 // 覆盖：简单对话闭环 / 发送者戳 / 状态机 / 邮局信件累积 /
 // 工具轮（含 onRecord 自动记录）/ user0 与 agent 一视同仁。
@@ -12,7 +12,7 @@ import type { LLMRequest } from '../gateway'
 import type { AgentClass } from './types'
 import { makeAgentClassID } from './types'
 import { createKernelHarness } from '../../../test-support/kernelHarness'
-import { BUILTIN_TEMPLATES, USER_ID } from './AgentKernel'
+import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 
 const model = { provider: 'opencode', id: 'test-model' }
 
@@ -25,13 +25,13 @@ const toolAssistant: AgentClass = {
   description: '带工具 agent',
   systemPrompt: 'You are an assistant with tools.',
   tools: [{ id: 'oc_echo' }],
-  permissions: { oc_echo: 'allow' },
+  toolAccess: { oc_echo: 'allow' },
   memoryScope: [],
 }
 
 const templatesWithTool = [...BUILTIN_TEMPLATES, toolAssistant]
 
-describe('AgentKernel 邮局模式', () => {
+describe('Kernel 邮局模式', () => {
   test('简单对话闭环：user0 发消息 → agent 回复 → user0 收到发送者戳消息', async () => {
     const gateway = new FakeGateway(() => textEvents('hello'))
     const { kernel, deliveries } = await createKernelHarness(gateway)
@@ -200,14 +200,16 @@ describe('AgentKernel 邮局模式', () => {
     const { kernel, tools } = await createKernelHarness(gateway)
     await kernel.registerSystemTools(tools)
 
-    // 调用方规则：允许类管理工具（统一 per-tool 权限）。
+    // 调用方规则：允许类管理工具（统一 per-tool 访问）。
     const adminCtx = {
       agentId: USER_ID,
       spaceId: 'space-1',
-      rules: [
-        { tool: 'agent_class_create', action: 'allow' },
-        { tool: 'agent_class_list', action: 'allow' },
-        { tool: 'agent_instantiate', action: 'allow' },
+      accessLayers: [
+        [
+          { key: 'agent_class_create', action: 'allow' },
+          { key: 'agent_class_list', action: 'allow' },
+          { key: 'agent_instantiate', action: 'allow' },
+        ],
       ] as const,
     }
 
@@ -220,7 +222,7 @@ describe('AgentKernel 邮局模式', () => {
           name: 'Reviewer',
           description: '代码审查',
           systemPrompt: 'You review code.',
-          permissions: { read: 'allow' },
+          toolAccess: { read: 'allow' },
           tools: ['oc_echo'],
         },
       },
@@ -230,7 +232,7 @@ describe('AgentKernel 邮局模式', () => {
 
     const cls = await kernel.templates.get(makeAgentClassID('reviewer'))
     assert.equal(cls.name, 'Reviewer')
-    assert.deepEqual(cls.permissions, { read: 'allow' })
+    assert.deepEqual(cls.toolAccess, { read: 'allow' })
     assert.equal(cls.tools[0]?.id, 'oc_echo')
     assert.ok(!('userPrompt' in cls), '类只承载设定参数，不含实例数据')
 
@@ -244,11 +246,11 @@ describe('AgentKernel 邮局模式', () => {
     )
     assert.match(inst.text, /已创建 agent/)
 
-    // 权限校验：deny agent_class_create → permission_denied
+    // 访问校验：deny agent_class_create → access_denied
     const deniedCtx = {
       agentId: 'some-agent',
       spaceId: 'space-1',
-      rules: [{ tool: 'agent_class_create', action: 'deny' }] as const,
+      accessLayers: [[{ key: 'agent_class_create', action: 'deny' }]] as const,
     }
     await assert.rejects(
       () =>
@@ -260,7 +262,7 @@ describe('AgentKernel 邮局模式', () => {
           },
           deniedCtx,
         ),
-      (e: { kind?: string }) => e.kind === 'permission_denied',
+      (e: { kind?: string }) => e.kind === 'access_denied',
     )
   })
 
@@ -301,7 +303,7 @@ describe('AgentKernel 邮局模式', () => {
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
     })
-    const normalCtx = { agentId, spaceId: 'space-1', rules: [{ tool: 'oc_echo', action: 'allow' }] as const }
+    const normalCtx = { agentId, spaceId: 'space-1', accessLayers: [[{ key: 'oc_echo', action: 'allow' }]] as const }
     await tools.execute({ id: 'call_5', name: 'oc_echo', input: { text: 'hi' } }, normalCtx)
     const toolLogs = kernel.logger.query({ type: 'tool.invoked' })
     assert.ok(toolLogs.some((e) => (e as { phase?: string }).phase === 'called'))

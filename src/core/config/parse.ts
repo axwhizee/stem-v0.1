@@ -7,11 +7,11 @@
 
 import { parse as parseJsonc } from 'jsonc-parser'
 import type { ParseError } from 'jsonc-parser'
-import type { PermissionAction } from '../permission'
+import type { ToolAccess } from '../tools'
 import type { ConfigError, StemConfig } from './types'
 
-/** 合法权限动作。 */
-const ACTIONS: readonly PermissionAction[] = ['allow', 'deny', 'ask']
+/** 合法工具访问动作（四态）。 */
+const ACTIONS: readonly ToolAccess[] = ['allow', 'deny', 'ask', 'ignore']
 
 /**
  * 解析 JSONC 文本为配置。
@@ -98,15 +98,15 @@ function validateNumber(value: unknown, fail: (message: string) => never): numbe
 function validatePermission(
   value: unknown,
   fail: (message: string) => never,
-): Readonly<Record<string, PermissionAction>> | undefined {
+): Readonly<Record<string, ToolAccess>> | undefined {
   if (value === undefined) return undefined
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     fail('permission 必须是对象')
   }
-  const permission: Record<string, PermissionAction> = {}
+  const permission: Record<string, ToolAccess> = {}
   for (const [tool, action] of Object.entries(value as Record<string, unknown>)) {
-    if (!ACTIONS.includes(action as PermissionAction)) fail(`permission.${tool} 非法（允许 allow/deny/ask）`)
-    permission[tool] = action as PermissionAction
+    if (!ACTIONS.includes(action as ToolAccess)) fail(`permission.${tool} 非法（允许 allow/ask/deny/ignore）`)
+    permission[tool] = action as ToolAccess
   }
   return permission
 }

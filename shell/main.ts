@@ -2,7 +2,7 @@
 // shell/main.ts —— 临时 shell 层（core 调试/检验用）
 //
 // 面板角色：注册为 user0（接入总线 + 邮局，与 agent 一视同仁）。
-// 用户输入 → bus.send → 邮局 → 送信 → AgentRuntime 处理 → 自动寄信
+// 用户输入 → bus.send → 邮局 → 送信 → Runtime 处理 → 自动寄信
 // → user0 信箱收信汇总 → 本 shell 展示。
 //
 // 运行：
@@ -25,7 +25,7 @@ import { stdin as input, stdout as output } from 'node:process'
 import { readFile } from 'node:fs/promises'
 import { isAbsolute, join } from 'node:path'
 import {
-  AgentKernel,
+  Kernel,
   makeAgentClassID,
   makeAgentID,
   makeAgentSpaceID,
@@ -36,7 +36,7 @@ import {
 } from '../src/core/kernel'
 import { createOpencodeGateway, GatewayError, isGatewayError, type ModelGateway } from '../src/core/gateway'
 import { DefaultToolCapabilityRegistry, type ToolCapability } from '../src/core/tools'
-import type { PermissionReply, PermissionReplyInput } from '../src/core/permission'
+import type { AccessReply, AccessReplyInput } from '../src/core/tools'
 import type { PanelMessage } from '../src/core/panel'
 import { startMockSse, defaultScript, type MockResponse } from '../test-support/mockSse'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
@@ -44,14 +44,13 @@ import { createHostTools } from './tools'
 import { createNodeConfigBundle, FALLBACK_MODEL } from './config'
 import { runInit, type InitReport } from '../src/core/init'
 import { parseModelRef } from '../src/core/config'
-import { permissionsToRules } from '../src/core/permission'
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
 const DEFAULT_PROJECT = process.env.STEM_PROJECT_ROOT ?? join(process.cwd(), 'tmp')
 const DEFAULT_USER_PROMPT = '你好，请做一个简短的自我介绍。'
 
 interface ShellState {
-  kernel: AgentKernel
+  kernel: Kernel
   currentAgentId: AgentID
   source: string
   /** 弹窗模块（权限确认等队列弹窗）。 */
@@ -198,12 +197,12 @@ async function createShell(): Promise<ShellState> {
     init: undefined as never,
   }
 
-  const kernel = new AgentKernel({
+  const kernel = new Kernel({
     gateway,
     defaultModel: model,
     defaultCountdownMs: config.sendCountdown,
-    // 配置注入：全局默认权限（最弱）+ autoApprove（ask 直接放行）。
-    globalPermissionDefaults: config.permission,
+    // 配置注入：全局默认工具访问（最弱）+ autoApprove（ask 直接放行）。
+    globalToolAccessDefaults: config.permission,
     autoApprove: config.autoApprove,
     tools,
     onEvent: (agentId, event) => {
@@ -236,7 +235,7 @@ async function createShell(): Promise<ShellState> {
     systemPrompt:
       'You are a helpful assistant with tool access. Use the available tools when appropriate. If you need a result from another agent, call agent_instantiate to create it (returns its id), then context_wait(id) to await its reply.',
     tools: [{ id: 'oc_echo' }, { id: 'oc_get_time' }, { id: 'oc_read_file' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-    permissions: {
+    toolAccess: {
       oc_echo: 'allow',
       oc_get_time: 'allow',
       oc_read_file: 'allow',
@@ -255,7 +254,7 @@ async function createShell(): Promise<ShellState> {
     systemPrompt:
       "creator-sys: 你是调度者，负责创建子 agent 获取信息并汇总给用户。\n可用模板 id：'tool-agent'（带 oc_get_time 时间工具）、'simple-chat'（纯对话）、'coder'。\n流程：① 用 agent_instantiate 创建子 agent，参数 classId 填 'tool-agent'，必填 userPrompt 说明要它做什么；它返回新建 agent 的 id。② 随后调用 context_wait(agentId)（agentId 填①返回的 id）等待子 agent 的回复——其 assistant_message 会作为 context_wait 的 tool 结果进入你的上下文。③ 拿到结果后向用户汇报。",
     tools: [{ id: 'agent_instantiate' }, { id: 'agent_list' }, { id: 'agent_terminate' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-    permissions: {
+    toolAccess: {
       agent_instantiate: 'allow',
       agent_list: 'allow',
       agent_terminate: 'allow',
@@ -309,10 +308,10 @@ function handlePanelMessage(state: ShellState, message: PanelMessage): void {
     return
   }
   if (message.type === 'permission_request') {
-    // 权限确认弹窗：主题=权限确认；正文=agent 申请工具；选项=单次/始终/拒绝。
+    // 工具访问确认弹窗：主题=确认；正文=agent 申请工具；选项=单次/始终/拒绝。
     const request: DialogRequest = {
-      title: '权限确认',
-      body: `agent ${message.agentId} 正在申请「${message.permission}」工具权限`,
+      title: '工具访问确认',
+      body: `agent ${message.agentId} 正在申请「${message.accessKey}」工具访问`,
       options: [
         { id: 'once', label: '单次批准' },
         { id: 'always', label: '始终批准' },
@@ -320,10 +319,10 @@ function handlePanelMessage(state: ShellState, message: PanelMessage): void {
       ],
     }
     void state.dialogs.push(request).then((selected) => {
-      const reply = selected[0] as PermissionReply | undefined
+      const reply = selected[0] as AccessReply | undefined
       if (!reply) return
-      const input: PermissionReplyInput = { requestId: message.requestId, reply }
-      void state.kernel.permissions.reply(input)
+      const input: AccessReplyInput = { requestId: message.requestId, reply }
+      void state.kernel.access.reply(input)
     })
     // 若该弹窗立即激活（队列空闲），打印弹窗；否则已由队列中的激活弹窗占据。
     if (state.dialogs.active) console.log('\n' + formatDialog(state.dialogs.activeRequest!))
@@ -366,7 +365,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
         return false
       }
       const list = await state.kernel.tools.list()
-      for (const t of list) console.log(`  ${t.id}  [${t.permission}]  (${t.category ?? 'business'})  ${t.description}`)
+      for (const t of list) console.log(`  ${t.id}  [${t.accessKey ?? t.id}]  (${t.category ?? 'business'})  ${t.description}`)
       return false
     }
     case '/templates': {
@@ -380,7 +379,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       const agents = await state.kernel.instances.listBySpace(space.id)
       for (const a of agents) {
         const marker = a.id === state.currentAgentId ? '*' : ' '
-        console.log(` ${marker} ${a.id}  ${a.displayName}  <${a.classRef}>  ${a.status}  turns=${a.turnCount}  creator=${a.creatorId}`)
+        console.log(` ${marker} ${a.id}  ${a.displayName}  <${a.classRef}>  parent=${a.parentId ?? '-'}  ${a.status}  turns=${a.turnCount}  creator=${a.creatorId}`)
       }
       return false
     }

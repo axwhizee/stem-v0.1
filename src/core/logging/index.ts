@@ -14,8 +14,8 @@ export type {
   AgentStatusChanged,
   AgentTerminated,
   AgentMessageSent,
-  PermissionAsked,
-  PermissionReplied,
+  AccessAsked,
+  AccessReplied,
 } from './events'
 
 export type { LogSink, LogFilter, Logger } from './Logger'

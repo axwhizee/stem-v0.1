@@ -1,5 +1,5 @@
 // ============================================================
-// core/kernel/AgentRuntime.ts —— 被动驱动运行循环
+// core/kernel/Runtime.ts —— 被动驱动运行循环
 //
 // 由邮局"送信"回调驱动（kernel 注册 onDelivery → processDelivery）：
 //   收到组装好的完整上下文 → status=thinking → LLM → 工具轮（并行）
@@ -13,18 +13,18 @@
 import type { ModelGateway } from '../gateway'
 import type { ChatMessage, LLMEvent, LLMRequest, ModelRef, ToolCallEvent, UsageEvent } from '../gateway'
 import type { LogSink } from '../logging'
-import { permissionsToRules } from '../permission'
+import type { ToolAccessRules } from '../tools'
 import type { AgentDelivery, ContextManager, Repository } from '../context'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
-import type { AgentTemplateRegistry } from './AgentTemplateRegistry'
-import type { AgentInstanceManager } from './AgentInstanceManager'
+import type { TemplateRegistry } from './TemplateRegistry'
+import type { InstanceManager } from './InstanceManager'
 import type { AgentClass, AgentID, AgentStatus } from './types'
 import { makeAgentID } from './types'
 
-export interface AgentRuntimeDeps {
+export interface RuntimeDeps {
   readonly gateway: ModelGateway
-  readonly instances: AgentInstanceManager
-  readonly templates: AgentTemplateRegistry
+  readonly instances: InstanceManager
+  readonly templates: TemplateRegistry
   readonly contextManager: ContextManager
   /** 上下文仓库（assistant/tool 消息入库）。 */
   readonly repository: Repository
@@ -39,20 +39,25 @@ export interface AgentRuntimeDeps {
   readonly onEvent?: (agentId: AgentID, event: LLMEvent) => void
   /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: LogSink
+  /**
+   * 解析某 agent 的完整工具访问层（kernel 合成：全局 → 祖先链 → agent 类）。
+   * 供 materialize（工具可见性）与 execute（registry 统一确认）使用。
+   */
+  readonly resolveAccessLayers?: (agentId: AgentID) => readonly ToolAccessRules[]
 }
 
-export interface AgentRuntime {
+export interface Runtime {
   /** 邮局送信回调（kernel 装配时注册）。 */
   readonly processDelivery: (delivery: AgentDelivery) => Promise<void>
   /** 邮局倒计时结束无信 → hold。 */
   readonly notifyHold: (agentId: AgentID) => Promise<void>
 }
 
-export class DefaultAgentRuntime implements AgentRuntime {
+export class DefaultRuntime implements Runtime {
   private readonly maxSteps: number
   private readonly estimateCost: (usage: UsageEvent | undefined) => number
 
-  constructor(private readonly deps: AgentRuntimeDeps) {
+  constructor(private readonly deps: RuntimeDeps) {
     this.maxSteps = deps.maxSteps ?? 5
     this.estimateCost = deps.estimateCost ?? (() => 0)
   }
@@ -70,7 +75,9 @@ export class DefaultAgentRuntime implements AgentRuntime {
     let usage: UsageEvent | undefined
     let finishReason: 'stop' | 'tool_calls' | 'length' = 'stop'
     let session: ChatMessage[] = [...delivery.messages]
-    const tools = this.enabledTools(template)
+    // 完整工具访问层（全局 → 祖先链 → agent 类），用于工具可见性与执行确认。
+    const accessLayers = this.deps.resolveAccessLayers?.(instance.id) ?? []
+    const tools = this.enabledTools(template, accessLayers)
     let steps = 0
 
     while (steps < this.maxSteps) {
@@ -145,8 +152,8 @@ export class DefaultAgentRuntime implements AgentRuntime {
       const ctx: ToolContext = {
         agentId: instance.id,
         spaceId: instance.spaceId,
-        // agent 类权限规则（registry 统一确认时使用）。
-        rules: permissionsToRules(template.permissions),
+        // 完整工具访问层（registry 统一确认时使用：全局 → 祖先链 → 类 → session）。
+        accessLayers,
       }
       const results = await Promise.all(
         toolCalls.map(async (call): Promise<ChatMessage> => {
@@ -190,10 +197,10 @@ export class DefaultAgentRuntime implements AgentRuntime {
     this.deps.onLog?.log({ type: 'kernel.status.changed', at: Date.now(), agentId: instance.id, from, to })
   }
 
-  /** 物化本轮 LLM 工具集：注册表按 agent 类权限规则过滤 ∩ 模板工具白名单。 */
-  private enabledTools(template: AgentClass) {
+  /** 物化本轮 LLM 工具集：注册表按访问层过滤 ∩ 模板工具白名单。 */
+  private enabledTools(template: AgentClass, layers: readonly ToolAccessRules[]) {
     if (!this.deps.tools) return undefined
-    const available = this.deps.tools.materialize(permissionsToRules(template.permissions))
+    const available = this.deps.tools.materialize(layers)
     // template.tools 为 undefined → 全部权限内工具；显式数组（含空）→ 白名单（空=无工具）。
     if (template.tools === undefined) return available
     const allowed = new Set(template.tools.map((t) => t.id))

@@ -20,24 +20,24 @@ export type {
 export { makeAgentClassID, makeAgentID, makeAgentSpaceID } from './types'
 
 // 模板注册表
-export type { AgentTemplateRegistry } from './AgentTemplateRegistry'
-export { DefaultAgentTemplateRegistry } from './AgentTemplateRegistry'
+export type { TemplateRegistry } from './TemplateRegistry'
+export { DefaultTemplateRegistry } from './TemplateRegistry'
 
 // 实例管理
-export type { InstantiateOptions, AgentInstanceManager } from './AgentInstanceManager'
-export { DefaultAgentInstanceManager } from './AgentInstanceManager'
+export type { InstantiateOptions, InstanceManager } from './InstanceManager'
+export { DefaultInstanceManager } from './InstanceManager'
 
 // 空间管理
-export type { AgentSpaceManager } from './AgentSpaceManager'
-export { DefaultAgentSpaceManager } from './AgentSpaceManager'
+export type { SpaceManager } from './SpaceManager'
+export { DefaultSpaceManager } from './SpaceManager'
 
 // 运行时
-export type { AgentRuntimeDeps, AgentRuntime } from './AgentRuntime'
-export { DefaultAgentRuntime } from './AgentRuntime'
+export type { RuntimeDeps, Runtime } from './Runtime'
+export { DefaultRuntime } from './Runtime'
 
 // Kernel 容器
-export type { AgentKernelOptions } from './AgentKernel'
-export { AgentKernel, BUILTIN_TEMPLATES, USER_ID } from './AgentKernel'
+export type { KernelOptions } from './Kernel'
+export { Kernel, BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 
 // 系统管理工具
 export { createSystemTools } from './systemTools'

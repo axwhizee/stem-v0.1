@@ -25,7 +25,7 @@ test('解析完整 agent 文件（文件名即 id/name）', () => {
   assert.equal(parsed.id, 'user-reviewer')
   assert.equal(parsed.name, 'user-reviewer')
   assert.equal(parsed.description, '代码审查员')
-  assert.deepEqual(parsed.permissions, { read: 'allow', glob: 'allow', edit: 'deny' })
+  assert.deepEqual(parsed.toolAccess, { read: 'allow', glob: 'allow', edit: 'deny' })
   // 融合：工具白名单 = permission 的键。
   assert.deepEqual(parsed.tools, ['read', 'glob', 'edit'])
   assert.equal(parsed.sendCountdown, 800)
@@ -46,7 +46,7 @@ test('description 缺省 = 文件名', () => {
 
 test('无 permission → 无工具', () => {
   const parsed = parseAgentFile('---\ndescription: x\n---\nbody', 'foo')
-  assert.deepEqual(parsed.permissions, {})
+  assert.deepEqual(parsed.toolAccess, {})
   assert.deepEqual(parsed.tools, [])
 })
 
