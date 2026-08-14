@@ -14,6 +14,7 @@ npm install                 # 安装依赖（node >= 20）
 npm run typecheck           # tsc --noEmit 类型检查（唯一 lint/typecheck）
 npm test                    # 全量单测：tsx --test src/**/*.test.ts shell/**/*.test.ts
 npx tsx --test <file>       # 跑单个测试文件
+npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑（node:test 并发）
 npm run shell               # 交互式调试 shell（mock 网关）
 OPENCODE_API_KEY=<key> npm run shell   # 真实网关（opencode-go）
 npm run smoke               # prototype 冒烟（原型遗留，可能过时）
@@ -80,7 +81,8 @@ log.md                     # 开发日志（root）
 - 单测与源码同目录（`*.test.ts`），用 `node:test` + `node:assert/strict`。
 - **不 mock 全局**；注入 fake（`FakeGateway`、内存 registry、临时目录）。
 - 真实 fs 集成测试用 `mkdtemp` 临时目录（见 `shell/config/nodeConfig.test.ts`）。
-- 纯逻辑抽纯函数（权限评估、JSONC 解析、agent frontmatter 解析）。
+- 纯逻辑抽纯函数（工具访问评估、JSONC 解析、agent frontmatter 解析）。
+- **分模块测试**（改哪测哪）：`npm run test:module -- "src/core/kernel/*.test.ts"`。各模块已隔离（mock 端口 `listen(0)` 自动分配、fs 用独立 `mkdtemp`、无共享全局态），模块间无顺序依赖，可并发独立跑。
 
 ## 提交规范
 

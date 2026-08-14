@@ -11,6 +11,7 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit",
     "test": "tsx --test \"src/**/*.test.ts\" \"shell/**/*.test.ts\"",
+    "test:module": "tsx --test",
     "smoke": "tsx prototype/smoke.ts",
     "shell": "tsx shell/main.ts"
   },
