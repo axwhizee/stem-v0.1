@@ -19,8 +19,8 @@ export type {
   LLMEvent,
   GatewayErrorKind,
 } from './types'
-export { GatewayError, isGatewayError } from './types'
+export { GatewayError, isGatewayError, isAbortError } from './types'
 export { createOpencodeGateway } from './providers/opencodeLlm'
 export type { OpencodeGatewayConfig } from './providers/opencodeLlm'
-export { FakeGateway, textEvents } from './FakeGateway'
+export { FakeGateway, textEvents, abortError } from './FakeGateway'
 export type { FakeGatewayHandler } from './FakeGateway'

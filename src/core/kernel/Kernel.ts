@@ -305,6 +305,29 @@ export class Kernel {
     this.emitLog({ type: 'kernel.instance.terminated', at: Date.now(), agentId })
   }
 
+  /**
+   * 中断指定 agent 的当前轮（仅暂停，不销毁；消息闭合后可恢复）。
+   * 销毁权复用：仅祖先或 user0 可中断。
+   */
+  async interruptAgent(agentId: string, opts?: { by?: string }): Promise<void> {
+    const by = makeAgentID(opts?.by ?? USER_ID)
+    const target = makeAgentID(agentId)
+    if (by !== makeAgentID(USER_ID) && !this.lineage.isAncestorOf(by, target)) {
+      throw { kind: 'agent_terminate_denied', agentId: target, by: by as string }
+    }
+    this.runtime.abort(target)
+  }
+
+  /** 中断所有活跃 agent（进程优雅收尾用）。 */
+  abortAllAgents(): void {
+    this.runtime.abortAll()
+  }
+
+  /** 当前活跃（thinking/进行中）的 agent id 列表。 */
+  activeAgents(): readonly AgentID[] {
+    return this.runtime.activeAgents()
+  }
+
   /** Scheduler 最小直通：空间内已存在该模板实例则复用，否则创建。 */
   async getOrCreateAgent(
     classId: AgentClassID,

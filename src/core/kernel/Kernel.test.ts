@@ -7,7 +7,7 @@
 
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { FakeGateway, textEvents } from '../gateway'
+import { FakeGateway, textEvents, abortError } from '../gateway'
 import type { LLMRequest } from '../gateway'
 import type { AgentClass } from './types'
 import { makeAgentClassID } from './types'
@@ -313,4 +313,62 @@ describe('Kernel 邮局模式', () => {
       ),
     )
   })
+
+  test('中断：user0 中断活跃 agent → interrupted + 消息闭合；非祖先中断被拒', async () => {
+    // 慢流网关：产出部分文本后等待 signal（模拟网络流）。
+    const gateway = new FakeGateway(async function* (_req, options) {
+      yield { type: 'text-delta', text: 'partial' }
+      const signal = options?.signal
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) return reject(abortError())
+        const onAbort = () => reject(abortError())
+        signal?.addEventListener('abort', onAbort, { once: true })
+        const t = setTimeout(resolve, 2000)
+        signal?.addEventListener('abort', () => clearTimeout(t), { once: true })
+      })
+      yield { type: 'finish', reason: 'stop' }
+    })
+    const { kernel, timers } = await createKernelHarness(gateway)
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+
+    // 等待 agent 进入 thinking（processDelivery 已开始，gateway 挂起等 signal）。
+    await waitForStatus(kernel, agentId, 'thinking')
+
+    // user0 中断（当前活跃 agent）。
+    await kernel.interruptAgent(agentId as string, { by: USER_ID })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    const instance = await kernel.instances.get(agentId)
+    assert.equal(instance.status, 'interrupted')
+
+    // 消息闭合：仓库最后一条是带 <interrupted> 的 assistant。
+    const state = await kernel.contextManager.getState(agentId)
+    const last = state.messages.at(-1)
+    assert.equal(last?.message.role, 'assistant')
+    assert.match(String(last?.message.content), /partial\n<interrupted>/)
+
+    // 非祖先（游离 agent）中断被拒（销毁权复用）。
+    await assert.rejects(
+      () => kernel.interruptAgent(agentId as string, { by: 'outsider' }),
+      (e: unknown) => (e as { kind: string }).kind === 'agent_terminate_denied',
+    )
+
+    // 恢复：继续对话（倒计时 flush）→ 状态离开 interrupted（进入新一轮 thinking）。
+    await kernel.sendUserMessage(agentId, '继续')
+    timers.flushAll()
+    await waitForStatus(kernel, agentId, 'thinking', 500)
+    const recovered = await kernel.instances.get(agentId)
+    assert.equal(recovered.status, 'thinking', '恢复后应重新进入 thinking')
+  })
 })
+
+/** 轮询等待实例进入指定状态（避免依赖固定超时时序）。 */
+async function waitForStatus(kernel: import('./Kernel').Kernel, agentId: string, status: string, timeoutMs = 2000): Promise<void> {
+  const start = Date.now()
+  while (Date.now() - start < timeoutMs) {
+    const instance = await kernel.instances.get(agentId as never)
+    if (instance.status === status) return
+    await new Promise((resolve) => setTimeout(resolve, 5))
+  }
+  throw new Error(`等待状态 ${status} 超时（当前 ${(await kernel.instances.get(agentId as never)).status}）`)
+}

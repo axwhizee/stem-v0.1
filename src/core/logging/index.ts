@@ -13,6 +13,7 @@ export type {
   AgentInstanceCreated,
   AgentStatusChanged,
   AgentTerminated,
+  AgentInterrupted,
   AgentMessageSent,
   AccessAsked,
   AccessReplied,

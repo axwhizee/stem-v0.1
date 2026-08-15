@@ -118,3 +118,11 @@ export class GatewayError extends Error {
 export function isGatewayError(value: unknown): value is GatewayError {
   return value instanceof GatewayError
 }
+
+/** 判定中断（用户/进程主动 abort，或首包超时触发的 AbortError）。 */
+export function isAbortError(value: unknown): value is Error & { readonly name: 'AbortError' } {
+  return (
+    (value instanceof Error && value.name === 'AbortError') ||
+    (value instanceof DOMException && value.name === 'AbortError')
+  )
+}

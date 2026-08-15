@@ -341,10 +341,21 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
   const [cmd, ...rest] = line.split(/\s+/)
   switch (cmd) {
     case '/help':
-      console.log('命令: /new <classId> [name] [userPrompt] · /use <agentId> · /agents · /templates · /tools · /config · /source · /help · /exit')
+      console.log('命令: /new <classId> [name] [userPrompt] · /use <agentId> · /agents · /templates · /tools · /config · /source · /stop · /help · /exit')
       return false
     case '/exit':
       return true
+    case '/stop': {
+      // 用户主动中断当前 agent（仅暂停，消息闭合，可恢复）。
+      const active = state.kernel.activeAgents()
+      if (active.length === 0) {
+        console.log('（当前无活跃 agent 可中断）')
+        return false
+      }
+      for (const id of active) await state.kernel.interruptAgent(id as string)
+      console.log(`已中断 ${active.length} 个活跃 agent（消息已闭合，可继续对话恢复）`)
+      return false
+    }
     case '/config': {
       const init = state.init
       console.log(`  config: ${DEFAULT_PROJECT}/.stem/stem.jsonc`)
@@ -470,6 +481,30 @@ async function main(): Promise<number> {
   console.log('====================================================')
 
   const rl = createInterface({ input, output, terminal: false })
+
+  // 进程中断优雅收尾：中断所有活跃 agent（消息闭合入库）后再退出。
+  let exiting = false
+  const gracefulExit = (signal: string) => {
+    if (exiting) process.exit(130)
+    exiting = true
+    const active = state.kernel.activeAgents()
+    if (active.length > 0) {
+      state.kernel.abortAllAgents()
+      console.log(`\n[${signal}] 已请求中断 ${active.length} 个活跃 agent（消息闭合中）…`)
+      // 给 processDelivery 的 halt 收尾一点时间（消息入库）。
+      setTimeout(() => {
+        rl.close()
+        console.log('\nbye')
+        process.exit(0)
+      }, 300)
+    } else {
+      rl.close()
+      console.log('\nbye')
+      process.exit(0)
+    }
+  }
+  process.on('SIGINT', () => gracefulExit('SIGINT'))
+  process.on('SIGTERM', () => gracefulExit('SIGTERM'))
 
   for await (const rawLine of rl) {
     const line = rawLine.trim()

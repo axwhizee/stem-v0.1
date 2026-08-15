@@ -109,6 +109,18 @@ export interface AgentTerminated {
   readonly agentId: string
 }
 
+/** 实例中断/错误记录（当前轮被中断，消息已闭合，实例存活）。 */
+export interface AgentInterrupted {
+  readonly type: 'kernel.instance.interrupted'
+  readonly at: number
+  readonly agentId: string
+  /** true = 主动中断（用户/进程 abort）；false = 网关/工具/未知错误。 */
+  readonly aborted: boolean
+  /** 网关错误分类（aborted=false 且为网关错误时）。 */
+  readonly errorKind?: string
+  readonly message: string
+}
+
 /** 总线消息记录（发送状态）。 */
 export interface AgentMessageSent {
   readonly type: 'kernel.message.sent'
@@ -164,6 +176,7 @@ export type LogEvent =
   | AgentInstanceCreated
   | AgentStatusChanged
   | AgentTerminated
+  | AgentInterrupted
   | AgentMessageSent
   | AccessAsked
   | AccessReplied

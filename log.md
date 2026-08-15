@@ -553,3 +553,43 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - 仓库真实 token 记账（基于 gateway usage 差值校正）。
 - coding-hybrid 模式（五段排布）。
 - 仓库/族谱持久化（SQLite/文件）。
+
+---
+
+## 阶段：错误处理强化（interrupted 状态 + 消息闭合 + 中断入口 + gateway 并发保障）
+
+**日期**：2026-08-15
+
+### 目标
+
+处理网络中断（gateway 问题）、进程中断、用户主动中断；细化状态分类（thinking/holding/interrupted）；确保中断时 messages 完整性（避免无法创建完整上下文列表导致 agent 失效）；确认 agent 间 gateway 并发调用能力。
+
+### 完成内容
+
+1. **`AgentStatus` 增加 `interrupted`**（kernel/types.ts）：当前轮被中断（用户/进程/网络/工具错误），实例仍存活、消息完整，下一次送信自动恢复（回 thinking）。与 `terminateAgent`（销毁）严格区分。
+
+2. **Runtime 错误处理（三层防护）**（kernel/Runtime.ts）：
+   - 每轮 `processDelivery` 注册 `AbortController`（`controllers` Map）；`Runtime.abort(agentId)` / `abortAll()` / `activeAgents()` 供 kernel/宿主中断。
+   - 主循环 `gateway.chat(request, { signal })` 抛错时统一走 `halt()` 收尾（不再冒泡卡死状态）。
+   - **消息闭合**：中断时已产出的部分 assistant 文本补 `\n<interrupted>` 标记入库（`appendHistory`），避免"assistant 后直接接 user"非法消息序列；网络/工具错误原样保留部分文本（不伪造完成标记）。
+   - 日志新增 `kernel.instance.interrupted`（aborted/errorKind/message）。
+
+3. **Kernel 中断入口**（kernel/Kernel.ts）：`interruptAgent(agentId, { by })`（销毁权复用：仅祖先或 user0）+ `abortAllAgents()` + `activeAgents()`。
+
+4. **shell 中断能力**（shell/main.ts）：`/stop` 命令（中断当前活跃 agent）；SIGINT/SIGTERM 优雅收尾（中断所有活跃 agent，消息闭合后退出）。
+
+5. **gateway 并发保障**：
+   - 确认 `ModelGateway.chat`（AsyncGenerator）各 agent 独立调用天然并发（对齐 opencode provider 层 unbounded 并发）。
+   - `FakeGateway` 支持 `ChatOptions.signal` 中断模拟（含 `abortError()` 导出），并透传 signal 给 handler。
+   - `gateway/types.ts` 新增 `isAbortError` 判定（区分主动中断与网络错误）。
+
+### 验证
+
+- 111/111 测试通过。新增 Runtime 4 项（用户中断闭合+恢复 / 网络错误原样保留 / 中断后消息闭合 / 多 agent 并发）+ Kernel 1 项（中断+权限+恢复）。
+- typecheck 0 错误。
+- shell 冒烟：`/stop` 正常中断 thinking 中的 agent；`/help` 含新命令。
+
+### 后续（未执行）
+
+- 工具轮并发上限（mapLimit）——用户决策暂不设置，保持 Promise.all 无上限。
+- 进程中断时若 halt 收尾超时的兜底（当前 300ms 等待）。

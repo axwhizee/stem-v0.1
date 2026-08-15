@@ -39,8 +39,12 @@ export function makeAgentSpaceID(id: string): AgentSpaceID {
 
 // ---------- 状态 ----------
 
-/** 实例状态机：idle →(邮局送信)→ thinking(请求已发) →(LLM 返回)→ holding(等待下一次送信)。 */
-export type AgentStatus = 'idle' | 'thinking' | 'holding'
+/**
+ * 实例状态机：
+ *   idle →(邮局送信)→ thinking(请求已发) →(LLM 返回)→ holding(等待下一次送信)；
+ *   interrupted：当前轮被中断（用户/进程/网络/工具错误），实例仍存活、消息完整，下一次送信自动恢复。
+ */
+export type AgentStatus = 'idle' | 'thinking' | 'holding' | 'interrupted'
 
 /** 工具引用（声明在模板上，执行器后续由 ToolCapabilityRegistry 提供）。 */
 export interface ToolRef {

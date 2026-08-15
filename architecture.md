@@ -71,7 +71,16 @@
 
 - `registerUser()` 将 user0 **实例化**为元 agent：`{ id: 'user0', classRef: '__meta__', parentId: null }`，进入实例体系（而非仅上下文注册）。
 - **元权限**：AccessManager 对 `user0` 一律 `allow` 短路。作为偏序最大值，对后代**零污染**。
-- 面板操作统一走 kernel 方法（`sendMessage` / `terminateAgent` / `inspectAgent`…），系统工具只是薄适配（`ctx.agentId` 注入 by）。
+- 面板操作统一走 kernel 方法（`sendMessage` / `terminateAgent` / `interruptAgent` / `inspectAgent`…），系统工具只是薄适配（`ctx.agentId` 注入 by）。
+
+### 2.4 中断与错误处理
+
+- **中断入口**：`kernel.interruptAgent(agentId, { by })`（销毁权复用：仅祖先或 user0）；`kernel.abortAllAgents()`（进程优雅收尾）。
+- **三种场景**：
+  - **用户主动中断**（shell `/stop`）→ `interruptAgent` → Runtime.abort → `halt` 消息闭合 → `interrupted`。
+  - **网络/网关中断**（`GatewayError` request_failed 等）→ 主循环 catch → `halt`（部分文本原样入库）→ `interrupted`。
+  - **进程中断**（shell SIGINT/SIGTERM）→ `abortAllAgents` → 各 agent 消息闭合后退出。
+- **消息完整性**：无论哪种中断，已产出的部分 assistant 补 `<interrupted>` 标记入库（消息闭合），仓库完整保留，下一次送信自动恢复。
 
 ## 三、通信模型：仓库 · 管理员 · 快递员（重建邮局）
 
@@ -135,10 +144,18 @@ interface ContextManager {
 ### 4.2 Runtime（`core/kernel/Runtime.ts`，被动驱动）
 
 - **不是同步 run**：向 kernel 注册后，由快递员送信回调驱动（`processDelivery`）。
-- 状态机：`idle →(快递员送信)→ thinking(请求已发) →(LLM 返回，assistant 或 tool_call)→ holding(等待下一次送信) →…`。
+- 状态机：`idle →(快递员送信)→ thinking(请求已发) →(LLM 返回)→ holding(等待下一次送信)`；`interrupted`（当前轮被中断，消息闭合、实例存活、可恢复）。
 - 收到完整上下文（`AgentDelivery`）→ 发 LLM → **kernel 检查 assistant 中 tool_call 并调用工具**（工具结果经 `appendHistory` 入仓库）→ 每轮 assistant 消息自动复制到仓库 → 最终纯文本回复：
   - **不再拼发送者戳**（发送者戳由管理员打标签时统一生成）；
   - 最终回复直接投递给**创建者**（creatorId）上下文。
+
+#### 错误处理与中断（Runtime 三层防护）
+
+- **中断控制器**：每轮 `processDelivery` 注册一个 `AbortController`（`controllers` Map），`Runtime.abort(agentId)` / `abortAll()` 供 kernel/宿主中断（用户 `/stop`、进程 SIGINT/SIGTERM）。
+- **三层 try/catch**：主循环内 `gateway.chat(request, { signal })` 抛错时统一走 `halt()` 收尾，不再冒泡导致状态卡死。
+- **消息闭合（完整性保证）**：中断时已产出的部分 assistant 文本补 `\n<interrupted>` 标记入库（`appendHistory`），避免下一轮组装出现"assistant 后直接接 user"的非法消息序列；网络/工具错误则原样保留部分文本（不伪造完成标记）。
+- **`interrupted` 语义**：仅暂停（不销毁、不清空仓库），下一次送信自动恢复（状态回 thinking）。与 `terminateAgent`（销毁）严格区分。
+- **并发能力**：`gateway.chat` 是 AsyncGenerator，各 agent 独立调用天然并发（provider 层 unbounded，对齐 opencode）；中断一个 agent 不影响其他。
 
 ### 4.3 InstanceManager（`core/kernel/InstanceManager.ts`，实例存储本体）
 
@@ -216,7 +233,7 @@ interface ContextManager {
   - `context.assembled`：上下文构成 + **成分就绪时间** + **完整上下文留档**——ContextManager 记录。
   - `mailbox.countdown` / `mailbox.delivered`：倒计时触发/重置/发送状态——Courier 记录。
   - `access.asked` / `access.replied`：工具访问评估 + 用户回复——AccessManager 记录。
-  - `kernel.*`：class.registered / instance.created / status.changed / instance.terminated / message.sent——Kernel 记录。
+  - `kernel.*`：class.registered / instance.created / status.changed / instance.terminated / instance.interrupted / message.sent——Kernel 记录。
 - `InMemoryLogger`：留档 + `query({agentId, type})` 过滤（后续持久化 + `telemetry_read` 工具）。
 
 ### 4.12 全局配置（`core/config/`）+ 初始化管线（`core/init/`）
@@ -289,8 +306,9 @@ send_countdown: 800      # 可选
 | 通信 | MessageBus 保存消息、半双工 | **无总线**：仓库→管理员→快递员三模块；agent 通信经 kernel.sendMessage 直接投递；log/access_reply 走注入接口 |
 | context 结构 | ContextManager 一体化邮局 | **重建邮局**：Repository（存储本体+valid/tokens/from 元数据）→ ContextManager（处理/打戳/组装）→ Courier（倒计时+发送）；ContextAssembler 为可注入组装策略 |
 | 发送者戳 | runtime 生成 `<sender id>` | **管理员统一打戳**（用 from 元数据），runtime 只发原始文本 |
-| 运行时 | 同步 while 循环 | 被动驱动：快递员送信触发，状态机 thinking/holding；kernel 检查 tool_call 并调工具 |
-| Agent 状态 | `idle/running/waiting` | `idle/thinking/holding` |
+| 运行时 | 同步 while 循环 | 被动驱动：快递员送信触发，状态机 thinking/holding/interrupted；kernel 检查 tool_call 并调工具 |
+| Agent 状态 | `idle/running/waiting` | `idle/thinking/holding/interrupted` |
+| 错误处理 | 无 | 三层 try/catch + halt 消息闭合 + interrupted（仅暂停可恢复）+ 中断入口（/stop、SIGINT） |
 | 实例化 | 无 userPrompt/creatorId | 必填 userPrompt；creatorId 可显式指定；**parentId 族谱关系** |
 | 系统工具 | 阶段 3.1 | 提前：agent_class_*/agent_inspect/ancestry/descendants 已实现 |
 | 权限模型 | `PermissionLevel`（normal/advanced/admin 角色等级） | **统一工具访问四态 ToolAccess**（allow/ask/deny/ignore），融合进 `core/tools/`（access.ts + AccessManager）；层间单调收缩（单向），deny 不可被撤销 |
