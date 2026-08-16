@@ -90,7 +90,8 @@ export interface AgentInstanceCreated {
   readonly at: number
   readonly agentId: string
   readonly classId: string
-  readonly creatorId: string
+  /** 族谱父（= 创建者；user0 为空字符串）。 */
+  readonly parentId: string
 }
 
 /** 实例状态变化记录。 */

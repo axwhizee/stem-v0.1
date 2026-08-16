@@ -46,11 +46,6 @@ export function makeAgentSpaceID(id: string): AgentSpaceID {
  */
 export type AgentStatus = 'idle' | 'thinking' | 'holding' | 'interrupted'
 
-/** 工具引用（声明在模板上，执行器后续由 ToolCapabilityRegistry 提供）。 */
-export interface ToolRef {
-  readonly id: string
-}
-
 // ---------- 上下文策略（最小占位） ----------
 
 /**
@@ -65,22 +60,22 @@ export interface ContextProfile {
 
 // ---------- AgentClass（模板，用户主权的载体） ----------
 
+/**
+ * AgentClass（模板）。**name 即 id**（注册时查重），无单独 id 字段。
+ * 工具清单 `tools` 融合白名单与访问：`Record<访问键, ask|deny|allow|ignore>`，
+ * **键即白名单**（未列出的工具不可用），值对全局表做收敛补充（只能更严格）。
+ * `contextStrategy` 为实例上下文管理策略（默认 classic），在开辟上下文空间时写入。
+ */
 export interface AgentClass {
-  readonly id: AgentClassID
-  /** 展示名，如 "Coder" / "Reviewer"。 */
-  readonly name: string
+  /** 类名，唯一（注册时查重；即模板键）。 */
+  readonly name: AgentClassID
   readonly description: string
+  /** 该类实例可用的工具清单（融合白名单+访问）：Record<访问键, ask|deny|allow|ignore>。 */
+  readonly tools: Readonly<Record<string, ToolAccess>>
   /** 该类的专属系统提示词（模板承载，实例化注册到邮局）。 */
   readonly systemPrompt: string
-  /** 该类实例可用的工具白名单。 */
-  readonly tools: readonly ToolRef[]
-  /**
-   * 工具访问列表（统一原子化 per-tool，融合权限模型）：Record<访问键, allow|ask|deny|ignore>。
-   * 未列出的工具默认 ask（弹窗确认）；deny 不暴露；internal 系统工具默认 ignore（隐藏，显式 allow 才暴露）。
-   */
-  readonly toolAccess: Readonly<Record<string, ToolAccess>>
-  /** 可访问的上下文资产标签（ContextAssetPool 接入后启用）。 */
-  readonly memoryScope: readonly string[]
+  /** 上下文管理策略（默认 classic；实例化时写入上下文属性）。 */
+  readonly contextStrategy?: string
   /** 可选模型偏好。 */
   readonly model?: ModelRef
   /** 送信倒计时（毫秒，默认 1000）；实例化时传给邮局。 */
@@ -91,23 +86,27 @@ export interface AgentClass {
 
 // ---------- AgentInstance（运行时原子单位） ----------
 
+/**
+ * AgentInstance（运行时原子单位）。
+ * **parentId 即 creatorId 合并**：谁创建实例，谁就是族谱父（user0 为 null 即根）。
+ * 运行时属性多于工具调用参数（status/turnCount/totalCost 等由内核维护）。
+ */
 export interface AgentInstance {
   readonly id: AgentID
+  /** 模板名（即模板键）。 */
   readonly classRef: AgentClassID
-  /** 创建者 id（用户默认 'user0'；agent 创建时为其 id）。 */
-  readonly creatorId: string
-  /** 族谱父（user0 为 null 即根）；创建时确定、不可变。 */
+  /** 族谱父（= 创建者；user0 为 null 即根）；创建时确定、不可变。 */
   readonly parentId: AgentID | null
   /** 用户可命名（可接管改名）。 */
   displayName: string
-  /** 区分用户创建 vs 调度创建。 */
-  readonly createdBy: 'user' | AgentID
   readonly spaceId: AgentSpaceID
   status: AgentStatus
   turnCount: number
   totalCost: number
   /** 实例化时必填的 user prompt（作为首封信投递，符合 openai messages 规范）。 */
   readonly userPrompt: string
+  /** 实例化时传入的工具清单补充（对模板表的收敛，可临时收紧；运行时仅用于组装）。 */
+  readonly toolOverride?: Readonly<Record<string, ToolAccess>>
 }
 
 /** 用户接管/微调可更新的字段。 */

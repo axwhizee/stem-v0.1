@@ -9,19 +9,25 @@
 import type { TemplateRegistry } from './TemplateRegistry'
 import type { AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, AgentStatus } from './types'
 import { META_CLASS_ID, makeAgentID, makeAgentSpaceID } from './types'
+import type { ToolAccess } from '../tools'
 
 export interface InstantiateOptions {
-  readonly classId: AgentClassID
-  /** 创建者 id（用户 'user0'；agent 为其 id）。 */
-  readonly creatorId: string
-  /** 族谱父 id（缺省 = creatorId；user0 创建时为 null 即根）。 */
-  readonly parentId?: AgentID | null
+  /** 模板名（= 模板键）。 */
+  readonly className: AgentClassID
+  /** 族谱父（= 创建者；user0 为 null 即根）。创建时确定、不可变。 */
+  readonly parentId: AgentID | null
   /** 实例化必填的 user prompt（首封信）。 */
   readonly userPrompt: string
   readonly spaceId: AgentSpaceID
-  readonly displayName?: string
   /** 显式指定 id（与现有实例冲突时报错）。 */
-  readonly id?: string
+  readonly agentId?: string
+  /** 实例化时传入的工具清单补充（对模板表的收敛，可临时收紧）。 */
+  readonly tools?: Readonly<Record<string, ToolAccess>>
+  /**
+   * 上下文传递：父 agent 指定仓库消息索引（消息 id 列表），
+   * 实例化时组装进新上下文空间（深拷贝）。
+   */
+  readonly contextRefs?: readonly string[]
 }
 
 export interface InstanceManager {
@@ -55,37 +61,34 @@ export class DefaultInstanceManager implements InstanceManager {
 
   async instantiate(opts: InstantiateOptions): Promise<AgentInstance> {
     // 校验模板存在。
-    const template = await this.registry.get(opts.classId)
+    const template = await this.registry.get(opts.className)
     if (!opts.userPrompt || typeof opts.userPrompt !== 'string') {
       throw { kind: 'agent_conflict', message: 'userPrompt 是必填项（保证 messages 至少 [system, user]）' }
     }
-    if (!opts.creatorId) {
-      throw { kind: 'agent_conflict', message: 'creatorId 是必填项' }
+    if (opts.parentId === undefined) {
+      throw { kind: 'agent_conflict', message: 'parentId 是必填项（user0 为 null 即根）' }
     }
     // 父必须是已存在的参与者（user0 为根）。
-    const parentId: AgentID | null =
-      opts.parentId !== undefined ? opts.parentId : (opts.creatorId as AgentID)
-    if (parentId !== null && !this.agents.has(parentId) && parentId !== 'user0') {
-      throw { kind: 'agent_conflict', message: `父 agent 不存在: ${String(parentId)}` }
+    if (opts.parentId !== null && !this.agents.has(opts.parentId) && opts.parentId !== 'user0') {
+      throw { kind: 'agent_conflict', message: `父 agent 不存在: ${String(opts.parentId)}` }
     }
 
-    const id = opts.id !== undefined ? makeAgentID(opts.id) : this.generateId()
+    const id = opts.agentId !== undefined ? makeAgentID(opts.agentId) : this.generateId()
     if (this.agents.has(id)) {
       throw { kind: 'agent_conflict', message: `agent id 冲突: ${id}` }
     }
 
     const instance: AgentInstance = {
       id,
-      classRef: template.id,
-      creatorId: opts.creatorId,
-      parentId: parentId as AgentID | null,
-      displayName: opts.displayName ?? template.name,
-      createdBy: opts.creatorId === 'user0' ? 'user' : (opts.creatorId as AgentID),
+      classRef: template.name,
+      parentId: opts.parentId,
+      displayName: template.name,
       spaceId: opts.spaceId,
       status: 'idle',
       turnCount: 0,
       totalCost: 0,
       userPrompt: opts.userPrompt,
+      ...(opts.tools !== undefined ? { toolOverride: opts.tools } : {}),
     }
     this.agents.set(id, instance)
     return instance
@@ -98,10 +101,8 @@ export class DefaultInstanceManager implements InstanceManager {
     const instance: AgentInstance = {
       id: opts.id,
       classRef: META_CLASS_ID,
-      creatorId: opts.id,
       parentId: null,
       displayName: opts.displayName ?? 'User',
-      createdBy: 'user',
       spaceId: makeAgentSpaceID('__meta__'), // 元 agent 不属于任何项目空间
       status: 'idle',
       turnCount: 0,

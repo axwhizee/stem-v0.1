@@ -229,13 +229,11 @@ async function createShell(): Promise<ShellState> {
 
   // 带工具白名单的示例模板
   await kernel.templates.register({
-    id: makeAgentClassID('tool-assistant'),
-    name: 'ToolAssistant',
+    name: makeAgentClassID('tool-assistant'),
     description: '能调用工具（oc_echo / oc_get_time / oc_read_file）的助手（示例）',
     systemPrompt:
       'You are a helpful assistant with tool access. Use the available tools when appropriate. If you need a result from another agent, call agent_instantiate to create it (returns its id), then context_wait(id) to await its reply.',
-    tools: [{ id: 'oc_echo' }, { id: 'oc_get_time' }, { id: 'oc_read_file' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-    toolAccess: {
+    tools: {
       oc_echo: 'allow',
       oc_get_time: 'allow',
       oc_read_file: 'allow',
@@ -243,18 +241,15 @@ async function createShell(): Promise<ShellState> {
       bus_send: 'allow',
       bus_participants: 'allow',
     },
-    memoryScope: [],
   })
 
   // 创造者模板（可创建子 agent；无时间权限）
   await kernel.templates.register({
-    id: makeAgentClassID('creator'),
-    name: 'Creator',
+    name: makeAgentClassID('creator'),
     description: '调度者：可创建子 agent 获取信息（示例）',
     systemPrompt:
-      "creator-sys: 你是调度者，负责创建子 agent 获取信息并汇总给用户。\n可用模板 id：'tool-agent'（带 oc_get_time 时间工具）、'simple-chat'（纯对话）、'coder'。\n流程：① 用 agent_instantiate 创建子 agent，参数 classId 填 'tool-agent'，必填 userPrompt 说明要它做什么；它返回新建 agent 的 id。② 随后调用 context_wait(agentId)（agentId 填①返回的 id）等待子 agent 的回复——其 assistant_message 会作为 context_wait 的 tool 结果进入你的上下文。③ 拿到结果后向用户汇报。",
-    tools: [{ id: 'agent_instantiate' }, { id: 'agent_list' }, { id: 'agent_terminate' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-    toolAccess: {
+      "creator-sys: 你是调度者，负责创建子 agent 获取信息并汇总给用户。\n可用模板 id：'tool-agent'（带 oc_get_time 时间工具）、'simple-chat'（纯对话）、'coder'。\n流程：① 用 agent_instantiate 创建子 agent，参数 className 填 'tool-agent'，必填 userPrompt 说明要它做什么；它返回新建 agent 的 id。② 随后调用 context_wait(agentId)（agentId 填①返回的 id）等待子 agent 的回复——其 assistant_message 会作为 context_wait 的 tool 结果进入你的上下文。③ 拿到结果后向用户汇报。",
+    tools: {
       agent_instantiate: 'allow',
       agent_list: 'allow',
       agent_terminate: 'allow',
@@ -262,7 +257,6 @@ async function createShell(): Promise<ShellState> {
       bus_send: 'allow',
       bus_participants: 'allow',
     },
-    memoryScope: [],
   })
 
   // 系统管理工具（agent_* / bus_*）
@@ -270,7 +264,7 @@ async function createShell(): Promise<ShellState> {
 
   await kernel.registerUser('User')
   state.currentAgentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), DEFAULT_PROJECT, {
-    displayName: '小助手',
+    userPrompt: '你好，请做一个简短的自我介绍。',
   })
 
   return state
@@ -382,7 +376,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
     case '/templates': {
       const list = await state.kernel.templates.list()
       for (const t of list)
-        console.log(`  ${t.id}  ${t.name}  tools=${t.tools.length > 0 ? t.tools.map((x) => x.id).join(',') : '-'}  ${t.description}`)
+        console.log(`  ${t.name}  tools=${Object.keys(t.tools).length > 0 ? Object.entries(t.tools).map(([k, v]) => `${k}:${v}`).join(',') : '-'}${t.contextStrategy ? `  strategy=${t.contextStrategy}` : ''}  ${t.description}`)
       return false
     }
     case '/agents': {
@@ -390,24 +384,23 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       const agents = await state.kernel.instances.listBySpace(space.id)
       for (const a of agents) {
         const marker = a.id === state.currentAgentId ? '*' : ' '
-        console.log(` ${marker} ${a.id}  ${a.displayName}  <${a.classRef}>  parent=${a.parentId ?? '-'}  ${a.status}  turns=${a.turnCount}  creator=${a.creatorId}`)
+        console.log(` ${marker} ${a.id}  ${a.displayName}  <${a.classRef}>  parent=${a.parentId ?? '-'}  ${a.status}  turns=${a.turnCount}`)
       }
       return false
     }
     case '/new': {
-      const classId = rest[0] as string | undefined
-      if (!classId) {
-        console.log('用法: /new <classId> [name] [userPrompt]')
+      const className = rest[0] as string | undefined
+      if (!className) {
+        console.log('用法: /new <className> [userPrompt]')
         return false
       }
-      const name = rest[1]
-      const userPrompt = rest[2] ?? DEFAULT_USER_PROMPT
+      const userPrompt = rest[1] ?? DEFAULT_USER_PROMPT
       const agentId = await state.kernel.instantiateAgent(
-        { classId: makeAgentClassID(classId), creatorId: USER_ID, userPrompt, displayName: name },
+        { className: makeAgentClassID(className), parentId: makeAgentID(USER_ID), userPrompt },
         DEFAULT_PROJECT,
       )
       state.currentAgentId = agentId
-      console.log(`已创建并切换到: ${agentId} (${name ?? classId})`)
+      console.log(`已创建并切换到: ${agentId} (${className})`)
       return false
     }
     case '/use': {
@@ -474,7 +467,7 @@ async function main(): Promise<number> {
   console.log(` 配置: ${DEFAULT_PROJECT}/.stem/stem.jsonc（唯一配置文件）`)
   console.log(` 注册用户工具: ${state.init.tools.length > 0 ? state.init.tools.map((t) => t.id).join(', ') : '-'}`)
   console.log(` 注册用户 agent: ${state.init.agents.length > 0 ? state.init.agents.map((a) => a.id).join(', ') : '-'}`)
-  console.log(` 模板: ${BUILTIN_TEMPLATES.map((t) => t.id).join(', ')}, tool-assistant, creator${state.init.agents.length > 0 ? ', ' + state.init.agents.map((a) => a.id).join(', ') : ''}`)
+  console.log(` 模板: ${BUILTIN_TEMPLATES.map((t) => t.name).join(', ')}, tool-assistant, creator${state.init.agents.length > 0 ? ', ' + state.init.agents.map((a) => a.id).join(', ') : ''}`)
   console.log(` 当前实例: ${state.currentAgentId} (小助手)`)
   console.log(' 工具演示: /new tool-assistant 再问 "echo hello"；/new creator 再问 "创建一个助手读取时间"')
   console.log(' 直接输入对话；/help 查看命令；/exit 退出')

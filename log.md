@@ -593,3 +593,48 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 
 - 工具轮并发上限（mapLimit）——用户决策暂不设置，保持 Promise.all 无上限。
 - 进程中断时若 halt 收尾超时的兜底（当前 300ms 等待）。
+
+---
+
+## 阶段：消息库 tag + 双索引 + 参数精简（AgentClass/Instance）+ creatorId 合并 + 导出/概览
+
+**日期**：2026-08-16
+
+### 目标
+
+为上下文管理策略（self-focus / ltm-stm-mix / coding-hybrid 等）做模块准备：消息库 tag + 双索引、参数精简、creatorId 合并、上下文导出/概览工具。
+
+### 完成内容
+
+1. **消息库 tag + 双索引**（core/context/）：
+   - `StoredMessage` 增加 `tag?`（描述性标签，标记非原生合成消息，如 summary/impression）+ `turn`（轮序号，复用 turnCount 语义）+ `indexInTurn`（轮内序号）。
+   - Repository 自动维护：user 消息开启新轮（turn 递增、轮内序号归 0），其余轮内递增；system 为第 0 轮。
+   - **strategy 不作为 tag 的一部分**：每个 agent 的上下文策略在开辟上下文空间时确定（上下文属性），组装器按 agent 策略解释 tag。
+
+2. **AgentClass 精简**（name 即 id）：
+   - 移除 `id`（name 即模板键，注册查重）；移除 `memoryScope`（占位未用）。
+   - `tools` 融合白名单与访问：`Record<访问键, ask|deny|allow|ignore>`，**键即白名单**（空 Record=无工具，undefined=全部），替代原 `tools` 数组 + `toolAccess` 双轨。
+   - 新增 `contextStrategy`（默认 classic，实例化时写入上下文属性）。
+
+3. **AgentInstance 精简 + creatorId 合并**：
+   - 移除 `creatorId`（**合并进 parentId**：谁创建谁就是父）；移除 `createdBy`。
+   - `InstantiateOptions`：`className` + `parentId`（必填）+ `userPrompt`（必填）+ `agentId?` + `tools?`（临时收敛）+ `contextRefs?`（父仓库消息索引，深拷贝导入）。
+   - 全量替换 creatorId → parentId（Kernel/Runtime/systemTools/shell/测试，约 12 文件）。
+
+4. **上下文导出/概览**：
+   - context 模块（纯格式化，无权限）：`exportJsonl(agentId)`（jsonl 逐行）+ `overview(agentId)`（只读反射 role/turn/tag/token 占比）。
+   - Kernel 薄转发（`exportContext`/`contextOverview`）+ 系统工具 `context_export`/`context_overview`（agent 只能看自己的或祖先的）。
+
+5. **系统工具参数精简**：`agent_class_create`（name/tools/contextStrategy）、`agent_instantiate`（className/userPrompt/agentId/contextRefs/tools，父自动=调用者）。
+
+### 验证
+
+- 115/115 测试通过（新增 context 4 项：tag+双索引、导出、概览；更新 kernel/init/shell 测试）。
+- typecheck 0 错误。
+- shell 冒烟：context_export/context_overview 工具注册、模板 tools 显示为 Record、/agents 显示 parent。
+
+### 后续（未执行）
+
+- 上下文管理策略实现（coding-hybrid 渐进版 / ltm-stm-mix / self-focus 裁剪开关）。
+- contextRefs 支持"轮索引 or 轮+序号"定位语法（当前仅消息 id 或轮索引）。
+- 后台总结工具（每轮每消息短摘要）——用户暂缓。

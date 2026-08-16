@@ -27,6 +27,11 @@ export interface AppendInput {
   readonly from?: string
   /** token 估算（缺省按字符/4）。 */
   readonly tokens?: number
+  /**
+   * 描述性标签（可选）：标记非原生消息（summary/impression/meta 等）。
+   * 语义由该 agent 的上下文策略解释（strategy 是上下文属性，不在 tag 中）。
+   */
+  readonly tag?: string
 }
 
 export interface Repository {
@@ -54,6 +59,10 @@ export interface Repository {
 interface InternalBox {
   readonly agentId: string
   readonly messages: StoredMessage[]
+  /** 下一轮序号（从 1 开始；system 为 0）。 */
+  nextTurn: number
+  /** 下一轮内序号。 */
+  nextIndexInTurn: number
 }
 
 export class DefaultRepository implements Repository {
@@ -71,10 +80,22 @@ export class DefaultRepository implements Repository {
     if (this.boxes.has(agentId)) {
       throw { kind: 'repository_conflict', agentId }
     }
-    const box: InternalBox = { agentId, messages: [] }
+    const box: InternalBox = { agentId, messages: [], nextTurn: 0, nextIndexInTurn: 0 }
     this.boxes.set(agentId, box)
     if (systemPrompt !== undefined && systemPrompt !== '') {
-      this.push(box, { message: { role: 'system', content: systemPrompt } })
+      // system 消息：第 0 轮第 0 条；之后第一个 user 为第 1 轮。
+      const stored: StoredMessage = {
+        id: `m-${++this.counter}`,
+        agentId,
+        message: { role: 'system', content: systemPrompt },
+        at: Date.now(),
+        tokens: estimateTokens({ role: 'system', content: systemPrompt }),
+        valid: true,
+        turn: 0,
+        indexInTurn: 0,
+      }
+      box.messages.push(stored)
+      box.nextTurn = 1
     }
   }
 
@@ -135,6 +156,17 @@ export class DefaultRepository implements Repository {
 
   /** 内部入库（不触发 onChange）。 */
   private push(box: InternalBox, input: AppendInput): StoredMessage {
+    // 轮次：user 消息开启新轮（turn = nextTurn，轮内序号归 0，nextTurn 递增）；
+    // 其余消息同一轮内继续（turn = nextTurn - 1，indexInTurn 递增）。
+    const isNewTurn = input.message.role === 'user'
+    const turn = isNewTurn ? box.nextTurn : box.nextTurn - 1
+    const indexInTurn = isNewTurn ? 0 : box.nextIndexInTurn
+    if (isNewTurn) {
+      box.nextTurn += 1
+      box.nextIndexInTurn = 1
+    } else {
+      box.nextIndexInTurn += 1
+    }
     const stored: StoredMessage = {
       id: `m-${++this.counter}`,
       agentId: box.agentId,
@@ -143,6 +175,9 @@ export class DefaultRepository implements Repository {
       tokens: input.tokens ?? estimateTokens(input.message),
       valid: true,
       ...(input.from !== undefined ? { from: input.from } : {}),
+      ...(input.tag !== undefined ? { tag: input.tag } : {}),
+      turn,
+      indexInTurn,
     }
     box.messages.push(stored)
     return stored

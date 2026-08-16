@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 import { FakeGateway, textEvents, abortError } from '../gateway'
 import type { LLMRequest } from '../gateway'
 import type { AgentClass } from './types'
-import { makeAgentClassID } from './types'
+import { makeAgentClassID, makeAgentID } from './types'
 import { createKernelHarness } from '../../../test-support/kernelHarness'
 import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 
@@ -20,13 +20,10 @@ const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 /** 带工具白名单的模板（供工具轮测试）。 */
 const toolAssistant: AgentClass = {
-  id: makeAgentClassID('tool-agent'),
-  name: 'ToolAgent',
+  name: makeAgentClassID('tool-agent'),
   description: '带工具 agent',
   systemPrompt: 'You are an assistant with tools.',
-  tools: [{ id: 'oc_echo' }],
-  toolAccess: { oc_echo: 'allow' },
-  memoryScope: [],
+  tools: { oc_echo: 'allow' },
 }
 
 const templatesWithTool = [...BUILTIN_TEMPLATES, toolAssistant]
@@ -52,7 +49,7 @@ describe('Kernel 邮局模式', () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
     const { kernel, deliveries, timers } = await createKernelHarness(gateway)
     const agentId = await kernel.instantiateAgent(
-      { classId: makeAgentClassID('simple-chat'), creatorId: USER_ID, userPrompt: 'hello' },
+      { className: makeAgentClassID('simple-chat'), parentId: makeAgentID(USER_ID), userPrompt: 'hello' },
       '/proj',
     )
 
@@ -218,12 +215,10 @@ describe('Kernel 邮局模式', () => {
         id: 'call_1',
         name: 'agent_class_create',
         input: {
-          id: 'reviewer',
-          name: 'Reviewer',
+          name: 'reviewer',
           description: '代码审查',
           systemPrompt: 'You review code.',
-          toolAccess: { read: 'allow' },
-          tools: ['oc_echo'],
+          tools: { read: 'allow' },
         },
       },
       adminCtx,
@@ -231,17 +226,16 @@ describe('Kernel 邮局模式', () => {
     assert.match(created.text, /已创建 agent 类 reviewer/)
 
     const cls = await kernel.templates.get(makeAgentClassID('reviewer'))
-    assert.equal(cls.name, 'Reviewer')
-    assert.deepEqual(cls.toolAccess, { read: 'allow' })
-    assert.equal(cls.tools[0]?.id, 'oc_echo')
+    assert.equal(cls.name, 'reviewer')
+    assert.deepEqual(cls.tools, { read: 'allow' })
     assert.ok(!('userPrompt' in cls), '类只承载设定参数，不含实例数据')
 
     const listed = await tools.execute({ id: 'call_2', name: 'agent_class_list', input: {} }, adminCtx)
     assert.match(listed.text, /reviewer/)
 
-    // 新类可直接实例化（agent_instantiate 仍要求 classId + userPrompt）
+    // 新类可直接实例化（agent_instantiate 仍要求 className + userPrompt）
     const inst = await tools.execute(
-      { id: 'call_3', name: 'agent_instantiate', input: { classId: 'reviewer', userPrompt: 'review this' } },
+      { id: 'call_3', name: 'agent_instantiate', input: { className: 'reviewer', userPrompt: 'review this' } },
       adminCtx,
     )
     assert.match(inst.text, /已创建 agent/)

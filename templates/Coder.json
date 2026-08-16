@@ -1,15 +1,12 @@
 {
-  "id": "coder",
-  "name": "Coder",
+  "name": "coder",
   "description": "编程助手：代码编写、文件读写与搜索（示例模板）",
   "systemPrompt": "You are an expert coding assistant. Use read/write/edit/grep/glob tools to inspect and modify files. When writing code, keep it readable and follow the existing project conventions.",
-  "tools": [{ "id": "read" }, { "id": "write" }, { "id": "edit" }, { "id": "grep" }, { "id": "glob" }],
-  "toolAccess": {
+  "tools": {
     "read": "allow",
     "write": "allow",
     "edit": "allow",
     "grep": "allow",
     "glob": "allow"
-  },
-  "memoryScope": []
+  }
 }

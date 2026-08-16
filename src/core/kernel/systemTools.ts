@@ -11,7 +11,7 @@ import type { ToolCapability } from '../tools'
 import type { ToolAccess } from '../tools'
 import type { Kernel } from './Kernel'
 import type { AgentClass } from './types'
-import { makeAgentClassID } from './types'
+import { makeAgentClassID, makeAgentID } from './types'
 
 /** 生成系统工具清单（由 Kernel.registerSystemTools 装配）。 */
 export function createSystemTools(kernel: Kernel): ToolCapability[] {
@@ -27,6 +27,8 @@ export function createSystemTools(kernel: Kernel): ToolCapability[] {
     busSend(kernel),
     busParticipants(kernel),
     contextWait(kernel),
+    contextExport(kernel),
+    contextOverview(kernel),
   ]
 }
 
@@ -35,48 +37,44 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
   return {
     id: 'agent_class_create',
     description:
-      '创建新的 agent 类（模板）。类定义角色设定（systemPrompt/toolAccess 工具访问列表/工具白名单/模型/送信倒计时），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。toolAccess 为工具访问键到 allow/ask/deny/ignore 的映射，未列出的工具默认 ask（交用户确认）；internal 系统工具默认 ignore（隐藏，显式 allow 才暴露）。',
+      '创建新的 agent 类（模板）。类定义角色设定（systemPrompt / tools 工具清单 / contextStrategy / model / sendCountdown），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。tools 为工具访问键到 ask/deny 的映射（键即白名单，未列出的工具不可用；对全局表只能收敛）。',
     accessKey: 'agent_class_create',
     kind: 'internal',
     category: 'system',
     parameters: {
       type: 'object',
       properties: {
-        id: { type: 'string', description: '类 id（唯一，kebab-case）' },
-        name: { type: 'string', description: '类名，如 "Coder"' },
+        name: { type: 'string', description: '类名（唯一，即类 id，kebab-case）' },
         description: { type: 'string', description: '类用途描述' },
         systemPrompt: { type: 'string', description: '该类的专属系统提示词' },
-        toolAccess: { type: 'object', description: '工具访问列表：访问键 → allow/ask/deny/ignore（未列出的默认 ask）' },
-        tools: { type: 'array', items: { type: 'string' }, description: '工具 id 白名单（缺省=允许的全部工具）' },
+        tools: { type: 'object', description: '工具清单：访问键 → ask/deny（键即白名单，对全局表收敛）' },
+        contextStrategy: { type: 'string', description: '上下文管理策略（默认 classic）' },
         model: { type: 'string', description: '模型 id（可选，缺省用系统默认模型）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒（可选，缺省 1000）' },
       },
-      required: ['id', 'name', 'description', 'systemPrompt'],
+      required: ['name', 'description'],
     },
     execute: async (input) => {
       const args = input as {
-        id: string
         name: string
         description: string
-        systemPrompt: string
-        toolAccess?: Readonly<Record<string, ToolAccess>>
-        tools?: string[]
+        systemPrompt?: string
+        tools?: Readonly<Record<string, ToolAccess>>
+        contextStrategy?: string
         model?: string
         sendCountdown?: number
       }
       const cls: AgentClass = {
-        id: makeAgentClassID(args.id),
-        name: args.name,
+        name: makeAgentClassID(args.name),
         description: args.description,
-        systemPrompt: args.systemPrompt,
-        toolAccess: args.toolAccess ?? {},
-        tools: (args.tools ?? []).map((id) => ({ id })),
-        memoryScope: [],
-        model: args.model ? { provider: 'opencode', id: args.model } : undefined,
-        sendCountdown: args.sendCountdown,
+        systemPrompt: args.systemPrompt ?? '',
+        tools: args.tools ?? {},
+        ...(args.contextStrategy !== undefined ? { contextStrategy: args.contextStrategy } : {}),
+        ...(args.model !== undefined ? { model: { provider: 'opencode', id: args.model } } : {}),
+        ...(args.sendCountdown !== undefined ? { sendCountdown: args.sendCountdown } : {}),
       }
       await kernel.registerAgentClass(cls)
-      return { text: `已创建 agent 类 ${args.id}（${args.name}，toolAccess=${Object.keys(cls.toolAccess).length} 条规则）` }
+      return { text: `已创建 agent 类 ${args.name}（tools=${Object.keys(cls.tools).length} 条规则）` }
     },
   }
 }
@@ -94,44 +92,49 @@ function agentClassList(kernel: Kernel): ToolCapability {
       const classes = await kernel.templates.list()
       const lines = classes.map(
         (c) =>
-          `${c.id}  ${c.name}  tools=${c.tools.length > 0 ? c.tools.map((t) => t.id).join(',') : '-'}  access=${Object.entries(c.toolAccess)
-            .map(([t, a]) => `${t}:${a}`)
-            .join(',') || '-'}${c.model ? `  model=${c.model.id}` : ''}`,
+          `${c.name}  tools=${Object.keys(c.tools).length > 0 ? Object.entries(c.tools).map(([t, a]) => `${t}:${a}`).join(',') : '-'}${c.contextStrategy ? `  strategy=${c.contextStrategy}` : ''}${c.model ? `  model=${c.model.id}` : ''}`,
       )
       return { text: lines.length > 0 ? `agent 类列表:\n${lines.join('\n')}` : '（暂无 agent 类）' }
     },
   }
 }
 
-/** 创建 agent 实例（必填 userPrompt；creatorId 缺省为调用者 id）。 */
+/** 创建 agent 实例（必填 className + userPrompt；父 = 调用者）。 */
 function agentInstantiate(kernel: Kernel): ToolCapability {
   return {
     id: 'agent_instantiate',
     description:
-      '创建新的 agent 实例。必填 classId 与 userPrompt（作为该 agent 的首条 user 消息）；creatorId 缺省为调用者自身；新实例的族谱父为调用者。创建后 agent 自动注册到总线与邮局，返回其 agent id。若需等待该 agent 的返回结果，请在收到 id 后调用 context_wait(agentId)。',
+      '创建新的 agent 实例。必填 className（模板名）与 userPrompt（作为该 agent 的首条 user 消息）；族谱父自动为调用者。可选 agentId（唯一）、contextRefs（父仓库消息索引，深拷贝传入）、tools（对模板工具清单的临时收敛）。创建后返回 agent id；若需等待其返回结果，请调用 context_wait(agentId)。',
     accessKey: 'agent_instantiate',
     kind: 'internal',
     category: 'system',
     parameters: {
       type: 'object',
       properties: {
-        classId: { type: 'string', description: 'Agent 模板 id' },
+        className: { type: 'string', description: 'Agent 模板名' },
         userPrompt: { type: 'string', description: '实例化时附带的 user prompt（必填）' },
-        creatorId: { type: 'string', description: '创建者 id（缺省为调用者）' },
         agentId: { type: 'string', description: '指定新 agent 的 id（可选，缺省随机生成）' },
-        displayName: { type: 'string', description: '展示名（可选）' },
+        contextRefs: { type: 'array', items: { type: 'string' }, description: '父仓库消息索引列表（消息 id 或轮索引），深拷贝传入新实例' },
+        tools: { type: 'object', description: '工具清单补充：访问键 → ask/deny（对模板表临时收敛）' },
       },
-      required: ['classId', 'userPrompt'],
+      required: ['className', 'userPrompt'],
     },
     execute: async (input, ctx) => {
-      const args = input as { classId: string; userPrompt: string; creatorId?: string; agentId?: string; displayName?: string }
+      const args = input as {
+        className: string
+        userPrompt: string
+        agentId?: string
+        contextRefs?: string[]
+        tools?: Readonly<Record<string, ToolAccess>>
+      }
       const agentId = await kernel.instantiateInSpace(
         {
-          classId: makeAgentClassID(args.classId),
+          className: makeAgentClassID(args.className),
           userPrompt: args.userPrompt,
-          creatorId: args.creatorId ?? ctx.agentId,
-          id: args.agentId,
-          displayName: args.displayName,
+          parentId: makeAgentID(ctx.agentId),
+          agentId: args.agentId,
+          contextRefs: args.contextRefs,
+          tools: args.tools,
         },
         ctx.spaceId,
       )
@@ -321,6 +324,57 @@ function contextWait(kernel: Kernel): ToolCapability {
       const agentId = (input as { agentId: string }).agentId
       await kernel.contextManager.registerHold(agentId, { ownerId: ctx.agentId, toolCallId: ctx.callId ?? '' })
       return { text: '', metadata: { contextWait: true } }
+    },
+  }
+}
+
+/** 导出上下文为 jsonl（只读；agent 只能导出自己的上下文）。 */
+function contextExport(kernel: Kernel): ToolCapability {
+  return {
+    id: 'context_export',
+    description: '导出指定 agent 的完整上下文为 jsonl（逐行 JSON，含 tag/turn/indexInTurn）。只读，不修改上下文。',
+    accessKey: 'context_export',
+    kind: 'internal',
+    category: 'context',
+    parameters: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: 'agent id（缺省为调用者自身）' },
+      },
+    },
+    execute: async (input, ctx) => {
+      const agentId = (input as { agentId?: string }).agentId ?? ctx.agentId
+      // 权限：agent 只能导出自己的上下文（或祖先）。
+      if (agentId !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(agentId))) {
+        return { text: '无权导出该 agent 的上下文' }
+      }
+      const jsonl = await kernel.exportContext(agentId)
+      return { text: jsonl === '' ? '（空上下文）' : jsonl }
+    },
+  }
+}
+
+/** 上下文概览（只读反射；agent 只能查看自己的上下文）。 */
+function contextOverview(kernel: Kernel): ToolCapability {
+  return {
+    id: 'context_overview',
+    description:
+      '查看指定 agent 的上下文概览：每条消息的 role / turn / tag / token 占比 / 索引。只读反射，不修改上下文。用于 agent 自省上下文构成。',
+    accessKey: 'context_overview',
+    kind: 'internal',
+    category: 'context',
+    parameters: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: 'agent id（缺省为调用者自身）' },
+      },
+    },
+    execute: async (input, ctx) => {
+      const agentId = (input as { agentId?: string }).agentId ?? ctx.agentId
+      if (agentId !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(agentId))) {
+        return { text: '无权查看该 agent 的上下文' }
+      }
+      return { text: await kernel.contextOverview(agentId) }
     },
   }
 }

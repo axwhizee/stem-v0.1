@@ -37,10 +37,9 @@
 
 **一句话**：agent 之间的唯一区别是 `parentId`（族谱关系）；user0 的特殊之处仅在于 `parentId = null`——它是原点、元 agent。
 
-- **AgentClass（模板）** 承载设定参数：`id / name / description / system_prompt / model / toolAccess / tools / memoryScope / send_countdown`。
-- **AgentInstance** 承载：`id / classRef / creatorId / parentId / displayName / spaceId / status / turnCount / totalCost / userPrompt`。
-  - `parentId`：族谱父（user0 为 null 即根）；**创建时确定、不可变**。
-  - `creatorId`：发起者（与 parentId 分离；默认 = parentId）。
+- **AgentClass（模板）** 承载设定参数：`name（即 id）/ description / systemPrompt / tools（Record<访问键, ask|deny>，键即白名单）/ contextStrategy / model / sendCountdown`。
+- **AgentInstance** 承载：`id / classRef / parentId / displayName / spaceId / status / turnCount / totalCost / userPrompt / toolOverride`。
+  - `parentId`：族谱父（= 创建者；user0 为 null 即根）；**创建时确定、不可变**。`creatorId` 已合并进 `parentId`（谁创建谁就是父）。
 - **LineageTree**（`core/kernel/LineageTree.ts`，**无状态关系查询视图**）：不存任何关系数据，所有查询基于 InstanceManager 实时推导。
   - `getParent` / `getChildren` / `getAncestors`（[父 → … → user0]）/ `getDescendants`（BFS 子树）/ `isAncestorOf`。
   - **单一事实源**：parentId 挂在 AgentInstance 上，LineageTree 只是视图——无独立存储、无需同步、增删实例后自动正确。
@@ -82,13 +81,27 @@
   - **进程中断**（shell SIGINT/SIGTERM）→ `abortAllAgents` → 各 agent 消息闭合后退出。
 - **消息完整性**：无论哪种中断，已产出的部分 assistant 补 `<interrupted>` 标记入库（消息闭合），仓库完整保留，下一次送信自动恢复。
 
+### 2.5 消息库：tag + 双索引
+
+**一句话**：仓库每条消息带描述性 tag（标记非原生合成消息）+ 双索引（轮序号 + 轮内序号），为上下文管理策略（压缩/印象/记忆/传递）提供精确定位。
+
+- **tag**（`StoredMessage.tag?: string`）：可选，标记由上下文管理策略生成的合成消息（如 `summary` / `impression` / `meta`）。**strategy 不作为 tag 的一部分**——每个 agent 的上下文策略在开辟上下文空间时已确定（上下文属性），组装器按 agent 的策略解释 tag。
+- **双索引**：
+  - `turn`（轮序号）：复用实例 `turnCount` 语义——一个 user 消息 + 其引发的多轮工具调用 = 一轮；system 为第 0 轮。
+  - `indexInTurn`（轮内序号）：该轮内 system/user/assistant/tool 的 0-based 顺序。
+- **自动维护**：Repository 在 `push` 时自动计算（user 消息开启新轮，其余轮内递增），无需调用方关心。
+- **导出/概览**（context 模块，纯数据转换，无权限概念）：
+  - `exportJsonl(agentId)`：完整上下文导出为 jsonl（逐行 JSON，含 tag/turn/indexInTurn）。
+  - `overview(agentId)`：只读反射——每条消息 role / turn / tag / token 占比 / 索引。
+  - Kernel 层做权限编排（`exportContext` / `contextOverview` 薄转发），系统工具 `context_export` / `context_overview`（agent 只能看自己的或祖先的）。
+
 ## 三、通信模型：仓库 · 管理员 · 快递员（重建邮局）
 
 **一句话**：无集中式总线。上下文按"仓库（存储）→ 管理员（处理）→ 快递员（发送）"三模块协作；agent 通信直接投递到上下文管理员；log / access_reply 走注入接口。
 
 ### 关键概念
 
-- **仓库（Repository）**：上下文本体的唯一存储，每条消息记录 `message / agentId / at / tokens（估算） / valid / from`；任何消息先入库，触发 onChange（管理员处理入口）。
+- **仓库（Repository）**：上下文本体的唯一存储，每条消息记录 `message / agentId / at / tokens（估算） / valid / from / tag? / turn / indexInTurn`；任何消息先入库，触发 onChange（管理员处理入口）。
 - **管理员（ContextManager）**：收到「上下文待处理事件」→ 打发送者戳（user 消息用 from 元数据生成 `<sender id>`）、context_wait 判定（命中挂起 → 作为 tool 结果填充）、组装（classic/coding-hybrid 模式）→ 通知快递员「上下文待发送事件」。
 - **快递员（Courier）**：按 agentId 维护发送倒计时（初始 0 立即送；发送后开始；来信重置），发送时从仓库按 valid 顺序取有效消息。
 - **消息 ≠ 上下文**：通信消息直接投递；上下文由管理员按模式组装。
@@ -131,11 +144,13 @@
 interface ContextManager {
   register(reg: { agentId; systemPrompt?; assemble?; onDelivery; onHold? })
   deposit(agentId, letter, from?)   // 投信；from 命中 context_wait 挂起 → 作为 tool 结果填充
-  appendHistory(agentId, message)   // 历史（assistant/tool 按来源追加）
+  appendHistory(agentId, message, tag?) // 历史（assistant/tool 按来源追加；tag 标记合成消息）
   appendToolRecord(agentId, record) // 工具审计（仅日志占位，不干扰仓库）
   registerHold(waitFor, { ownerId, toolCallId })
   getState(agentId)
   handleChange(agentId)             // 仓库 onChange 入口
+  exportJsonl(agentId)              // 导出 jsonl（纯格式化）
+  overview(agentId)                 // 只读反射概览（纯格式化）
 }
 ```
 
@@ -147,7 +162,7 @@ interface ContextManager {
 - 状态机：`idle →(快递员送信)→ thinking(请求已发) →(LLM 返回)→ holding(等待下一次送信)`；`interrupted`（当前轮被中断，消息闭合、实例存活、可恢复）。
 - 收到完整上下文（`AgentDelivery`）→ 发 LLM → **kernel 检查 assistant 中 tool_call 并调用工具**（工具结果经 `appendHistory` 入仓库）→ 每轮 assistant 消息自动复制到仓库 → 最终纯文本回复：
   - **不再拼发送者戳**（发送者戳由管理员打标签时统一生成）；
-  - 最终回复直接投递给**创建者**（creatorId）上下文。
+  - 最终回复直接投递给**创建者**（= 族谱父 parentId）上下文。
 
 #### 错误处理与中断（Runtime 三层防护）
 
@@ -159,9 +174,9 @@ interface ContextManager {
 
 ### 4.3 InstanceManager（`core/kernel/InstanceManager.ts`，实例存储本体）
 
-- 实例化必填：`classId` + **`userPrompt`** + **`creatorId`**（用户默认 `user0`；agent 创建时可指定 id，默认随机 4 位 hash，**冲突报错**）。
-- `parentId` 缺省 = creatorId（user0 创建时为根）；父不存在报错；元 agent（user0）不可销毁。
-- 实例化流程自动执行：注册上下文（仓库/管理员/快递员，systemPrompt + sendCountdown + deliveryHandler）→ userPrompt 作为第一封信投递（from=creatorId）。
+- 实例化必填：`className` + **`userPrompt`** + **`parentId`**（= 创建者；user0 为 null 即根；agent 创建时可指定 id，默认随机 4 位 hash，**冲突报错**）。
+- `parentId` 即创建者（creatorId 已合并）；父不存在报错；元 agent（user0）不可销毁。
+- 实例化流程自动执行：注册上下文（仓库/管理员/快递员，systemPrompt + sendCountdown + deliveryHandler）→ userPrompt 作为第一封信投递（from=parentId）。可选 `contextRefs`（父仓库消息索引，深拷贝导入新实例上下文空间）。
 - 系统工具 `agent_instantiate` 因此**不 hold 等待**：创建即投递，由快递员驱动子 agent。
 
 ### 4.4 LineageTree（`core/kernel/LineageTree.ts`，族谱无状态视图）
@@ -180,19 +195,21 @@ interface ContextManager {
 
 | 工具 | 访问键 | 作用 |
 |---|---|---|
-| `agent_class_create` | agent_class_create | 创建新 agent 类（类属性 + `toolAccess` 列表，**不含实例数据**） |
+| `agent_class_create` | agent_class_create | 创建新 agent 类（name 即 id + `tools` 工具清单 + contextStrategy，**不含实例数据**） |
 | `agent_class_list` | agent_class_list | 列出 agent 类 |
-| `agent_instantiate` | agent_instantiate | 创建 agent（必填 classId + userPrompt，**creatorId 可显式指定**，注册上下文，投递首信，**返回 agent id**） |
+| `agent_instantiate` | agent_instantiate | 创建 agent（必填 className + userPrompt；**父自动=调用者**；可选 agentId/contextRefs/tools，注册上下文，投递首信，**返回 agent id**） |
 | `agent_list` | agent_list | 列出实例（含 parent 列） |
 | `agent_inspect` | agent_inspect | 查看单个实例详情：父/子/祖先链、状态、轮次、成本 |
 | `agent_ancestry` | agent_ancestry | 查询祖先链（[父 → … → user0]） |
 | `agent_descendants` | agent_descendants | 查询全部后代（BFS 子树） |
 | `agent_terminate` | agent_terminate | 终止实例（**销毁权校验**：祖先或 user0；`recursive` 级联） |
 | `context_wait` | context_wait | 等待指定 agent 回复：其回复作为本工具 tool 结果填充（无常规 tool 结果） |
+| `context_export` | context_export | 导出指定 agent 上下文为 jsonl（只读；agent 只能看自己的或祖先的） |
+| `context_overview` | context_overview | 查看上下文概览（role/turn/tag/token 占比；只读反射） |
 | `bus_send` | bus_send | 发送消息（单目标；并行调用实现一对多，经 kernel.sendMessage） |
 | `bus_participants` | bus_participants | 查询参与者 id 列表（instances + user0） |
 
-> 系统工具 `kind=internal` → 默认 `ignore`（隐藏），示例模板（creator 等）在 `toolAccess` 显式 `allow` 所需内部工具，避免弹窗打扰。
+> 系统工具 `kind=internal` → 默认 `ignore`（隐藏），示例模板（creator 等）在 `tools` 显式 `allow` 所需内部工具，避免弹窗打扰。
 
 ### 4.7 host 内置工具（`shell/tools/`，kind=shell）
 
@@ -309,7 +326,7 @@ send_countdown: 800      # 可选
 | 运行时 | 同步 while 循环 | 被动驱动：快递员送信触发，状态机 thinking/holding/interrupted；kernel 检查 tool_call 并调工具 |
 | Agent 状态 | `idle/running/waiting` | `idle/thinking/holding/interrupted` |
 | 错误处理 | 无 | 三层 try/catch + halt 消息闭合 + interrupted（仅暂停可恢复）+ 中断入口（/stop、SIGINT） |
-| 实例化 | 无 userPrompt/creatorId | 必填 userPrompt；creatorId 可显式指定；**parentId 族谱关系** |
+| 实例化 | 无 userPrompt/creatorId | 必填 userPrompt；**parentId 即创建者（creatorId 合并）**；可选 contextRefs 传上下文 |
 | 系统工具 | 阶段 3.1 | 提前：agent_class_*/agent_inspect/ancestry/descendants 已实现 |
 | 权限模型 | `PermissionLevel`（normal/advanced/admin 角色等级） | **统一工具访问四态 ToolAccess**（allow/ask/deny/ignore），融合进 `core/tools/`（access.ts + AccessManager）；层间单调收缩（单向），deny 不可被撤销 |
 | 权限继承 | 无 | **族谱树继承**：祖先链逐层收集访问层，层间取最严格（子 ≤ 父）；session 批准仅当前实例 |

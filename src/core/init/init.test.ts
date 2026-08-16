@@ -165,7 +165,7 @@ test('agent 文件 frontmatter 非法 → issue，其余继续', async () => {
   assert.equal(report.issues.length, 1)
   assert.equal(report.issues[0]?.kind, 'agent_parse_failed')
   assert.equal(report.registeredAgents.length, 1)
-  assert.equal(report.registeredAgents[0]?.id, 'good')
+  assert.equal(report.registeredAgents[0]?.name, 'good')
 })
 
 test('用户 agent 注册为完整 AgentClass（id/name 取自文件名）', async () => {
@@ -178,11 +178,9 @@ test('用户 agent 注册为完整 AgentClass（id/name 取自文件名）', asy
   const report = await runInit(deps)
   const cls = report.registeredAgents[0] as AgentClass | undefined
   assert.ok(cls)
-  assert.equal(cls.id, makeAgentClassID('reviewer'))
-  assert.equal(cls.name, 'reviewer')
+  assert.equal(cls.name, makeAgentClassID('reviewer'))
   assert.equal(cls.description, 'reviewer')
-  assert.deepEqual(cls.toolAccess, { read: 'allow' })
-  assert.deepEqual(cls.tools.map((t) => t.id), ['read'])
+  assert.deepEqual(cls.tools, { read: 'allow' })
   assert.equal(cls.sendCountdown, 500)
   assert.match(cls.systemPrompt, /Review system/)
 })

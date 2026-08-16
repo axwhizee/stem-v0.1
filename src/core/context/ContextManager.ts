@@ -67,8 +67,8 @@ export interface ContextManager {
   readonly deposit: (agentId: string, letter: ChatMessage, from?: string) => Promise<void>
   /** 注册挂起等待：等待 waitFor 的回复作为 tool 结果填充到 owner 上下文。 */
   readonly registerHold: (waitFor: string, opts: { ownerId: string; toolCallId: string }) => Promise<void>
-  /** 追加历史（runtime 复制 assistant；工具模块注入 tool 结果）。 */
-  readonly appendHistory: (agentId: string, message: ChatMessage) => Promise<void>
+  /** 追加历史（runtime 复制 assistant；工具模块注入 tool 结果）。tag 可选标记合成消息。 */
+  readonly appendHistory: (agentId: string, message: ChatMessage, tag?: string) => Promise<void>
   /** 工具调用审计记录（工具模块自动发送）。 */
   readonly appendToolRecord: (agentId: string, record: ToolRecord) => Promise<void>
   readonly getState: (agentId: string) => Promise<RepositoryState>
@@ -76,6 +76,16 @@ export interface ContextManager {
   readonly repository: Repository
   /** 仓库 onChange 处理入口（组合根装配时注入给仓库）。 */
   readonly handleChange: (agentId: string) => void
+  /**
+   * 导出完整上下文为 jsonl（逐行 JSON，含 tag/turn/indexInTurn）。
+   * 纯数据转换，无权限概念（权限由 Kernel 层编排）。
+   */
+  readonly exportJsonl: (agentId: string) => Promise<string>
+  /**
+   * 上下文概览（只读反射）：每条消息的 role / turn / tag / token 占比 / 索引。
+   * 纯数据转换，无权限概念。
+   */
+  readonly overview: (agentId: string) => Promise<string>
 }
 
 export class DefaultContextManager implements ContextManager {
@@ -151,10 +161,10 @@ export class DefaultContextManager implements ContextManager {
     await this.repository.append(agentId, { message: letter, from })
   }
 
-  async appendHistory(agentId: string, message: ChatMessage): Promise<void> {
+  async appendHistory(agentId: string, message: ChatMessage, tag?: string): Promise<void> {
     const box = this.require(agentId)
     box.lastHistoryAt = Date.now()
-    await this.repository.append(agentId, { message })
+    await this.repository.append(agentId, { message, ...(tag !== undefined ? { tag } : {}) })
   }
 
   async appendToolRecord(agentId: string, record: ToolRecord): Promise<void> {
@@ -165,6 +175,37 @@ export class DefaultContextManager implements ContextManager {
 
   async getState(agentId: string): Promise<RepositoryState> {
     return this.repository.getState(agentId)
+  }
+
+  async exportJsonl(agentId: string): Promise<string> {
+    const state = await this.repository.getState(agentId)
+    return state.messages
+      .map((m) =>
+        JSON.stringify({
+          id: m.id,
+          role: m.message.role,
+          content: String(m.message.content),
+          at: m.at,
+          tokens: m.tokens,
+          valid: m.valid,
+          ...(m.from !== undefined ? { from: m.from } : {}),
+          ...(m.tag !== undefined ? { tag: m.tag } : {}),
+          turn: m.turn,
+          indexInTurn: m.indexInTurn,
+        }),
+      )
+      .join('\n')
+  }
+
+  async overview(agentId: string): Promise<string> {
+    const state = await this.repository.getState(agentId)
+    const total = state.messages.reduce((sum, m) => sum + m.tokens, 0) || 1
+    const lines = state.messages.map((m) => {
+      const pct = ((m.tokens / total) * 100).toFixed(1)
+      const content = String(m.message.content)
+      return `[${m.turn}:${m.indexInTurn}] ${m.message.role}${m.tag !== undefined ? ` <${m.tag}>` : ''} ${m.tokens}tok(${pct}%) ${content.slice(0, 60)}${content.length > 60 ? '…' : ''}`
+    })
+    return `上下文概览 ${agentId}（${state.messages.length} 条，${total} tok）:\n${lines.join('\n')}`
   }
 
   /** 仓库 onChange 入口：打戳 + 组装 + 通知快递员。 */

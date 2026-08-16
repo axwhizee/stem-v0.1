@@ -1,12 +1,6 @@
 {
-  "id": "simple-chat",
-  "name": "SimpleChat",
+  "name": "simple-chat",
   "description": "通用简单对话：任意话题的轻量助手（示例模板）",
   "systemPrompt": "You are a helpful assistant. Answer concisely.",
-  "tools": [],
-  "toolAccess": {},
-  "memoryScope": [],
-  "contextProfile": {
-    "includeHistory": true
-  }
+  "tools": {}
 }

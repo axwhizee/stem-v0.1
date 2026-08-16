@@ -16,36 +16,30 @@ import assert from 'node:assert/strict'
 import { FakeGateway } from '../gateway'
 import type { LLMRequest, LLMEvent } from '../gateway'
 import type { AgentClass } from './types'
-import { makeAgentClassID } from './types'
+import { makeAgentClassID, makeAgentID } from './types'
 import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 import { createKernelHarness } from '../../../test-support/kernelHarness'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 const creatorTemplate: AgentClass = {
-  id: makeAgentClassID('creator'),
-  name: 'Creator',
+  name: makeAgentClassID('creator'),
   description: '能创建子 agent 的调度者',
   systemPrompt: 'creator-sys: 你是调度者，可以创建子 agent 获取信息。',
-  tools: [{ id: 'agent_instantiate' }, { id: 'agent_list' }, { id: 'context_wait' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-  toolAccess: {
+  tools: {
     agent_instantiate: 'allow',
     agent_list: 'allow',
     context_wait: 'allow',
     bus_send: 'allow',
     bus_participants: 'allow',
   },
-  memoryScope: [],
 }
 
 const toolAgentTemplate: AgentClass = {
-  id: makeAgentClassID('tool-agent'),
-  name: 'ToolAgent',
+  name: makeAgentClassID('tool-agent'),
   description: '带时间工具的助手',
   systemPrompt: 'tool-sys: 你是执行者，可以用工具查询信息并回复。',
-  tools: [{ id: 'oc_get_time' }, { id: 'bus_send' }, { id: 'bus_participants' }],
-  toolAccess: { oc_get_time: 'allow', bus_send: 'allow', bus_participants: 'allow' },
-  memoryScope: [],
+  tools: { oc_get_time: 'allow', bus_send: 'allow', bus_participants: 'allow' },
 }
 
 describe('agent 链：用户 → 创造者 → 子 agent（读时间）→ context_wait 回传 → 用户', () => {
@@ -59,7 +53,7 @@ describe('agent 链：用户 → 创造者 → 子 agent（读时间）→ conte
 
       if (key === 'creator') {
         if (round === 0) {
-          yield { type: 'tool-call', id: 'ccall-0', name: 'agent_instantiate', input: { classId: 'tool-agent', userPrompt: '请读取当前时间，然后把时间告诉我。', agentId: 'sub1' } }
+          yield { type: 'tool-call', id: 'ccall-0', name: 'agent_instantiate', input: { className: 'tool-agent', userPrompt: '请读取当前时间，然后把时间告诉我。', agentId: 'sub1' } }
           yield { type: 'finish', reason: 'tool_calls' }
         } else if (round === 1) {
           yield { type: 'tool-call', id: 'ccall-1', name: 'context_wait', input: { agentId: 'sub1' } }
@@ -96,7 +90,7 @@ describe('agent 链：用户 → 创造者 → 子 agent（读时间）→ conte
 
     // 用户创建创造者（无时间权限）
     const creatorId = await kernel.instantiateAgent(
-      { classId: makeAgentClassID('creator'), creatorId: USER_ID, userPrompt: '请创建一个能读取时间的助手并让它把时间报告给我。' },
+      { className: makeAgentClassID('creator'), parentId: makeAgentID(USER_ID), userPrompt: '请创建一个能读取时间的助手并让它把时间报告给我。' },
       '/proj',
     )
 
@@ -119,12 +113,12 @@ describe('agent 链：用户 → 创造者 → 子 agent（读时间）→ conte
       `创造者应报告时间，实际: ${JSON.stringify(secondLetter.content)}`,
     )
 
-    // 验证：子 agent 存在，creatorId 为创造者；回信作为 tool 结果填充（非信件）
+    // 验证：子 agent 存在，parentId 为创造者；回信作为 tool 结果填充（非信件）
     const creator = await kernel.instances.get(creatorId)
     const agents = await kernel.instances.listBySpace(creator.spaceId)
-    const sub = agents.find((a) => a.creatorId === creatorId)
+    const sub = agents.find((a) => a.parentId === creatorId)
     assert.ok(sub, '应存在由创造者创建的子 agent')
-    assert.equal(sub.creatorId, creatorId)
+    assert.equal(sub.parentId, creatorId)
 
     const state = await kernel.contextManager.getState(creatorId)
     // context_wait 的 tool 结果应包含子 agent 的回信文本

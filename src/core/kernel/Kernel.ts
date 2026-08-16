@@ -120,7 +120,7 @@ export class Kernel {
       getAllInstances: () => this.instances.listAllSync(),
       accessLayerOf: (instance) => {
         const template = this.templates.getSync(instance.classRef)
-        return template ? toolAccessToRules(template.toolAccess) : undefined
+        return template ? toolAccessToRules(template.tools) : undefined
       },
     })
 
@@ -207,11 +207,14 @@ export class Kernel {
     this.tools?.setAccessSink?.(this.access)
   }
 
-  /** 某 agent 的类访问层（由实例 classRef 对应模板的 toolAccess 生成）。 */
+  /** 某 agent 的类访问层（由实例 classRef 对应模板的 tools + 实例 toolOverride 合并生成）。 */
   private resolveClassLayer(agentId: AgentID): ToolAccessRules {
     const instance = this.instances.getSync(agentId)
     const template = instance ? this.templates.getSync(instance.classRef) : undefined
-    return template ? toolAccessToRules(template.toolAccess) : []
+    if (!template) return []
+    // 实例 toolOverride 对模板 tools 做临时收敛（覆盖同名，层间取更严格）。
+    const merged = { ...template.tools, ...instance?.toolOverride }
+    return toolAccessToRules(merged)
   }
 
   /** 注册用户面板（user0）：元 agent 实例化（族谱树根 parentId=null）+ 上下文（不组装，只汇总信件）。 */
@@ -270,7 +273,7 @@ export class Kernel {
       at: Date.now(),
       agentId: instance.id,
       classId: instance.classRef,
-      creatorId: instance.creatorId,
+      parentId: instance.parentId ?? '',
     })
 
     const template = await this.templates.get(instance.classRef)
@@ -283,8 +286,19 @@ export class Kernel {
       onHold: (id) => void this.runtime.notifyHold(makeAgentID(id)),
     })
 
-    // userPrompt 作为首封信投递（from=user0，管理员打戳）。
-    await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt }, instance.creatorId)
+    // 上下文传递：父 agent 指定的仓库消息 id 列表，深拷贝导入新实例上下文空间。
+    if (opts.contextRefs && opts.contextRefs.length > 0 && instance.parentId) {
+      const parentState = await this.contextManager.getState(instance.parentId)
+      for (const ref of opts.contextRefs) {
+        const stored = parentState.messages.find((m) => m.id === ref || `${m.turn}` === ref)
+        if (stored && stored.message.role !== 'system') {
+          await this.contextManager.appendHistory(instance.id, { ...stored.message, content: String(stored.message.content) })
+        }
+      }
+    }
+
+    // userPrompt 作为首封信投递（from=父，管理员打戳）。
+    await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt }, instance.parentId ?? USER_ID)
     return instance.id
   }
 
@@ -330,20 +344,19 @@ export class Kernel {
 
   /** Scheduler 最小直通：空间内已存在该模板实例则复用，否则创建。 */
   async getOrCreateAgent(
-    classId: AgentClassID,
+    className: AgentClassID,
     project: ProjectRef,
-    opts?: { displayName?: string; userPrompt?: string },
+    opts?: { userPrompt?: string },
   ): Promise<AgentID> {
     const space = await this.spaces.getOrCreate(project)
     const existing = await this.instances.listBySpace(space.id)
-    const found = existing.find((agent) => agent.classRef === classId)
+    const found = existing.find((agent) => agent.classRef === className)
     if (found) return found.id
     return this.instantiateAgent(
       {
-        classId,
-        creatorId: USER_ID,
+        className,
+        parentId: makeAgentID(USER_ID),
         userPrompt: opts?.userPrompt ?? '你好，请做一个简短的自我介绍。',
-        displayName: opts?.displayName,
       },
       project,
     )
@@ -353,6 +366,22 @@ export class Kernel {
   async listAgentsBySpace(spaceId: AgentSpaceID): Promise<AgentID[]> {
     const agents = await this.instances.listBySpace(spaceId)
     return agents.map((agent) => agent.id)
+  }
+
+  /**
+   * 导出某 agent 的完整上下文（jsonl）。薄转发到 context 模块（纯格式化）。
+   * 供宿主调试/审计；作为系统工具时由 Kernel 做权限校验（agent 只能看自己的）。
+   */
+  async exportContext(agentId: string): Promise<string> {
+    return this.contextManager.exportJsonl(agentId)
+  }
+
+  /**
+   * 上下文概览（只读反射）。薄转发到 context 模块（纯格式化）。
+   * 通用能力，不依赖任何特定上下文策略。
+   */
+  async contextOverview(agentId: string): Promise<string> {
+    return this.contextManager.overview(agentId)
   }
 
   /** 参与者列表（复用实例 + user0，无独立注册表）。 */
@@ -375,7 +404,7 @@ export class Kernel {
   /** 注册新 agent 类（供系统工具 agent_class_create 使用，含日志）。 */
   async registerAgentClass(cls: AgentClass): Promise<void> {
     await this.templates.register(cls)
-    this.emitLog({ type: 'kernel.class.registered', at: Date.now(), classId: cls.id })
+    this.emitLog({ type: 'kernel.class.registered', at: Date.now(), classId: cls.name })
   }
 
   /** 发送日志事件（直接写入日志记录器，无总线中转）。 */

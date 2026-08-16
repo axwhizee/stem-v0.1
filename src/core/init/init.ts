@@ -48,7 +48,7 @@ export async function runInit(deps: InitDeps): Promise<InitReport> {
 
   // 同步注册表（纯镜像）：新工具/agent → 登记；已注册但无实现 → 移除。
   const syncedTools: RegisteredTool[] = tools.map((tool) => ({ id: tool.id, file: relOf(config.paths.toolDir, tool.file), kind: 'user', enabled: true }))
-  const syncedAgents: RegisteredAgent[] = agents.map((agent) => ({ id: agent.id, file: relOf(config.paths.agentDir, agent.file) }))
+  const syncedAgents: RegisteredAgent[] = agents.map((agent) => ({ id: agent.name, file: relOf(config.paths.agentDir, agent.file) }))
   collectOrphans(current.tools ?? [], syncedTools, 'tool', issues)
   collectOrphans(current.agents ?? [], syncedAgents, 'agent', issues)
 
@@ -112,13 +112,11 @@ async function loadUserAgents(deps: InitDeps, files: readonly string[], issues: 
     try {
       const parsed = parseAgentFile(text, filename)
       const cls: AgentClass = {
-        id: makeAgentClassID(parsed.id),
-        name: parsed.name,
+        name: makeAgentClassID(parsed.name),
         description: parsed.description,
         systemPrompt: parsed.systemPrompt,
-        tools: parsed.tools.map((id) => ({ id })),
-        toolAccess: parsed.toolAccess,
-        memoryScope: [],
+        // 融合：工具清单 = permission 的键 → 动作（键即白名单）。
+        tools: parsed.toolAccess,
         ...(parsed.sendCountdown !== undefined ? { sendCountdown: parsed.sendCountdown } : {}),
       }
       result.push({ ...cls, file })
@@ -159,7 +157,7 @@ async function registerAgents(deps: InitDeps, agents: readonly (AgentClass & { f
       deps.onLog?.log({
         type: 'init.agent.registered',
         at: Date.now(),
-        classId: agent.id as unknown as string,
+        classId: agent.name as unknown as string,
         file: agent.file,
       })
     } catch (cause) {

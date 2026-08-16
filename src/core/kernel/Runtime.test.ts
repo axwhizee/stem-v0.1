@@ -12,16 +12,13 @@ import { DefaultTemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
 import { DefaultRuntime } from './Runtime'
 import type { AgentClass } from './types'
-import { makeAgentClassID, makeAgentSpaceID } from './types'
+import { makeAgentClassID, makeAgentID, makeAgentSpaceID } from './types'
 
 const cls: AgentClass = {
-  id: makeAgentClassID('chat'),
-  name: 'Chat',
+  name: makeAgentClassID('chat'),
   description: 'chat agent',
   systemPrompt: 'You are assistant.',
-  tools: [],
-  toolAccess: {},
-  memoryScope: [],
+  tools: {},
 }
 
 const model = { provider: 'opencode', id: 'test-model' }
@@ -46,8 +43,8 @@ async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCa
   }
 
   const instance = await instances.instantiate({
-    classId: cls.id,
-    creatorId: 'user0',
+    className: cls.name,
+    parentId: makeAgentID('user0'),
     userPrompt: 'hi',
     spaceId: makeAgentSpaceID('space-1'),
   })
@@ -109,7 +106,7 @@ describe('DefaultRuntime（被动驱动）', () => {
     })
     const { runtime, letters, agentId } = await makeRuntime(gateway, {
       tools,
-      template: { ...cls, tools: [{ id: 'oc_echo' }] },
+      template: { ...cls, tools: { oc_echo: 'allow' } },
     })
 
     await runtime.processDelivery(deliveryFor(agentId))

@@ -212,10 +212,10 @@ export class DefaultRuntime implements Runtime {
       instance.turnCount += 1
       instance.totalCost += this.estimateCost(usage)
 
-      // 最终回复：寄给创建者（发原始文本，发送者戳由管理员打标签时统一生成）。
+      // 最终回复：寄给创建者（= 族谱父；发原始文本，发送者戳由管理员打标签时统一生成）。
       const finalText = allText.join('')
       if (finalText !== '') {
-        await this.deps.contextManager.deposit(instance.creatorId, { role: 'user', content: finalText }, instance.id)
+        await this.deps.contextManager.deposit(instance.parentId ?? 'user0', { role: 'user', content: finalText }, instance.id)
       }
     } catch (cause) {
       // 中断/错误发生在当前轮 for-await 内部：roundText 持有中断前已产出的部分文本。
@@ -276,14 +276,16 @@ export class DefaultRuntime implements Runtime {
     this.deps.onLog?.log({ type: 'kernel.status.changed', at: Date.now(), agentId: instance.id, from, to })
   }
 
-  /** 物化本轮 LLM 工具集：注册表按访问层过滤 ∩ 模板工具白名单。 */
+  /**
+   * 物化本轮 LLM 工具集：注册表按访问层过滤（访问层已含全局 → 祖先链 → 模板 tools → 实例 toolOverride）。
+   * 模板 tools 的键即白名单（空 Record = 无工具；undefined = 全部）。
+   */
   private enabledTools(template: AgentClass, layers: readonly ToolAccessRules[]) {
     if (!this.deps.tools) return undefined
     const available = this.deps.tools.materialize(layers)
-    // template.tools 为 undefined → 全部权限内工具；显式数组（含空）→ 白名单（空=无工具）。
-    if (template.tools === undefined) return available
-    const allowed = new Set(template.tools.map((t) => t.id))
-    return available.filter((tool) => allowed.has(tool.name))
+    // 空 Record 白名单 → 无工具（与 undefined=全部 区分）。
+    if (template.tools !== undefined && Object.keys(template.tools).length === 0) return []
+    return available
   }
 }
 

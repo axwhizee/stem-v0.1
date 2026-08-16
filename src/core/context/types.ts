@@ -25,6 +25,17 @@ export interface StoredMessage {
   readonly valid: boolean
   /** 发送者 id（仅 user 消息；assistant/tool 无）。 */
   readonly from?: string
+  /**
+   * 描述性标签（可选）：标记非原生消息（由上下文管理策略生成的合成消息，
+   * 如 summary / impression / meta）。**strategy 不作为 tag 的一部分**——
+   * 每个 agent 的上下文策略在开辟上下文空间时已确定（上下文属性），
+   * 组装器按 agent 的策略解释 tag。
+   */
+  readonly tag?: string
+  /** 轮序号（复用实例 turnCount 语义：一个 user 消息 + 其引发的多轮工具调用 = 一轮）。 */
+  readonly turn: number
+  /** 轮内序号（该轮内 system/user/assistant/tool 的 0-based 顺序）。 */
+  readonly indexInTurn: number
 }
 
 /** 仓库状态（供展示/调试/测试）。 */
