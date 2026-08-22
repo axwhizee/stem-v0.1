@@ -13,7 +13,8 @@
     "test": "tsx --test \"src/**/*.test.ts\" \"shell/**/*.test.ts\"",
     "test:module": "tsx --test",
     "smoke": "tsx prototype/smoke.ts",
-    "shell": "tsx shell/main.ts"
+    "shell": "tsx shell/cli/main.ts",
+    "web": "tsx shell/webui/server.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

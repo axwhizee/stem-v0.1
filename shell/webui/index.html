@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stem · WebUIShell</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
+    --text: #e6e9ef; --muted: #8b93a5; --accent: #4f8cff; --danger: #e5534b;
+    --user-bubble: #2b4a7a; --agent-bubble: #232833; --tool-bg: #1a1d26;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; display: flex; }
+  aside { width: 280px; min-width: 280px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+  aside h1 { font-size: 15px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  aside h1 small { color: var(--muted); font-weight: normal; }
+  #agentList { flex: 1; overflow-y: auto; padding: 8px; }
+  .agent { padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px; }
+  .agent:hover { background: var(--panel2); }
+  .agent.active { background: var(--panel2); outline: 1px solid var(--accent); }
+  .agent .name { font-weight: 600; }
+  .agent .meta { color: var(--muted); font-size: 12px; }
+  .agent .status { float: right; font-size: 11px; color: var(--muted); }
+  .agent .status.thinking { color: var(--accent); }
+  #createBox { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+  #createBox h3 { font-size: 12px; color: var(--muted); font-weight: 600; }
+  #createBox select, #createBox input, #createBox button { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; }
+  #createBox button { background: var(--accent); color: #fff; cursor: pointer; border: none; }
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  #header .name { font-weight: 600; }
+  #header .meta { color: var(--muted); font-size: 12px; }
+  #header button { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; margin-left: auto; }
+  #timeline { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
+  .msg { max-width: 78%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; }
+  .msg.user { align-self: flex-end; background: var(--user-bubble); }
+  .msg.assistant { align-self: flex-start; background: var(--agent-bubble); }
+  .msg.tool { align-self: stretch; background: var(--tool-bg); border: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
+  .msg.system { align-self: stretch; text-align: center; color: var(--muted); font-size: 12px; background: none; }
+  .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
+  .msg.streaming::after { content: "▍"; color: var(--accent); animation: blink 1s infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+  #composer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
+  #composer textarea { flex: 1; resize: none; height: 44px; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
+  #composer button { width: 72px; background: var(--accent); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
+  #permission { position: fixed; right: 20px; top: 20px; width: 320px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.4); display: none; z-index: 10; }
+  #permission .title { font-weight: 600; margin-bottom: 6px; }
+  #permission .body { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
+  #permission button { border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; margin-right: 8px; font-size: 13px; }
+  #permission .once { background: var(--accent); color: #fff; }
+  #permission .always { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
+  #permission .reject { background: var(--danger); color: #fff; }
+</style>
+</head>
+<body>
+<aside>
+  <h1>stem <small>· WebUIShell</small></h1>
+  <div id="agentList"></div>
+  <div id="createBox">
+    <h3>创建 agent（以 user0 身份）</h3>
+    <select id="createClass"></select>
+    <input id="createPrompt" placeholder="首条 user prompt…" />
+    <button id="createBtn">创建</button>
+  </div>
+</aside>
+<main>
+  <div id="header">
+    <span class="name" id="curName">-</span>
+    <span class="meta" id="curMeta"></span>
+    <button id="stopBtn">中断</button>
+  </div>
+  <div id="timeline"></div>
+  <div id="composer">
+    <textarea id="input" placeholder="以 user0 身份向当前 agent 发消息（Enter 发送，Shift+Enter 换行）"></textarea>
+    <button id="sendBtn">发送</button>
+  </div>
+</main>
+<div id="permission">
+  <div class="title">工具访问确认</div>
+  <div class="body" id="permBody"></div>
+  <button class="once" id="permOnce">单次批准</button>
+  <button class="always" id="permAlways">始终批准</button>
+  <button class="reject" id="permReject">拒绝</button>
+</div>
+<script>
+'use strict'
+const $ = (id) => document.getElementById(id)
+const timeline = $('timeline')
+let currentAgentId = ''
+let liveBubble = null
+let pendingAccess = null
+
+// ---------- 渲染 ----------
+
+function agentStatusClass(status) {
+  return status === 'thinking' || status === 'holding' ? ' thinking' : ''
+}
+
+async function loadAgents() {
+  const agents = await fetch('/api/agents').then((r) => r.json())
+  const list = $('agentList')
+  list.innerHTML = ''
+  for (const a of agents) {
+    const el = document.createElement('div')
+    el.className = 'agent' + (a.id === currentAgentId ? ' active' : '')
+    el.innerHTML =
+      `<div class="name">${esc(a.displayName)}<span class="status${agentStatusClass(a.status)}">${esc(a.status)}</span></div>` +
+      `<div class="meta">${esc(a.id)} · <${esc(a.classRef)}>${a.parentId ? '' : ' · 根'}</div>`
+    el.onclick = () => selectAgent(a.id)
+    list.appendChild(el)
+  }
+}
+
+async function loadContext(id) {
+  const data = await fetch('/api/agents/' + encodeURIComponent(id) + '/context').then((r) => r.json())
+  renderTimeline(data.messages || [])
+}
+
+function renderTimeline(messages) {
+  timeline.innerHTML = ''
+  liveBubble = null
+  for (const m of messages) {
+    if (!m.valid) continue
+    if (m.role === 'system') { timeline.appendChild(msgEl('system', m.content)); continue }
+    if (m.role === 'tool') { timeline.appendChild(msgEl('tool', '🔧 ' + m.content)); continue }
+    const text = m.content
+    const isUser = m.role === 'user'
+    const el = msgEl(isUser ? 'user' : 'assistant', text, isUser ? '你' : (m.from ? '来自 ' + m.from : currentAgentId))
+    timeline.appendChild(el)
+  }
+  timeline.scrollTop = timeline.scrollHeight
+}
+
+function msgEl(cls, text, who) {
+  const el = document.createElement('div')
+  el.className = 'msg ' + cls
+  if (who) el.innerHTML = `<div class="who">${esc(who)}</div>`
+  el.appendChild(document.createTextNode(text))
+  return el
+}
+
+// ---------- 事件流 ----------
+
+function openStream() {
+  const es = new EventSource('/api/events')
+  es.onmessage = (e) => {
+    const ev = JSON.parse(e.data)
+    handleEvent(ev)
+  }
+  es.onerror = () => { es.close(); setTimeout(openStream, 2000) }
+}
+
+function handleEvent(ev) {
+  if (ev.type === 'stream') {
+    if (ev.agentId === currentAgentId && ev.event.type === 'text-delta') {
+      if (!liveBubble) { liveBubble = msgEl('assistant streaming', '', currentAgentId); timeline.appendChild(liveBubble); }
+      liveBubble.appendChild(document.createTextNode(ev.event.text))
+      timeline.scrollTop = timeline.scrollHeight
+    }
+    return
+  }
+  if (ev.type === 'letter') {
+    const content = (ev.letters && ev.letters[0] && typeof ev.letters[0].content === 'string') ? ev.letters[0].content : ''
+    const sender = (content.match(/^<sender id="([^"]+)">/) || [])[1]
+    if (content.startsWith('<access_request')) showPermission(content)
+    else if (sender === currentAgentId) { liveBubble = null; loadContext(currentAgentId) }
+    else if (ev.agentId === currentAgentId) { liveBubble = null; loadContext(currentAgentId) }
+    return
+  }
+  if (ev.type === 'status') loadAgents()
+}
+
+// ---------- 访问确认 ----------
+
+function showPermission(content) {
+  const m = content.match(/<access_request id="([^"]+)" accessKey="([^"]+)" agentId="([^"]+)">/)
+  if (!m) return
+  pendingAccess = { requestId: m[1], accessKey: m[2], agentId: m[3] }
+  $('permBody').textContent = `agent ${m[3]} 正在申请使用工具「${m[2]}」`
+  $('permission').style.display = 'block'
+}
+async function replyAccess(reply) {
+  if (!pendingAccess) return
+  await fetch('/api/access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId: pendingAccess.requestId, reply }) })
+  pendingAccess = null
+  $('permission').style.display = 'none'
+}
+$('permOnce').onclick = () => replyAccess('once')
+$('permAlways').onclick = () => replyAccess('always')
+$('permReject').onclick = () => replyAccess('reject')
+
+// ---------- 动作 ----------
+
+async function selectAgent(id) {
+  currentAgentId = id
+  liveBubble = null
+  const agents = await fetch('/api/agents').then((r) => r.json())
+  const a = agents.find((x) => x.id === id)
+  $('curName').textContent = a ? a.displayName : id
+  $('curMeta').textContent = a ? `${a.id} · <${a.classRef}> · ${a.status}` : ''
+  await loadAgents()
+  await loadContext(id)
+}
+
+async function send() {
+  const text = $('input').value.trim()
+  if (!text || !currentAgentId) return
+  $('input').value = ''
+  timeline.appendChild(msgEl('user', text, '你'))
+  timeline.scrollTop = timeline.scrollHeight
+  await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: currentAgentId, text }) })
+}
+
+async function createAgent() {
+  const className = $('createClass').value
+  const userPrompt = $('createPrompt').value.trim() || '你好，请做一个简短的自我介绍。'
+  const r = await fetch('/api/instantiate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ className, userPrompt }) })
+  const data = await r.json()
+  if (data.agentId) selectAgent(data.agentId)
+}
+
+async function loadTemplates() {
+  const templates = await fetch('/api/templates').then((r) => r.json())
+  const sel = $('createClass')
+  sel.innerHTML = ''
+  for (const t of templates) {
+    const opt = document.createElement('option')
+    opt.value = t.name
+    opt.textContent = t.name
+    sel.appendChild(opt)
+  }
+}
+
+$('sendBtn').onclick = send
+$('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } })
+$('createBtn').onclick = createAgent
+$('stopBtn').onclick = async () => { if (currentAgentId) await fetch('/api/interrupt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId }) }) }
+
+function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
+
+// ---------- 启动 ----------
+(async () => {
+  await loadTemplates()
+  await loadAgents()
+  const agents = await fetch('/api/agents').then((r) => r.json())
+  const first = agents.find((a) => a.id !== 'user0') || agents[0]
+  if (first) await selectAgent(first.id)
+  openStream()
+})()
+</script>
+</body>
+</html>
