@@ -38,5 +38,8 @@ export { DefaultRuntime } from './Runtime'
 export type { KernelOptions } from './Kernel'
 export { Kernel, BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 
+// 内置 user 类（根模板，user0 采用）
+export { USER_CLASS_ID, createUserClass } from './userClass'
+
 // 系统管理工具
 export { createSystemTools } from './systemTools'

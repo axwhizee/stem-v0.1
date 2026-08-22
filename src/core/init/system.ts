@@ -1,0 +1,132 @@
+// ============================================================
+// core/init/system.ts —— createStemSystem（系统初始化与装配主入口）
+//
+// 自治系统组合根：任何 shell（cli/webui）注入平台能力即可装配出
+// 完整可运行的最小系统，避免各 shell 各自装配导致发散。
+// 装配顺序（固定）：
+//   1. 读取唯一配置（.stem/stem.jsonc）；
+//   2. 工具注册表 + Kernel（user 类 tools = config.permission）；
+//   3. 系统工具（agent_*/bus_*/context_* + access_reply）+ 宿主工具；
+//   4. skill 生态（注册表 + skill 工具，发现走工具 init 生命周期）；
+//   5. init 管线（扫描 .stem/tool + .stem/agent → 同步注册表 → 注册）；
+//   6. Pilot 初始化（内部实例化根 agent user0，user 类）；
+//   7. 工具 initAll（skill 发现等）；
+//   8. 用户注入钩子（init 末尾，深度扩展自定义）。
+// ============================================================
+
+import type { ConfigPaths, ConfigStore, StemConfig } from '../config'
+import type { ModelGateway, ModelRef, UsageEvent } from '../gateway'
+import type { Logger } from '../logging'
+import type { TimerFactory } from '../context'
+import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
+import { DefaultSkillRegistry, DefaultToolCapabilityRegistry, createSkillTool } from '../tools'
+import { Kernel } from '../kernel'
+import type { Pilot } from '../pilot'
+import { createPilot } from '../pilot'
+import type { PilotEvent } from '../events'
+import { runInit } from './init'
+import type { InitDeps, InitReport } from './types'
+
+/** 系统上下文（用户注入钩子入参）。 */
+export interface StemSystem {
+  readonly kernel: Kernel
+  /** user0 扮演接口（外部交互核心）。 */
+  readonly pilot: Pilot
+  readonly tools: ToolCapabilityRegistry
+  /** 同步后的配置（含注册表镜像）。 */
+  readonly config: StemConfig
+  readonly init: InitReport
+  /** 优雅收尾（中断所有活跃 agent）。 */
+  readonly dispose: () => Promise<void>
+}
+
+/** 用户注入钩子（init 末尾调用，深度扩展自定义）。 */
+export type UserInitHook = (ctx: StemSystem) => Promise<void> | void
+
+export interface StemSystemDeps {
+  readonly config: { readonly store: ConfigStore; readonly paths: ConfigPaths }
+  readonly fs: InitDeps['fs']
+  readonly tools: InitDeps['tools']
+  readonly gateway: ModelGateway
+  readonly defaultModel: ModelRef
+  readonly logger?: Logger
+  readonly timer?: TimerFactory
+  readonly maxSteps?: number
+  readonly estimateCost?: (usage: UsageEvent | undefined) => number
+  /** 宿主工具（kind=shell，如 read/write/edit/grep/glob）。 */
+  readonly hostTools?: readonly ToolCapability[]
+  /** 用户注入钩子（init 末尾调用）。 */
+  readonly userHooks?: readonly UserInitHook[]
+  /** 事件流回调（PilotEvent；pilot 创建后订阅）。 */
+  readonly onEvent?: (event: PilotEvent) => void
+}
+
+export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem> {
+  const loaded = await deps.config.store.load()
+  const config = loaded.config
+
+  // 工具注册表 + skill 生态 + Kernel（user 类 tools = config.permission；根策略收敛起点）。
+  const tools = new DefaultToolCapabilityRegistry()
+  const skills = new DefaultSkillRegistry()
+  const kernel = new Kernel({
+    gateway: deps.gateway,
+    defaultModel: deps.defaultModel,
+    userClassTools: config.permission,
+    skills,
+    tools,
+    defaultCountdownMs: config.sendCountdown,
+    autoApprove: config.autoApprove,
+    timer: deps.timer,
+    maxSteps: deps.maxSteps,
+    estimateCost: deps.estimateCost,
+    logger: deps.logger,
+  })
+
+  // 系统工具（agent_*/bus_*/context_* + access_reply）。
+  await kernel.registerSystemTools(tools)
+  // 宿主工具（shell 内置：read/write/edit/grep/glob 等）。
+  for (const tool of deps.hostTools ?? []) await tools.register(tool)
+
+  // skill 工具（internal，类配置显式暴露；发现走 init 生命周期）。
+  await tools.register(createSkillTool({ skills }))
+
+  // init 管线：扫描 .stem/tool + .stem/agent → 同步注册表 → 注册进 core。
+  const init = await runInit({
+    config: { store: deps.config.store, paths: deps.config.paths },
+    fs: deps.fs,
+    tools: { loadTool: deps.tools.loadTool },
+    toolRegistry: tools,
+    templateRegistry: kernel.templates,
+    ...(deps.logger !== undefined ? { onLog: { log: (event) => deps.logger!.log(event) } } : {}),
+  })
+
+  // Pilot（user0 扮演接口）：pilot 初始化内实例化根 agent user0（user 类，普通实例）。
+  const pilot = await createPilot({ kernel })
+  if (deps.onEvent) pilot.subscribe(deps.onEvent)
+
+  // 工具初始化生命周期（skill 发现等）。
+  await tools.initAll({
+    fs: deps.fs,
+    skills,
+    skillDir: skillDirOf(deps.config.paths),
+    ...(deps.logger !== undefined ? { log: { log: (event) => deps.logger!.log(event) } } : {}),
+  })
+
+  const system: StemSystem = {
+    kernel,
+    pilot,
+    tools,
+    config: init.config,
+    init,
+    dispose: async () => kernel.abortAllAgents(),
+  }
+
+  // 用户注入钩子（init 末尾）。
+  for (const hook of deps.userHooks ?? []) await hook(system)
+
+  return system
+}
+
+function skillDirOf(paths: ConfigPaths): string {
+  return `${paths.configDir.replace(/[/\\]+$/, '')}/skills`
+}

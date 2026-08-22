@@ -30,6 +30,14 @@ function deliveryFor(agentId: string, system = cls.systemPrompt): AgentDelivery 
 async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCapabilityRegistry; template?: AgentClass }) {
   const templates = new DefaultTemplateRegistry([extra?.template ?? cls])
   const instances = new DefaultInstanceManager(templates)
+  // 根 agent（user0）：普通实例（parentId=null），作为最终回复投递目标。
+  await instances.instantiate({
+    className: (extra?.template ?? cls).name,
+    parentId: null,
+    userPrompt: '',
+    spaceId: makeAgentSpaceID('__meta__'),
+    agentId: 'user0',
+  })
   const repository = new DefaultRepository()
   const courier = new DefaultCourier({ repository, defaultCountdownMs: 0 })
   const contextManager = new DefaultContextManager({ repository, courier })

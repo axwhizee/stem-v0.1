@@ -21,16 +21,16 @@ const cls: AgentClass = {
   tools: { read: 'allow', write: 'deny' },
 }
 
-/** 构造 manager + lineage，并注册 user0 根。 */
+/** 构造 manager + lineage，并注册 user0 根（普通实例，parentId=null）。 */
 async function makeTree() {
   const registry = new DefaultTemplateRegistry([cls])
   const manager = new DefaultInstanceManager(registry)
-  await manager.registerMetaAgent({ id: makeAgentID('user0') })
+  const spaceId = 'space-1' as never
+  await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '', spaceId, agentId: 'user0' })
   const lineage = new DefaultLineageTree({
     getInstance: (id) => manager.getSync(id),
     getAllInstances: () => manager.listAllSync(),
   })
-  const spaceId = 'space-1' as never
   return { manager, lineage, spaceId, registry }
 }
 
@@ -92,11 +92,14 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
       const template = instance ? registry.getSync(instance.classRef) : undefined
       return template ? toolAccessToRules(template.tools) : undefined
     })
-    // 祖先链 [root5, user0]：user0 是元 agent（无类）→ 过滤，有效层数为 1。
-    assert.equal(layers.length, 1)
+    // 祖先链 [root5, user0]：user0 也是普通实例（classRef=worker）→ 有效层数为 2。
+    assert.equal(layers.length, 2)
     assert.deepEqual(
       layers.map((l) => l.map((r) => [r.key, r.action])),
-      [[['read', 'allow'], ['write', 'deny']]],
+      [
+        [['read', 'allow'], ['write', 'deny']],
+        [['read', 'allow'], ['write', 'deny']],
+      ],
     )
   })
 

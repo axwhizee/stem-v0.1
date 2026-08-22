@@ -30,6 +30,8 @@ export interface ContextManagerOptions {
   readonly repository: Repository
   /** 快递员（组合根注入）。 */
   readonly courier: Courier
+  /** skill 注册表（可选）：实例化时把 <available_skills> 清单注入 system 消息。 */
+  readonly skills?: { readonly manifest: () => string }
   /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: (event: LogEvent) => void
 }
@@ -94,12 +96,14 @@ export class DefaultContextManager implements ContextManager {
   private readonly boxes = new Map<string, InternalBox>()
   private readonly assemble: ContextAssembler
   private readonly courier: Courier
+  private readonly skills?: { readonly manifest: () => string }
   private readonly onLog?: (event: LogEvent) => void
 
   constructor(options: ContextManagerOptions) {
     this.assemble = options.contextAssembler ?? classicAssemble
     this.repository = options.repository
     this.courier = options.courier
+    this.skills = options.skills
     this.onLog = options.onLog
   }
 
@@ -117,8 +121,11 @@ export class DefaultContextManager implements ContextManager {
     }
     this.boxes.set(registration.agentId, box)
 
-    // 仓库开辟记录（systemPrompt 作为首条 system message）。
-    await this.repository.register(registration.agentId, registration.systemPrompt)
+    // 仓库开辟记录（systemPrompt + <available_skills> 清单作为首条 system message）。
+    const base = registration.systemPrompt ?? ''
+    const manifest = this.skills?.manifest() ?? ''
+    const systemPrompt = manifest !== '' ? (base === '' ? manifest : `${base}\n\n${manifest}`) : base
+    await this.repository.register(registration.agentId, systemPrompt)
 
     // 快递员注册。
     const courierRegistration: CourierRegistration = {
@@ -153,6 +160,8 @@ export class DefaultContextManager implements ContextManager {
         await this.repository.append(pending.ownerId, {
           message: { role: 'tool', content: letter.content, toolCallId: pending.toolCallId },
         })
+        // 唤醒等待者（context_wait 填充就绪 → 快递员送信）。
+        void this.courier.notifyReady(pending.ownerId)
         return
       }
     }
@@ -160,6 +169,8 @@ export class DefaultContextManager implements ContextManager {
     box.lastLetterAt = Date.now()
     // 先入库（含 from），管理员处理时统一打戳。
     await this.repository.append(agentId, { message: letter, from })
+    // 外部来信 → 唤醒目标（打戳已在 onChange/handleChange 中先完成）。
+    void this.courier.notifyReady(agentId)
   }
 
   async appendHistory(agentId: string, message: ChatMessage, tag?: string): Promise<void> {
@@ -209,7 +220,7 @@ export class DefaultContextManager implements ContextManager {
     return `上下文概览 ${agentId}（${state.messages.length} 条，${total} tok）:\n${lines.join('\n')}`
   }
 
-  /** 仓库 onChange 入口：打戳 + 组装 + 通知快递员。 */
+  /** 仓库 onChange 入口：打戳 + 组装（供日志）。唤醒快递员由 deposit（外部来信）负责，agent 自身 appendHistory 不触发重投递。 */
   readonly handleChange: (agentId: string) => void = (agentId) => {
     const box = this.boxes.get(agentId)
     if (!box) return
@@ -217,8 +228,6 @@ export class DefaultContextManager implements ContextManager {
     this.applyStamps(box)
     // 2. 组装快照（供日志）。
     const assembled = this.snapshot(box)
-    // 3. 通知快递员「上下文待发送事件」。
-    void this.courier.notifyReady(agentId)
     if (assembled !== undefined) {
       this.onLog?.({
         type: 'context.assembled',

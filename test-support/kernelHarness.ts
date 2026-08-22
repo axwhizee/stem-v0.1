@@ -89,7 +89,7 @@ export async function createKernelHarness(
       if (e.type === 'letter') deliveries.push({ kind: 'user', agentId: e.agentId, letters: e.letters })
     },
   })
-  await kernel.registerUser()
+  await kernel.registerRootAgent()
   return { kernel, timers, deliveries, tools }
 }
 

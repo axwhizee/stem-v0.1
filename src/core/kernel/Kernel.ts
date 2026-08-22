@@ -38,8 +38,9 @@ import type { Runtime } from './Runtime'
 import { DefaultLineageTree } from '../lineage'
 import type { LineageTree } from '../lineage'
 import { createSystemTools } from './systemTools'
+import { createUserClass, USER_CLASS_ID } from './userClass'
 import type { AgentClass, AgentClassID, AgentID, AgentSpaceID, ProjectRef } from './types'
-import { makeAgentID } from './types'
+import { makeAgentID, makeAgentSpaceID } from './types'
 
 /** 内置示例模板（从 templates/*.json 加载，非硬编码角色）。 */
 export const BUILTIN_TEMPLATES: readonly AgentClass[] = [
@@ -69,10 +70,12 @@ export interface KernelOptions {
   /** 日志记录器（缺省内存版）。 */
   readonly logger?: Logger
   /**
-   * 全局默认工具访问（来自配置 `permission`，最弱优先级）。
-   * 评估顺序：[全局默认, 祖先链(父→子), agent 类, session 批准]，层间取最严格。
+   * user 模板的工具权限（来自配置 `permission`）：内置 user 类的 tools。
+   * 生效权限 = 祖先链（含 user0 根）→ 类清单 → session 批准，层间单调收缩。
    */
-  readonly globalToolAccessDefaults?: Readonly<Record<string, ToolAccess>>
+  readonly userClassTools?: Readonly<Record<string, ToolAccess>>
+  /** skill 注册表（可选）：实例化 agent 时把 <available_skills> 清单注入 system 消息。 */
+  readonly skills?: import('../tools').SkillRegistry
   /** 工具访问自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
   readonly autoApprove?: boolean
 }
@@ -99,7 +102,10 @@ export class Kernel {
   readonly logger: Logger
 
   constructor(options: KernelOptions) {
-    this.templates = new DefaultTemplateRegistry(options.templates ?? BUILTIN_TEMPLATES)
+    this.templates = new DefaultTemplateRegistry([
+      createUserClass(options.userClassTools),
+      ...(options.templates ?? BUILTIN_TEMPLATES),
+    ])
     this.instances = new DefaultInstanceManager(this.templates)
     this.spaces = new DefaultSpaceManager()
     this.tools = options.tools
@@ -142,6 +148,7 @@ export class Kernel {
       timer: options.timer,
       repository: this.repository,
       courier: this.courier,
+      skills: options.skills,
       onLog: (event) => this.emitLog(event),
     })
     // 仓库 onChange → 管理员处理入口。
@@ -160,9 +167,8 @@ export class Kernel {
       onEvent: (agentId, event) => this.events.emit({ type: 'stream', agentId, event }),
       onStatus: (agentId, from, to) => this.events.emit({ type: 'status', agentId, from, to, at: Date.now() }),
       onLog: { log: (event) => this.emitLog(event) },
-      // 完整访问层：[全局（最弱）, 祖先链(父→子), agent 类]。
+      // 完整访问层：[祖先链(父→…→user0 根，即 config.permission), agent 类]。
       resolveAccessLayers: (agentId) => [
-        options.globalToolAccessDefaults ? toolAccessToRules(options.globalToolAccessDefaults) : [],
         ...collectAncestorAccessLayers(this.lineage.getAncestors(agentId), (id) =>
           this.rulesOf(makeAgentID(id)),
         ),
@@ -212,12 +218,28 @@ export class Kernel {
     return this.rulesOf(agentId)
   }
 
-  /** 注册用户面板（user0）：元 agent 实例化（族谱树根 parentId=null）+ 上下文（不组装，只汇总信件）。 */
-  async registerUser(displayName = 'User'): Promise<void> {
-    // user0 作为元 agent 进入实例体系（族谱树根）。
-    await this.instances.registerMetaAgent({ id: makeAgentID(USER_ID), displayName })
+  /** 注册根 agent（user0）：从内置 user 类实例化（parentId=null 即根，与其他实例等同）。 */
+  async registerRootAgent(displayName = 'User'): Promise<AgentID> {
+    const template = await this.templates.get(USER_CLASS_ID)
+    const instance = await this.instances.instantiate({
+      className: USER_CLASS_ID,
+      parentId: null,
+      userPrompt: '',
+      spaceId: makeAgentSpaceID('__meta__'),
+      agentId: USER_ID,
+    })
+    this.emitLog({
+      type: 'kernel.instance.created',
+      at: Date.now(),
+      agentId: instance.id,
+      classId: instance.classRef,
+      parentId: '',
+    })
+    if (displayName !== instance.displayName) await this.instances.takeover(makeAgentID(USER_ID), { displayName })
     await this.contextManager.register({
       agentId: USER_ID,
+      systemPrompt: template.systemPrompt,
+      sendCountdownMs: template.sendCountdown ?? 0,
       assemble: false,
       onDelivery: (delivery) => {
         if (delivery.kind !== 'user') return
@@ -225,6 +247,7 @@ export class Kernel {
         this.events.emit({ type: 'letter', agentId: delivery.agentId, letters: delivery.letters, at: Date.now() })
       },
     })
+    return instance.id
   }
 
   /** 用户发送消息（默认发往当前选中的 agent）。 */

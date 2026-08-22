@@ -8,7 +8,7 @@ import { DefaultTemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
 import { DefaultSpaceManager } from './SpaceManager'
 import type { AgentClass } from './types'
-import { makeAgentClassID, makeAgentID } from './types'
+import { makeAgentClassID, makeAgentID, makeAgentSpaceID } from './types'
 
 const cls: AgentClass = {
   name: makeAgentClassID('worker'),
@@ -21,6 +21,8 @@ async function makeManager() {
   const registry = new DefaultTemplateRegistry([cls])
   const manager = new DefaultInstanceManager(registry)
   const space = await new DefaultSpaceManager().getOrCreate('/proj')
+  // 根 agent（user0）：普通实例（parentId=null，独立 meta 空间），userPrompt 可为空。
+  await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '', spaceId: makeAgentSpaceID('__meta__'), agentId: 'user0' })
   return { manager, spaceId: space.id }
 }
 
@@ -60,10 +62,10 @@ describe('DefaultInstanceManager', () => {
     )
   })
 
-  test('userPrompt 必填 → agent_conflict', async () => {
+  test('userPrompt 非字符串 → agent_conflict（空串允许，根 agent 用）', async () => {
     const { manager, spaceId } = await makeManager()
     await assert.rejects(
-      () => manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: '', spaceId }),
+      () => manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: undefined as never, spaceId }),
       (e: unknown) => (e as { kind: string }).kind === 'agent_conflict',
     )
   })

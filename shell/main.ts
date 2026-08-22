@@ -42,7 +42,7 @@ import { startMockSse, defaultScript, type MockResponse } from '../test-support/
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
 import { createHostTools } from './tools'
 import { createNodeConfigBundle, FALLBACK_MODEL } from './config'
-import { runInit, type InitReport } from '../src/core/init'
+import { createStemSystem, type InitReport } from '../src/core/init'
 import { parseModelRef } from '../src/core/config'
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
@@ -168,22 +168,12 @@ async function buildGateway(modelId?: string): Promise<{ gateway: ModelGateway; 
 }
 
 async function createShell(): Promise<ShellState> {
-  // 1. 读取唯一配置（`<projectRoot>/.stem/stem.jsonc`）。
+  // 1. 读取唯一配置（`<projectRoot>/.stem/stem.jsonc`）→ 解析模型 → 构建网关。
   const bundle = createNodeConfigBundle(DEFAULT_PROJECT)
   const loaded = await bundle.store.load()
   const config = loaded.config
   const model = parseModelRef(config.model, FALLBACK_MODEL)
-
   const { gateway, source } = await buildGateway(model.id)
-
-  const tools = new DefaultToolCapabilityRegistry()
-  await tools.register(ocEcho)
-  await tools.register(ocGetTime)
-  await tools.register(ocReadFile)
-  // host 内置工具（kind=shell）：read/write/edit/grep/glob，操作真实文件系统。
-  for (const tool of createHostTools(DEFAULT_PROJECT)) {
-    await tools.register(tool)
-  }
 
   const dialogs = new QueueDialog()
   const display = { streamedAny: false }
@@ -197,67 +187,58 @@ async function createShell(): Promise<ShellState> {
     init: undefined as never,
   }
 
-  const kernel = new Kernel({
-    gateway,
-    defaultModel: model,
-    defaultCountdownMs: config.sendCountdown,
-    // 配置注入：全局默认工具访问（最弱）+ autoApprove（ask 直接放行）。
-    globalToolAccessDefaults: config.permission,
-    autoApprove: config.autoApprove,
-    tools,
-    // 统一事件流（PilotEvent）：流式 / 回信 / 访问申请（消息化）。
-    onEvent: (event) => handlePilotEvent(state, event),
-  })
-  state.kernel = kernel
-
-  // 2. 初始化管线：扫描 .stem/tool + .stem/agent → 同步注册表 → 注册进 core。
-  const init = await runInit({
+  // 2. 自治系统装配（createStemSystem：init 管线 + kernel + user0 实例化 + 工具 initAll）。
+  const system = await createStemSystem({
     config: { store: bundle.store, paths: bundle.paths },
     fs: bundle.fs,
     tools: { loadTool: bundle.loadTool },
-    toolRegistry: tools,
-    templateRegistry: kernel.templates,
+    gateway,
+    defaultModel: model,
+    // 宿主工具（oc_* 演示 + read/write/edit/grep/glob）。
+    hostTools: [ocEcho, ocGetTime, ocReadFile, ...createHostTools(DEFAULT_PROJECT)],
+    // 统一事件流（PilotEvent）：流式 / 回信 / 访问申请（消息化）。
+    onEvent: (event) => handlePilotEvent(state, event),
+    // 用户注入钩子：注册示例模板（init 末尾调用）。
+    userHooks: [
+      async ({ kernel }) => {
+        // 带工具白名单的示例模板。
+        await kernel.templates.register({
+          name: makeAgentClassID('tool-assistant'),
+          description: '能调用工具（oc_echo / oc_get_time / oc_read_file）的助手（示例）',
+          systemPrompt:
+            'You are a helpful assistant with tool access. Use the available tools when appropriate. If you need a result from another agent, call agent_instantiate to create it (returns its id), then context_wait(id) to await its reply.',
+          tools: {
+            oc_echo: 'allow',
+            oc_get_time: 'allow',
+            oc_read_file: 'allow',
+            context_wait: 'allow',
+            bus_send: 'allow',
+            bus_participants: 'allow',
+          },
+        })
+        // 创造者模板（可创建子 agent；无时间权限）。
+        await kernel.templates.register({
+          name: makeAgentClassID('creator'),
+          description: '调度者：可创建子 agent 获取信息（示例）',
+          systemPrompt:
+            "creator-sys: 你是调度者，负责创建子 agent 获取信息并汇总给用户。\n可用模板 id：'tool-agent'（带 oc_get_time 时间工具）、'simple-chat'（纯对话）、'coder'。\n流程：① 用 agent_instantiate 创建子 agent，参数 className 填 'tool-agent'，必填 userPrompt 说明要它做什么；它返回新建 agent 的 id。② 随后调用 context_wait(agentId)（agentId 填①返回的 id）等待子 agent 的回复——其 assistant_message 会作为 context_wait 的 tool 结果进入你的上下文。③ 拿到结果后向用户汇报。",
+          tools: {
+            agent_instantiate: 'allow',
+            agent_list: 'allow',
+            agent_terminate: 'allow',
+            context_wait: 'allow',
+            bus_send: 'allow',
+            bus_participants: 'allow',
+          },
+        })
+      },
+    ],
   })
-  state.init = init
-  for (const issue of init.issues) console.log(`  [init] ${formatInitIssue(issue)}`)
+  state.kernel = system.kernel
+  state.init = system.init
+  for (const issue of system.init.issues) console.log(`  [init] ${formatInitIssue(issue)}`)
 
-  // 带工具白名单的示例模板
-  await kernel.templates.register({
-    name: makeAgentClassID('tool-assistant'),
-    description: '能调用工具（oc_echo / oc_get_time / oc_read_file）的助手（示例）',
-    systemPrompt:
-      'You are a helpful assistant with tool access. Use the available tools when appropriate. If you need a result from another agent, call agent_instantiate to create it (returns its id), then context_wait(id) to await its reply.',
-    tools: {
-      oc_echo: 'allow',
-      oc_get_time: 'allow',
-      oc_read_file: 'allow',
-      context_wait: 'allow',
-      bus_send: 'allow',
-      bus_participants: 'allow',
-    },
-  })
-
-  // 创造者模板（可创建子 agent；无时间权限）
-  await kernel.templates.register({
-    name: makeAgentClassID('creator'),
-    description: '调度者：可创建子 agent 获取信息（示例）',
-    systemPrompt:
-      "creator-sys: 你是调度者，负责创建子 agent 获取信息并汇总给用户。\n可用模板 id：'tool-agent'（带 oc_get_time 时间工具）、'simple-chat'（纯对话）、'coder'。\n流程：① 用 agent_instantiate 创建子 agent，参数 className 填 'tool-agent'，必填 userPrompt 说明要它做什么；它返回新建 agent 的 id。② 随后调用 context_wait(agentId)（agentId 填①返回的 id）等待子 agent 的回复——其 assistant_message 会作为 context_wait 的 tool 结果进入你的上下文。③ 拿到结果后向用户汇报。",
-    tools: {
-      agent_instantiate: 'allow',
-      agent_list: 'allow',
-      agent_terminate: 'allow',
-      context_wait: 'allow',
-      bus_send: 'allow',
-      bus_participants: 'allow',
-    },
-  })
-
-  // 系统管理工具（agent_* / bus_*）
-  await kernel.registerSystemTools(tools)
-
-  await kernel.registerUser('User')
-  state.currentAgentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), DEFAULT_PROJECT, {
+  state.currentAgentId = await system.kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), DEFAULT_PROJECT, {
     userPrompt: '你好，请做一个简短的自我介绍。',
   })
 

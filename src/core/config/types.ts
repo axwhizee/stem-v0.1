@@ -42,7 +42,12 @@ export interface StemConfig {
   readonly model?: string
   /** 是否开启权限自动批准（true 时 ask 直接放行，不弹窗）。 */
   readonly autoApprove?: boolean
-  /** 全局工具访问（弱于 agent 类专门指定与祖先链；未列出默认 ask，internal 系统工具默认 ignore）。 */
+  /**
+   * 工具权限设置 = **user 模板（内置根类）的 tools 清单**：user0（元 agent）的
+   * 能力面，也是整棵族谱的祖先链首层。生效权限 = 祖先链（含 user0 根）→
+   * 类清单 → session 批准，层间单调收缩；未列出的工具落到默认（internal 默认
+   * ignore 隐藏，其余 ask）。
+   */
   readonly permission?: Readonly<Record<string, ToolAccess>>
   /** 全局默认送信倒计时（毫秒；agent 文件/类未指定时使用）。 */
   readonly sendCountdown?: number

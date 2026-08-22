@@ -30,6 +30,8 @@ export function createSystemTools(kernel: Kernel): ToolCapability[] {
     contextWait(kernel),
     contextExport(kernel),
     contextOverview(kernel),
+    contextRemove(kernel),
+    contextEdit(kernel),
     accessReply(kernel),
   ]
 }
@@ -377,6 +379,74 @@ function contextOverview(kernel: Kernel): ToolCapability {
         return { text: '无权查看该 agent 的上下文' }
       }
       return { text: await kernel.contextOverview(agentId) }
+    },
+  }
+}
+
+/** 删除上下文中的过时消息（标记无效，组装时跳过；删除后组装统一过 legalize 保证可经 gateway 发送）。 */
+function contextRemove(kernel: Kernel): ToolCapability {
+  return {
+    id: 'context_remove',
+    description:
+      '删除指定 agent 上下文中的过时消息（标记无效，组装时跳过，不物理清除）。可删任意消息（system 除外）；删除后上下文经 legalize 保证消息序列合法。用于清理过时工具结果/过期总结等。',
+    accessKey: 'context_remove',
+    kind: 'internal',
+    category: 'context',
+    parameters: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: '目标 agent id（缺省为调用者自身；仅自身或祖先可删）' },
+        messageIds: { type: 'array', items: { type: 'string' }, description: '要删除的消息 id 列表（来自 context_export/overview）' },
+        turn: { type: 'number', description: '删除整轮（按轮号，优先级高于 messageIds）' },
+      },
+    },
+    execute: async (input, ctx) => {
+      const args = input as { agentId?: string; messageIds?: string[]; turn?: number }
+      const target = args.agentId ?? ctx.agentId
+      if (target !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(target))) {
+        return { text: '无权删除该 agent 的上下文' }
+      }
+      const state = await kernel.contextManager.getState(target)
+      const ids = args.turn !== undefined ? state.messages.filter((m) => m.turn === args.turn).map((m) => m.id) : (args.messageIds ?? [])
+      // system 消息不可删。
+      const systemIds = new Set(state.messages.filter((m) => m.message.role === 'system').map((m) => m.id))
+      const removable = ids.filter((id) => !systemIds.has(id))
+      if (removable.length === 0) return { text: '无消息可删除（system 消息不可删）' }
+      await kernel.repository.markInvalid(target, removable)
+      return { text: `已删除 ${removable.length} 条消息（agent ${target}）` }
+    },
+  }
+}
+
+/** 重写上下文中的某条消息内容（保留 role/索引；改后组装过 legalize 保证合法）。 */
+function contextEdit(kernel: Kernel): ToolCapability {
+  return {
+    id: 'context_edit',
+    description: '重写指定 agent 上下文中的某条消息内容（保留 role/索引；system 消息不可改）。',
+    accessKey: 'context_edit',
+    kind: 'internal',
+    category: 'context',
+    parameters: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: '目标 agent id（缺省为调用者自身；仅自身或祖先可改）' },
+        messageId: { type: 'string', description: '消息 id（来自 context_export/overview）' },
+        content: { type: 'string', description: '新内容' },
+      },
+      required: ['messageId', 'content'],
+    },
+    execute: async (input, ctx) => {
+      const args = input as { agentId?: string; messageId: string; content: string }
+      const target = args.agentId ?? ctx.agentId
+      if (target !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(target))) {
+        return { text: '无权修改该 agent 的上下文' }
+      }
+      const state = await kernel.contextManager.getState(target)
+      const stored = state.messages.find((m) => m.id === args.messageId)
+      if (!stored) return { text: `消息不存在: ${args.messageId}` }
+      if (stored.message.role === 'system') return { text: 'system 消息不可修改' }
+      await kernel.repository.updateMessage(target, args.messageId, { ...stored.message, content: args.content })
+      return { text: `已更新消息 ${args.messageId}` }
     },
   }
 }

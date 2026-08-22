@@ -26,9 +26,6 @@ export function makeAgentClassID(id: string): AgentClassID {
   return id as AgentClassID
 }
 
-/** 元 agent 类（user0 专用，注册表不承载，代码级常量）。 */
-export const META_CLASS_ID: AgentClassID = '__meta__' as AgentClassID
-
 export function makeAgentID(id: string): AgentID {
   return id as AgentID
 }

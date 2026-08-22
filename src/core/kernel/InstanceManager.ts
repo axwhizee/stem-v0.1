@@ -8,7 +8,7 @@
 
 import type { TemplateRegistry } from './TemplateRegistry'
 import type { AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, AgentStatus } from './types'
-import { META_CLASS_ID, makeAgentID, makeAgentSpaceID } from './types'
+import { makeAgentID } from './types'
 import type { ToolAccess } from '../tools'
 
 export interface InstantiateOptions {
@@ -32,9 +32,7 @@ export interface InstantiateOptions {
 
 export interface InstanceManager {
   readonly instantiate: (opts: InstantiateOptions) => Promise<AgentInstance>
-  /** 注册元 agent（user0，族谱树根，classRef=__meta__、parentId=null）。 */
-  readonly registerMetaAgent: (opts: { id: AgentID; displayName?: string }) => Promise<AgentInstance>
-  /** 终止：销毁权校验（by 是目标的祖先或 user0）+ 有活跃子时默认拒绝，recursive 级联。 */
+  /** 终止：销毁权校验（by 是目标的祖先；根 parentId=null 无祖先 → 不可销毁）+ 有活跃子时默认拒绝，recursive 级联。 */
   readonly terminate: (agentId: AgentID, opts?: { by?: AgentID; recursive?: boolean }) => Promise<void>
   readonly get: (agentId: AgentID) => Promise<AgentInstance>
   readonly listBySpace: (spaceId: AgentSpaceID) => Promise<AgentInstance[]>
@@ -62,14 +60,14 @@ export class DefaultInstanceManager implements InstanceManager {
   async instantiate(opts: InstantiateOptions): Promise<AgentInstance> {
     // 校验模板存在。
     const template = await this.registry.get(opts.className)
-    if (!opts.userPrompt || typeof opts.userPrompt !== 'string') {
-      throw { kind: 'agent_conflict', message: 'userPrompt 是必填项（保证 messages 至少 [system, user]）' }
+    if (typeof opts.userPrompt !== 'string') {
+      throw { kind: 'agent_conflict', message: 'userPrompt 是必填项（字符串）' }
     }
     if (opts.parentId === undefined) {
-      throw { kind: 'agent_conflict', message: 'parentId 是必填项（user0 为 null 即根）' }
+      throw { kind: 'agent_conflict', message: 'parentId 是必填项（根为 null）' }
     }
-    // 父必须是已存在的参与者（user0 为根）。
-    if (opts.parentId !== null && !this.agents.has(opts.parentId) && opts.parentId !== 'user0') {
+    // 父必须是已存在的实例（根 parentId=null 除外）。
+    if (opts.parentId !== null && !this.agents.has(opts.parentId)) {
       throw { kind: 'agent_conflict', message: `父 agent 不存在: ${String(opts.parentId)}` }
     }
 
@@ -94,37 +92,14 @@ export class DefaultInstanceManager implements InstanceManager {
     return instance
   }
 
-  async registerMetaAgent(opts: { id: AgentID; displayName?: string }): Promise<AgentInstance> {
-    if (this.agents.has(opts.id)) {
-      throw { kind: 'agent_conflict', message: `agent id 冲突: ${opts.id}` }
-    }
-    const instance: AgentInstance = {
-      id: opts.id,
-      classRef: META_CLASS_ID,
-      parentId: null,
-      displayName: opts.displayName ?? 'User',
-      spaceId: makeAgentSpaceID('__meta__'), // 元 agent 不属于任何项目空间
-      status: 'idle',
-      turnCount: 0,
-      totalCost: 0,
-      userPrompt: '',
-    }
-    this.agents.set(opts.id, instance)
-    return instance
-  }
-
   async terminate(
     agentId: AgentID,
     opts?: { by?: AgentID; recursive?: boolean },
   ): Promise<void> {
     const instance = await this.get(agentId)
-    // 元 agent（user0）不可销毁。
-    if (instance.classRef === META_CLASS_ID) {
-      throw { kind: 'agent_terminate_denied', agentId, by: opts?.by ?? makeAgentID('user0') } satisfies TerminateError
-    }
     const by: AgentID = opts?.by ?? makeAgentID('user0')
-    // 销毁权：by 是目标的祖先，或 user0 根恒可。
-    if (by !== 'user0' && !this.isAncestorOf(by, agentId)) {
+    // 销毁权：by 必须是目标的祖先（根 parentId=null 无祖先 → 天然不可销毁）。
+    if (!this.isAncestorOf(by, agentId)) {
       throw { kind: 'agent_terminate_denied', agentId, by } satisfies TerminateError
     }
     // 默认禁止销毁有活跃子的父（先处理子）；recursive 级联整棵子树。
