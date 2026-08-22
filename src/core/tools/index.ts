@@ -35,8 +35,8 @@ export type { SkillInfo, SkillRegistry, SkillError } from './SkillRegistry'
 export { DefaultSkillRegistry } from './SkillRegistry'
 export { createSkillTool, parseSkillFile } from './skill'
 
-export type { AccessManagerOptions, AccessManager } from './AccessManager'
-export { DefaultAccessManager } from './AccessManager'
+export type { AccessAskOptions, AccessAskBus } from './accessRequest'
+export { DefaultAccessAskBus, formatAccessRequest } from './accessRequest'
 
 export type { ToolListFilter, ToolCapabilityRegistry, ToolRegistryOptions } from './ToolCapabilityRegistry'
 export { DefaultToolCapabilityRegistry } from './ToolCapabilityRegistry'

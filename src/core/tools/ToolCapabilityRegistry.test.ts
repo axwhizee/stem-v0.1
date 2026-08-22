@@ -6,8 +6,8 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DefaultToolCapabilityRegistry } from './ToolCapabilityRegistry'
 import type { ToolCapability, ToolContext, ToolError, ToolParametersSchema, ToolAccessRules, AccessRequest } from './types'
-import type { AccessManager } from './AccessManager'
-import { DefaultAccessManager } from './AccessManager'
+import type { AccessAskBus } from './accessRequest'
+import { DefaultAccessAskBus } from './accessRequest'
 import { validateArgs } from './validate'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
@@ -128,7 +128,7 @@ describe('DefaultToolCapabilityRegistry', () => {
   })
 
   test('execute：deny 规则 → access_denied（不弹窗）', async () => {
-    const access: AccessManager = new DefaultAccessManager({ askPanel: () => {} })
+    const access: AccessAskBus = new DefaultAccessAskBus({ askRoot: () => {}, getRoot: () => 'user0' })
     const registry = new DefaultToolCapabilityRegistry({ access })
     await registry.register(echoTool)
     const ctx: ToolContext = { ...baseCtx, accessLayers: [denyEchoRules] }
@@ -143,7 +143,7 @@ describe('DefaultToolCapabilityRegistry', () => {
 
   test('execute：ask（缺省/无规则）→ 挂起 → once 批准后执行', async () => {
     let request: AccessRequest | undefined
-    const access: AccessManager = new DefaultAccessManager({ askPanel: (req) => void (request = req) })
+    const access: AccessAskBus = new DefaultAccessAskBus({ askRoot: (req) => void (request = req), getRoot: () => 'user0' })
     const registry = new DefaultToolCapabilityRegistry({ access })
     await registry.register(echoTool)
 
@@ -152,20 +152,20 @@ describe('DefaultToolCapabilityRegistry', () => {
     await tick()
     assert.ok(request, '无规则 → 默认 ask，应产生访问确认请求')
 
-    await access.reply({ requestId: request!.id, reply: 'once' })
+    await access.reply({ requestId: request!.id, reply: 'once' }, 'user0')
     const result = await execution
     assert.equal(result.text, 'Echo: hi')
   })
 
   test('execute：ask → reject → access_rejected', async () => {
     let request: AccessRequest | undefined
-    const access: AccessManager = new DefaultAccessManager({ askPanel: (req) => void (request = req) })
+    const access: AccessAskBus = new DefaultAccessAskBus({ askRoot: (req) => void (request = req), getRoot: () => 'user0' })
     const registry = new DefaultToolCapabilityRegistry({ access })
     await registry.register(echoTool)
 
     const execution = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, { ...baseCtx, accessLayers: [emptyRules] })
     await tick()
-    await access.reply({ requestId: request!.id, reply: 'reject', message: '不需要' })
+    await access.reply({ requestId: request!.id, reply: 'reject', message: '不需要' }, 'user0')
     await assert.rejects(
       () => execution,
       (e: unknown) => {
@@ -177,14 +177,14 @@ describe('DefaultToolCapabilityRegistry', () => {
 
   test('execute：ask → always 后同类工具不再询问（session 批准）', async () => {
     const requests: AccessRequest[] = []
-    const access: AccessManager = new DefaultAccessManager({ askPanel: (req) => void requests.push(req) })
+    const access: AccessAskBus = new DefaultAccessAskBus({ askRoot: (req) => void requests.push(req), getRoot: () => 'user0' })
     const registry = new DefaultToolCapabilityRegistry({ access })
     await registry.register(echoTool)
 
     const ctx: ToolContext = { agentId: 'a1', spaceId: 's1', accessLayers: [emptyRules] }
     const first = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, ctx)
     await tick()
-    await access.reply({ requestId: requests[0]!.id, reply: 'always' })
+    await access.reply({ requestId: requests[0]!.id, reply: 'always' }, 'user0')
     await first
 
     const second = await registry.execute({ id: 'c2', name: 'oc_echo', input: { text: 'again' } }, ctx)

@@ -38,6 +38,8 @@ export interface RuntimeDeps {
   readonly estimateCost?: (usage: UsageEvent | undefined) => number
   /** 流式事件全局透传（shell 面板显示用）。 */
   readonly onEvent?: (agentId: AgentID, event: LLMEvent) => void
+  /** 状态变化通知（agentId, from, to）。 */
+  readonly onStatus?: (agentId: AgentID, from: AgentStatus, to: AgentStatus) => void
   /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: LogSink
   /**
@@ -268,12 +270,13 @@ export class DefaultRuntime implements Runtime {
     await this.setStatus(instance, 'holding')
   }
 
-  /** 状态变化（thinking/holding）→ 实例状态更新 + 日志。 */
+  /** 状态变化（thinking/holding/interrupted…）→ 实例状态更新 + 日志 + 事件流通知。 */
   private async setStatus(instance: { readonly id: AgentID; status: AgentStatus }, to: AgentStatus): Promise<void> {
     if (instance.status === to) return
     const from = instance.status
     await this.deps.instances.updateStatus(instance.id, to)
     this.deps.onLog?.log({ type: 'kernel.status.changed', at: Date.now(), agentId: instance.id, from, to })
+    this.deps.onStatus?.(instance.id, from, to)
   }
 
   /**

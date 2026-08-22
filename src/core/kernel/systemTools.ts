@@ -9,6 +9,7 @@
 
 import type { ToolCapability } from '../tools'
 import type { ToolAccess } from '../tools'
+import type { AccessReply } from '../tools'
 import type { Kernel } from './Kernel'
 import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentID } from './types'
@@ -29,6 +30,7 @@ export function createSystemTools(kernel: Kernel): ToolCapability[] {
     contextWait(kernel),
     contextExport(kernel),
     contextOverview(kernel),
+    accessReply(kernel),
   ]
 }
 
@@ -375,6 +377,39 @@ function contextOverview(kernel: Kernel): ToolCapability {
         return { text: '无权查看该 agent 的上下文' }
       }
       return { text: await kernel.contextOverview(agentId) }
+    },
+  }
+}
+
+/** 批准/拒绝访问申请（ask 消息化的回复侧；授权权：仅申请者的族谱根可调用）。 */
+function accessReply(kernel: Kernel): ToolCapability {
+  return {
+    id: 'access_reply',
+    description:
+      '批准或拒绝访问申请。请求以 access_request 消息形式到达你的信箱（含 requestId / 申请工具 / 申请 agent）；用本工具回复 once（单次）/ always（始终批准）/ reject（拒绝，可带 feedback 告知申请 agent）。授权权：仅申请者的族谱根可答复。',
+    accessKey: 'access_reply',
+    kind: 'internal',
+    category: 'system',
+    parameters: {
+      type: 'object',
+      properties: {
+        requestId: { type: 'string', description: '访问申请 id（来自信箱中的 access_request 消息）' },
+        reply: { type: 'string', enum: ['once', 'always', 'reject'], description: 'once=单次 / always=始终 / reject=拒绝' },
+        feedback: { type: 'string', description: 'reject 时的反馈（告知申请 agent）' },
+      },
+      required: ['requestId', 'reply'],
+    },
+    execute: async (input, ctx) => {
+      const args = input as { requestId: string; reply: AccessReply; feedback?: string }
+      await kernel.access.reply(
+        {
+          requestId: args.requestId,
+          reply: args.reply,
+          ...(args.feedback !== undefined ? { message: args.feedback } : {}),
+        },
+        ctx.agentId,
+      )
+      return { text: `已回复访问申请 ${args.requestId}: ${args.reply}` }
     },
   }
 }

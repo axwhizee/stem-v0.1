@@ -71,7 +71,6 @@ export async function createKernelHarness(
   opts: {
     countdownMs?: number
     templates?: ConstructorParameters<typeof Kernel>[0]['templates']
-    onEvent?: (agentId: string, event: never) => void
   } = {},
 ): Promise<Harness> {
   const timers = manualTimers()
@@ -85,7 +84,10 @@ export async function createKernelHarness(
     templates: opts.templates,
     defaultCountdownMs: opts.countdownMs ?? 1000,
     timer: timers.timer,
-    onUserDelivery: (d) => deliveries.push(d),
+    // 统一事件流：letter 事件 → 收信队列（UserDelivery 形状兼容）。
+    onEvent: (e) => {
+      if (e.type === 'letter') deliveries.push({ kind: 'user', agentId: e.agentId, letters: e.letters })
+    },
   })
   await kernel.registerUser()
   return { kernel, timers, deliveries, tools }

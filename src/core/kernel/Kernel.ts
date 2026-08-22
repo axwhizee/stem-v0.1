@@ -6,24 +6,24 @@
 //
 // 通信模型（重建邮局，无总线）：
 //   - sendMessage(from, to, payload) → 管理员 deposit（打戳 + 入库 + 触发处理）；
-//   - log / access_reply 走注入接口（LogSink / AccessManager），不设总线。
+//   - 事件（stream/letter/status/notice）统一经 events hub 发布（PilotEvent）；
+//   - 访问确认（ask）消息化：投递申请到根信箱 + access_reply 工具解析（见 tools/accessRequest）。
 // 参与者查询：复用 instances + user0（无独立注册表）。
-// user0 是元 agent（族谱树根 parentId=null，元权限短路 allow）。
+// user0 是元 agent（族谱树根 parentId=null）。
 // ============================================================
 
 import type { ModelGateway } from '../gateway'
 import type { LLMEvent, ModelRef, UsageEvent } from '../gateway'
-import type { ContextAssembler, MailDelivery, Repository, Courier, UserDelivery } from '../context'
+import type { ContextAssembler, MailDelivery, Repository, Courier } from '../context'
 import { DefaultRepository, DefaultCourier, DefaultContextManager } from '../context'
 import type { ContextManager } from '../context'
 import type { Logger } from '../logging'
 import { InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
-import type { AccessManager, ToolAccess, ToolAccessRules } from '../tools'
-import { DefaultAccessManager, toolAccessToRules, collectAncestorAccessLayers } from '../tools'
-import type { PanelConsumer } from '../panel'
-import { DefaultPanelBus } from '../panel'
-import type { PanelBus } from '../panel'
+import type { AccessAskBus, ToolAccess, ToolAccessRules } from '../tools'
+import { DefaultAccessAskBus, toolAccessToRules, collectAncestorAccessLayers, formatAccessRequest } from '../tools'
+import type { EventHub, PilotEvent } from '../events'
+import { DefaultEventHub } from '../events'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import simpleChatTemplate from '../../../templates/SimpleChat.json'
 import coderTemplate from '../../../templates/Coder.json'
@@ -64,14 +64,10 @@ export interface KernelOptions {
   readonly timer?: import('../context').TimerFactory
   readonly maxSteps?: number
   readonly estimateCost?: (usage: UsageEvent | undefined) => number
-  /** 流式事件全局透传。 */
-  readonly onEvent?: (agentId: AgentID, event: LLMEvent) => void
-  /** 用户面板收信回调（user0 信箱送信时调用）。 */
-  readonly onUserDelivery?: (delivery: UserDelivery) => void
+  /** 统一事件流回调（PilotEvent：stream/letter/status/notice；shell/GUI 订阅）。 */
+  readonly onEvent?: (event: PilotEvent) => void
   /** 日志记录器（缺省内存版）。 */
   readonly logger?: Logger
-  /** 面板消息消费者（shell/GUI 注入；统一消费回信/权限请求等面板消息）。 */
-  readonly onPanelMessage?: PanelConsumer
   /**
    * 全局默认工具访问（来自配置 `permission`，最弱优先级）。
    * 评估顺序：[全局默认, 祖先链(父→子), agent 类, session 批准]，层间取最严格。
@@ -95,24 +91,23 @@ export class Kernel {
   readonly courier: Courier
   readonly runtime: Runtime
   readonly tools?: ToolCapabilityRegistry
-  /** 工具访问确认管理器（registry 统一确认；ask 挂起经 PanelBus 交面板）。 */
-  readonly access: AccessManager
-  /** 面板消息总线（core → 面板统一通道）。 */
-  readonly panel: PanelBus
+  /** 工具访问确认（ask 消息化：投递申请到根信箱 + access_reply 解析）。 */
+  readonly access: AccessAskBus
+  /** 统一事件流（PilotEvent：stream/letter/status/notice；多订阅者）。 */
+  readonly events: EventHub
   /** 日志记录器。 */
   readonly logger: Logger
-  private readonly userDeliveryHandler?: (delivery: UserDelivery) => void
 
   constructor(options: KernelOptions) {
-    this.userDeliveryHandler = options.onUserDelivery
     this.templates = new DefaultTemplateRegistry(options.templates ?? BUILTIN_TEMPLATES)
     this.instances = new DefaultInstanceManager(this.templates)
     this.spaces = new DefaultSpaceManager()
     this.tools = options.tools
     this.logger = options.logger ?? new InMemoryLogger()
 
-    // 面板消息总线（统一汇总回信/访问确认请求等面板消息，GUI 可完全复用）。
-    this.panel = new DefaultPanelBus({ consumer: options.onPanelMessage })
+    // 统一事件流（多订阅者）：外部（shell/GUI）经 onEvent 订阅 stream/letter/status/notice。
+    this.events = new DefaultEventHub()
+    if (options.onEvent) this.events.subscribe(options.onEvent)
 
     // 族谱树（无状态视图）：实时基于 instances 推导 parent/children/ancestors。
     this.lineage = new DefaultLineageTree({
@@ -120,20 +115,17 @@ export class Kernel {
       getAllInstances: () => this.instances.listAllSync(),
     })
 
-    // 工具访问确认管理器：ask 挂起 → 面板弹窗；always → session 批准。
-    this.access = new DefaultAccessManager({
-      askPanel: (request) =>
-        this.panel.post({
-          type: 'permission_request',
-          requestId: request.id,
-          accessKey: request.accessKey,
-          agentId: request.agentId,
-          metadata: request.metadata,
-          at: request.at,
-        }),
+    // 工具访问确认（ask 消息化）：投递申请到申请者的族谱根信箱；根经 access_reply 回复。
+    this.access = new DefaultAccessAskBus({
+      askRoot: (request) =>
+        this.contextManager.deposit(
+          this.lineage.getRoot(makeAgentID(request.agentId)),
+          { role: 'user', content: formatAccessRequest(request) },
+          request.agentId,
+        ),
+      getRoot: (agentId) => this.lineage.getRoot(makeAgentID(agentId)),
       onLog: { log: (event) => this.emitLog(event) },
       autoApprove: options.autoApprove,
-      metaAgentId: USER_ID,
     })
 
     // 重建邮局：仓库（存储）→ 管理员（处理，经 onChange 驱动）→ 快递员（发送）。
@@ -165,7 +157,8 @@ export class Kernel {
       defaultModel: options.defaultModel,
       maxSteps: options.maxSteps,
       estimateCost: options.estimateCost,
-      onEvent: options.onEvent,
+      onEvent: (agentId, event) => this.events.emit({ type: 'stream', agentId, event }),
+      onStatus: (agentId, from, to) => this.events.emit({ type: 'status', agentId, from, to, at: Date.now() }),
       onLog: { log: (event) => this.emitLog(event) },
       // 完整访问层：[全局（最弱）, 祖先链(父→子), agent 类]。
       resolveAccessLayers: (agentId) => [
@@ -221,21 +214,15 @@ export class Kernel {
 
   /** 注册用户面板（user0）：元 agent 实例化（族谱树根 parentId=null）+ 上下文（不组装，只汇总信件）。 */
   async registerUser(displayName = 'User'): Promise<void> {
-    // user0 作为元 agent 进入实例体系（族谱树根；元权限由 AccessManager 短路 allow）。
+    // user0 作为元 agent 进入实例体系（族谱树根）。
     await this.instances.registerMetaAgent({ id: makeAgentID(USER_ID), displayName })
     await this.contextManager.register({
       agentId: USER_ID,
       assemble: false,
       onDelivery: (delivery) => {
         if (delivery.kind !== 'user') return
-        this.userDeliveryHandler?.(delivery)
-        // 统一面板消息：回信经 PanelBus 交给面板展示层。
-        this.panel.post({
-          type: 'letter',
-          agentId: delivery.agentId,
-          letters: delivery.letters,
-          at: Date.now(),
-        })
+        // 来信统一经事件流发布（letter 事件；含 access_request 消息化申请）。
+        this.events.emit({ type: 'letter', agentId: delivery.agentId, letters: delivery.letters, at: Date.now() })
       },
     })
   }

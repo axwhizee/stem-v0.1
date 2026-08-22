@@ -36,8 +36,8 @@ import {
 } from '../src/core/kernel'
 import { createOpencodeGateway, GatewayError, isGatewayError, type ModelGateway } from '../src/core/gateway'
 import { DefaultToolCapabilityRegistry, type ToolCapability } from '../src/core/tools'
-import type { AccessReply, AccessReplyInput } from '../src/core/tools'
-import type { PanelMessage } from '../src/core/panel'
+import type { AccessReply } from '../src/core/tools'
+import type { PilotEvent } from '../src/core/events'
 import { startMockSse, defaultScript, type MockResponse } from '../test-support/mockSse'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
 import { createHostTools } from './tools'
@@ -205,14 +205,8 @@ async function createShell(): Promise<ShellState> {
     globalToolAccessDefaults: config.permission,
     autoApprove: config.autoApprove,
     tools,
-    onEvent: (agentId, event) => {
-      if (agentId === state.currentAgentId && event.type === 'text-delta') {
-        display.streamedAny = true
-        process.stdout.write(event.text)
-      }
-    },
-    // 统一面板消息：回信 → 展示层；权限请求 → 弹窗模块。
-    onPanelMessage: (message) => handlePanelMessage(state, message),
+    // 统一事件流（PilotEvent）：流式 / 回信 / 访问申请（消息化）。
+    onEvent: (event) => handlePilotEvent(state, event),
   })
   state.kernel = kernel
 
@@ -289,23 +283,28 @@ function parseStamp(message: string): { sender: string; text: string } {
   return { sender: '', text: message }
 }
 
-/** 统一面板消息处理：回信 → 展示层；权限请求 → 弹窗模块。 */
-function handlePanelMessage(state: ShellState, message: PanelMessage): void {
-  if (message.type === 'letter') {
-    const letter = message.letters[0]
-    const { sender, text } = parseStamp(contentText(letter?.content ?? ''))
-    const label = sender && sender !== state.currentAgentId ? `\n[来自 ${sender}]` : '\n[assistant]'
-    console.log(label)
-    // 若该回复未经流式显示（无文本流），直接打印文本。
-    if (!state.display.streamedAny) console.log(text)
-    state.display.streamedAny = false
+/** 统一事件流处理：流式输出 / 回信展示 / access_request 弹窗（消息化）。 */
+function handlePilotEvent(state: ShellState, event: PilotEvent): void {
+  if (event.type === 'stream') {
+    // 流式正文（仅当前 agent 展示；reasoning 不打印）。
+    if (event.agentId === state.currentAgentId && event.event.type === 'text-delta') {
+      state.display.streamedAny = true
+      process.stdout.write(event.event.text)
+    }
     return
   }
-  if (message.type === 'permission_request') {
-    // 工具访问确认弹窗：主题=确认；正文=agent 申请工具；选项=单次/始终/拒绝。
+  if (event.type !== 'letter') return // status/notice：日志已记录，暂不展示。
+  const letter = event.letters[0]
+  const { sender, text } = parseStamp(contentText(letter?.content ?? ''))
+  // 访问申请（消息化，内容带 <access_request> 标记）→ 确认弹窗。
+  const accessMatch = /^<access_request id="([^"]+)" accessKey="([^"]+)" agentId="([^"]+)">/.exec(text)
+  if (accessMatch) {
+    const requestId = accessMatch[1] ?? ''
+    const accessKey = accessMatch[2] ?? ''
+    const agentId = accessMatch[3] ?? ''
     const request: DialogRequest = {
       title: '工具访问确认',
-      body: `agent ${message.agentId} 正在申请「${message.accessKey}」工具访问`,
+      body: `agent ${agentId} 正在申请「${accessKey}」工具访问`,
       options: [
         { id: 'once', label: '单次批准' },
         { id: 'always', label: '始终批准' },
@@ -315,13 +314,18 @@ function handlePanelMessage(state: ShellState, message: PanelMessage): void {
     void state.dialogs.push(request).then((selected) => {
       const reply = selected[0] as AccessReply | undefined
       if (!reply) return
-      const input: AccessReplyInput = { requestId: message.requestId, reply }
-      void state.kernel.access.reply(input)
+      void state.kernel.access.reply({ requestId, reply }, USER_ID)
     })
     // 若该弹窗立即激活（队列空闲），打印弹窗；否则已由队列中的激活弹窗占据。
     if (state.dialogs.active) console.log('\n' + formatDialog(state.dialogs.activeRequest!))
     return
   }
+  // 普通回信。
+  const label = sender && sender !== state.currentAgentId ? `\n[来自 ${sender}]` : '\n[assistant]'
+  console.log(label)
+  // 若该回复未经流式显示（无文本流），直接打印文本。
+  if (!state.display.streamedAny) console.log(text)
+  state.display.streamedAny = false
 }
 
 /** 发送一条用户消息（回信经 PanelBus 异步展示，不阻塞主循环）。 */

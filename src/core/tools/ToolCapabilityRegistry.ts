@@ -7,7 +7,7 @@
 // 工具访问统一模型（权限融合进 tools）：
 //   - materialize(rules)：按调用方工具访问层过滤工具可见性
 //     （deny/ignore 不暴露）；
-//   - execute：registry 层统一确认（setAccessSink 注入 AccessManager）
+//   - execute：registry 层统一确认（setAccessSink 注入 AccessAskBus）
 //     → allow/ignore 执行 / deny 抛 access_denied / ask 挂起等用户回复。
 //
 // 依赖方向：infra（tools）→ gateway（ToolDefinition 形状），
@@ -16,7 +16,7 @@
 
 import type { ToolDefinition } from '../gateway'
 import type { LogSink } from '../logging'
-import type { AccessManager } from './AccessManager'
+import type { AccessAskBus } from './accessRequest'
 import { evaluateAccess, accessInLayer } from './access'
 import type {
   ToolAccessRules,
@@ -52,8 +52,8 @@ export interface ToolCapabilityRegistry {
   readonly setRecordSink: (onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>) => void
   /** 装配工具调用日志（组合根注入 → bus → core/logging）。 */
   readonly setLogSink: (onLog?: LogSink) => void
-  /** 装配访问确认（组合根注入 → AccessManager）。 */
-  readonly setAccessSink: (access?: AccessManager) => void
+  /** 装配访问确认（组合根注入 → AccessAskBus）。 */
+  readonly setAccessSink: (access?: AccessAskBus) => void
 }
 
 export interface ToolRegistryOptions {
@@ -65,8 +65,8 @@ export interface ToolRegistryOptions {
   readonly onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>
   /** 工具调用日志（组合根注入 → bus → core/logging）。 */
   readonly onLog?: LogSink
-  /** 访问确认（组合根注入 → AccessManager）。 */
-  readonly access?: AccessManager
+  /** 访问确认（组合根注入 → AccessAskBus）。 */
+  readonly access?: AccessAskBus
 }
 
 export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
@@ -74,7 +74,7 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
   private readonly hooks?: ToolHooks
   private onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>
   private onLog?: LogSink
-  private access?: AccessManager
+  private access?: AccessAskBus
 
   constructor(options: ToolRegistryOptions = {}) {
     this.hooks = options.hooks
@@ -91,7 +91,7 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     this.onLog = onLog
   }
 
-  setAccessSink(access?: AccessManager): void {
+  setAccessSink(access?: AccessAskBus): void {
     this.access = access
   }
 
