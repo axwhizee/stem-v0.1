@@ -27,11 +27,12 @@ export interface ToolAccessRule {
 /** 工具访问规则集（数组；层内最后命中优先，层间取最严格）。 */
 export type ToolAccessRules = readonly ToolAccessRule[]
 
-/** 工具分类：可扩展（未来 mcp / skill 等新增分类自然并入）。 */
+/** 工具分类：可扩展（未来 mcp 等新增分类自然并入）。 */
 export type ToolCategory =
   | 'business' // 业务工具（oc_*，实现由 adapters 注入）
   | 'system' // 系统管理工具（agent_*，Kernel 提供）
   | 'context' // 上下文资产工具（context_*）
+  | 'skill' // skill 加载（skill，core 生态工具）
   | 'telemetry' // 日志读取（telemetry_*）
   | 'module' // 模块评估/改造（module_*）
   | (string & {})
@@ -65,6 +66,24 @@ export interface ToolInvocation {
   readonly id: string
   readonly name: string
   readonly input: unknown
+}
+
+/** 工具初始化期文件系统能力（宿主注入；仅 init 阶段可用，execute 阶段不可用）。 */
+export interface ToolInitFs {
+  readonly listFiles: (dir: string) => Promise<readonly string[]>
+  readonly readText: (file: string) => Promise<string>
+}
+
+/** 工具初始化上下文（系统装配完成后经 registry.initAll 注入）。 */
+export interface ToolInitContext {
+  /** 文件系统能力（宿主注入；skill 工具借此扫描 skill 目录）。 */
+  readonly fs?: ToolInitFs
+  /** skill 注册表（skill 工具 init 扫描后写入）。 */
+  readonly skills?: import('./SkillRegistry').SkillRegistry
+  /** skill 目录（相对/绝对路径）。 */
+  readonly skillDir?: string
+  /** 日志出口（组合根注入）。 */
+  readonly log?: import('../logging').LogSink
 }
 
 /**
@@ -171,6 +190,11 @@ export interface ToolCapability {
   readonly category?: ToolCategory
   /** 执行器（实现由适配层/Kernel 注入）。 */
   readonly execute: (input: unknown, ctx: ToolContext) => Promise<ToolResult> | ToolResult
+  /**
+   * 工具初始化钩子（可选）：系统装配完成后调用一次，允许工具参与初始化
+   * （如 skill 工具扫描 skill 目录、可用性检查等）。幂等由工具自身保证。
+   */
+  readonly init?: (ctx: ToolInitContext) => Promise<void> | void
   /** 可选自定义参数校验：返回错误信息或 undefined。 */
   readonly validate?: (input: unknown) => string | undefined
 }

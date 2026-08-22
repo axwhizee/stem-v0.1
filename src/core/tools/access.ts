@@ -62,3 +62,20 @@ export function evaluateAccess(
 export function toolAccessToRules(access: Readonly<Record<string, ToolAccess>> | undefined): ToolAccessRules {
   return Object.entries(access ?? {}).map(([key, action]) => ({ key, action }))
 }
+
+/**
+ * 祖先链权限收集：对祖先 id 列表（父 → … → 根）逐层提取访问规则。
+ * 越靠前越「局部/强」；与 evaluateAccess 的层间单调收缩配合，
+ * 构成「全局 → 祖先链 → agent 类 → session」的完整分层。
+ */
+export function collectAncestorAccessLayers(
+  ancestors: readonly string[],
+  accessLayerOf: (agentId: string) => ToolAccessRules | undefined,
+): readonly ToolAccessRules[] {
+  const layers: ToolAccessRules[] = []
+  for (const id of ancestors) {
+    const layer = accessLayerOf(id)
+    if (layer !== undefined) layers.push(layer)
+  }
+  return layers
+}

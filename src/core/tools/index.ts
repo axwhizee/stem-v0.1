@@ -9,6 +9,8 @@ export type {
   ToolParametersSchema,
   ToolInvocation,
   ToolContext,
+  ToolInitContext,
+  ToolInitFs,
   ToolReference,
   ToolResult,
   ToolError,
@@ -27,7 +29,11 @@ export type {
 
 export { validateArgs } from './validate'
 
-export { evaluateAccess, restrictAccess, accessInLayer, toolAccessToRules } from './access'
+export { evaluateAccess, restrictAccess, accessInLayer, toolAccessToRules, collectAncestorAccessLayers } from './access'
+
+export type { SkillInfo, SkillRegistry, SkillError } from './SkillRegistry'
+export { DefaultSkillRegistry } from './SkillRegistry'
+export { createSkillTool, parseSkillFile } from './skill'
 
 export type { AccessManagerOptions, AccessManager } from './AccessManager'
 export { DefaultAccessManager } from './AccessManager'

@@ -19,6 +19,7 @@ import type { Courier, CourierRegistration } from './Courier'
 import type { Repository } from './Repository'
 import type { AssembleInput, AssembleResult, ContextAssembler, MailDelivery, RepositoryState } from './types'
 import { classicAssemble } from './types'
+import { legalize } from './legalize'
 
 export interface ContextManagerOptions {
   /** 组装策略（缺省经典组装 classicAssemble）。 */
@@ -247,16 +248,18 @@ export class DefaultContextManager implements ContextManager {
     }
   }
 
-  /** 组装（agent）或汇总（user）：返回本次快照供日志。 */
+  /** 组装（agent）或汇总（user）：返回本次快照供日志。组装结果统一过 legalize（保证可经 gateway 发送）。 */
   private snapshot(box: InternalBox): AssembleResult | undefined {
     const valid = this.repository.listValid(box.agentId)
     if (valid.length === 0) return undefined
     if (!box.assemble) {
       // user0：只汇总信件。
       const letters = valid.filter((m) => m.message.role === 'user')
-      return { system: '', messages: letters.map((m) => m.message), messageIds: letters.map((m) => m.id) }
+      const assembled = { system: '', messages: letters.map((m) => m.message), messageIds: letters.map((m) => m.id) }
+      return { ...assembled, messages: legalize(assembled.messages) }
     }
-    return this.assemble({ agentId: box.agentId, messages: valid } as AssembleInput)
+    const assembled = this.assemble({ agentId: box.agentId, messages: valid } as AssembleInput)
+    return { ...assembled, messages: legalize(assembled.messages) }
   }
 
   private findPendingFor(senderId: string): { ownerId: string; toolCallId: string } | undefined {

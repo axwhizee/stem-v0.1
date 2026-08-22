@@ -1,19 +1,18 @@
 // ============================================================
-// core/kernel/LineageTree.test.ts —— 族谱树单测
+// core/lineage/LineageTree.test.ts —— 族谱树单测（纯关系，不依赖 tools）
 //
 // 关系：InstanceManager（事实源）持有 parentId；
-// LineageTree 是无状态查询视图（getChildren/ancestors/descendants/isAncestorOf）。
-// 销毁权：仅祖先（含 user0 根）可销毁；有活跃子默认拒绝，recursive 级联。
+// LineageTree 是无状态查询视图（getChildren/ancestors/descendants/isAncestorOf/getRoot）。
+// 权限继承（collectAncestorAccessLayers）为 tools/access 纯函数，此处一并验证。
 // ============================================================
 
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DefaultTemplateRegistry } from './TemplateRegistry'
-import { DefaultInstanceManager } from './InstanceManager'
+import { DefaultTemplateRegistry, DefaultInstanceManager } from '../kernel'
 import { DefaultLineageTree } from './LineageTree'
-import type { AgentClass, AgentID } from './types'
-import { makeAgentClassID, makeAgentID } from './types'
-import { toolAccessToRules } from '../tools'
+import type { AgentClass, AgentID } from '../kernel'
+import { makeAgentClassID, makeAgentID } from '../kernel'
+import { collectAncestorAccessLayers, toolAccessToRules } from '../tools'
 
 const cls: AgentClass = {
   name: makeAgentClassID('worker'),
@@ -30,16 +29,12 @@ async function makeTree() {
   const lineage = new DefaultLineageTree({
     getInstance: (id) => manager.getSync(id),
     getAllInstances: () => manager.listAllSync(),
-    accessLayerOf: (instance) => {
-      const template = registry.getSync(instance.classRef)
-      return template ? toolAccessToRules(template.tools) : undefined
-    },
   })
   const spaceId = 'space-1' as never
-  return { manager, lineage, spaceId }
+  return { manager, lineage, spaceId, registry }
 }
 
-describe('LineageTree（无状态查询视图）', () => {
+describe('LineageTree（无状态查询视图，纯关系）', () => {
   test('祖先链：user0 根无祖先；子 agent 链到根', async () => {
     const { manager, lineage, spaceId } = await makeTree()
     const root = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId, agentId: 'root1' })
@@ -77,14 +72,27 @@ describe('LineageTree（无状态查询视图）', () => {
     assert.equal(lineage.isAncestorOf(child.id, child.id), false)
   })
 
-  test('resolveAccessLayers：祖先链逐层收集访问规则（父在前）', async () => {
+  test('getRoot：祖先链末端为根；自身即根时返回自身', async () => {
     const { manager, lineage, spaceId } = await makeTree()
     const root = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId, agentId: 'root4' })
     const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId, agentId: 'child4' })
 
-    const layers = lineage.resolveAccessLayers(child.id)
-    // 祖先链 [root4, user0]：user0 无 AgentClass（元 agent）→ accessLayerOf 返回
-    // undefined 被过滤，因此有效层数为 1（root4 的 read:allow / write:deny）。
+    assert.equal(lineage.getRoot(makeAgentID('user0')), 'user0')
+    assert.equal(lineage.getRoot(root.id), 'user0')
+    assert.equal(lineage.getRoot(child.id), 'user0')
+  })
+
+  test('collectAncestorAccessLayers：祖先链逐层收集访问规则（父在前）', async () => {
+    const { manager, lineage, spaceId, registry } = await makeTree()
+    const root = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId, agentId: 'root5' })
+    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId, agentId: 'child5' })
+
+    const layers = collectAncestorAccessLayers(lineage.getAncestors(child.id), (id) => {
+      const instance = manager.getSync(makeAgentID(id))
+      const template = instance ? registry.getSync(instance.classRef) : undefined
+      return template ? toolAccessToRules(template.tools) : undefined
+    })
+    // 祖先链 [root5, user0]：user0 是元 agent（无类）→ 过滤，有效层数为 1。
     assert.equal(layers.length, 1)
     assert.deepEqual(
       layers.map((l) => l.map((r) => [r.key, r.action])),
@@ -94,11 +102,11 @@ describe('LineageTree（无状态查询视图）', () => {
 
   test('销毁权：非祖先调用者被拒；有活跃子默认拒绝；recursive 级联', async () => {
     const { manager, spaceId } = await makeTree()
-    const root = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId, agentId: 'root5' })
-    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId, agentId: 'child5' })
+    const root = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId, agentId: 'root6' })
+    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId, agentId: 'child6' })
 
     // 非祖先（另一个游离 agent）销毁 → denied。
-    const outsider = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId, agentId: 'out5' })
+    const outsider = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId, agentId: 'out6' })
     await assert.rejects(
       () => manager.terminate(child.id, { by: outsider.id }),
       (e: unknown) => (e as { kind: string }).kind === 'agent_terminate_denied',
@@ -108,14 +116,14 @@ describe('LineageTree（无状态查询视图）', () => {
     await manager.terminate(child.id, { by: makeAgentID('user0') })
 
     // 有活跃子默认拒绝。
-    const child2 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId, agentId: 'child5b' })
+    const child2 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId, agentId: 'child6b' })
     await assert.rejects(
       () => manager.terminate(root.id, { by: makeAgentID('user0') }),
       (e: unknown) => (e as { kind: string }).kind === 'agent_has_children',
     )
 
     // recursive 级联销毁整棵子树。
-    const grand = await manager.instantiate({ className: cls.name, parentId: child2.id, userPrompt: 'hi', spaceId, agentId: 'grand5' })
+    const grand = await manager.instantiate({ className: cls.name, parentId: child2.id, userPrompt: 'hi', spaceId, agentId: 'grand6' })
     await manager.terminate(root.id, { by: makeAgentID('user0'), recursive: true })
     for (const id of [root.id, child2.id, grand.id] as AgentID[]) {
       await assert.rejects(() => manager.get(id), (e: unknown) => (e as { kind: string }).kind === 'agent_not_found')

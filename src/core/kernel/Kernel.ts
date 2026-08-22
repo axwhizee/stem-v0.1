@@ -20,7 +20,7 @@ import type { Logger } from '../logging'
 import { InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
 import type { AccessManager, ToolAccess, ToolAccessRules } from '../tools'
-import { DefaultAccessManager, toolAccessToRules } from '../tools'
+import { DefaultAccessManager, toolAccessToRules, collectAncestorAccessLayers } from '../tools'
 import type { PanelConsumer } from '../panel'
 import { DefaultPanelBus } from '../panel'
 import type { PanelBus } from '../panel'
@@ -35,8 +35,8 @@ import { DefaultSpaceManager } from './SpaceManager'
 import type { SpaceManager } from './SpaceManager'
 import { DefaultRuntime } from './Runtime'
 import type { Runtime } from './Runtime'
-import { DefaultLineageTree } from './LineageTree'
-import type { LineageTree } from './LineageTree'
+import { DefaultLineageTree } from '../lineage'
+import type { LineageTree } from '../lineage'
 import { createSystemTools } from './systemTools'
 import type { AgentClass, AgentClassID, AgentID, AgentSpaceID, ProjectRef } from './types'
 import { makeAgentID } from './types'
@@ -118,10 +118,6 @@ export class Kernel {
     this.lineage = new DefaultLineageTree({
       getInstance: (id) => this.instances.getSync(id),
       getAllInstances: () => this.instances.listAllSync(),
-      accessLayerOf: (instance) => {
-        const template = this.templates.getSync(instance.classRef)
-        return template ? toolAccessToRules(template.tools) : undefined
-      },
     })
 
     // 工具访问确认管理器：ask 挂起 → 面板弹窗；always → session 批准。
@@ -174,7 +170,9 @@ export class Kernel {
       // 完整访问层：[全局（最弱）, 祖先链(父→子), agent 类]。
       resolveAccessLayers: (agentId) => [
         options.globalToolAccessDefaults ? toolAccessToRules(options.globalToolAccessDefaults) : [],
-        ...this.lineage.resolveAccessLayers(agentId),
+        ...collectAncestorAccessLayers(this.lineage.getAncestors(agentId), (id) =>
+          this.rulesOf(makeAgentID(id)),
+        ),
         this.resolveClassLayer(agentId),
       ],
     })
@@ -207,14 +205,18 @@ export class Kernel {
     this.tools?.setAccessSink?.(this.access)
   }
 
-  /** 某 agent 的类访问层（由实例 classRef 对应模板的 tools + 实例 toolOverride 合并生成）。 */
-  private resolveClassLayer(agentId: AgentID): ToolAccessRules {
+  /** 某 agent 的访问规则（模板 tools + 实例 toolOverride 合并生成）。 */
+  private rulesOf(agentId: AgentID): ToolAccessRules {
     const instance = this.instances.getSync(agentId)
     const template = instance ? this.templates.getSync(instance.classRef) : undefined
     if (!template) return []
-    // 实例 toolOverride 对模板 tools 做临时收敛（覆盖同名，层间取更严格）。
     const merged = { ...template.tools, ...instance?.toolOverride }
     return toolAccessToRules(merged)
+  }
+
+  /** 某 agent 的类访问层（实例 classRef 对应模板的 tools + 实例 toolOverride 合并）。 */
+  private resolveClassLayer(agentId: AgentID): ToolAccessRules {
+    return this.rulesOf(agentId)
   }
 
   /** 注册用户面板（user0）：元 agent 实例化（族谱树根 parentId=null）+ 上下文（不组装，只汇总信件）。 */

@@ -14,6 +14,7 @@ export type {
   PendingHold,
 } from './types'
 export { classicAssemble } from './types'
+export { legalize } from './legalize'
 
 export type { RepositoryOptions, AppendInput, Repository } from './Repository'
 export { DefaultRepository, estimateTokens } from './Repository'

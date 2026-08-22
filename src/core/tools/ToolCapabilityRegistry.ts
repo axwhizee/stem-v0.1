@@ -25,6 +25,7 @@ import type {
   ToolContext,
   ToolError,
   ToolHooks,
+  ToolInitContext,
   ToolInvocation,
   ToolRecord,
   ToolResult,
@@ -45,6 +46,8 @@ export interface ToolCapabilityRegistry {
   readonly materialize: (layers: readonly ToolAccessRules[], filter?: ToolListFilter) => readonly ToolDefinition[]
   /** 执行：查工具 → 访问确认 → 参数校验 → 钩子 → 执行器。 */
   readonly execute: (invocation: ToolInvocation, ctx: ToolContext) => Promise<ToolResult>
+  /** 调用所有已注册工具的 init（系统装配完成后调用一次；幂等由工具自身保证）。 */
+  readonly initAll: (ctx: ToolInitContext) => Promise<void>
   /** 装配工具调用自动记录（组合根注入 → 邮局）。 */
   readonly setRecordSink: (onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>) => void
   /** 装配工具调用日志（组合根注入 → bus → core/logging）。 */
@@ -115,6 +118,12 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     const all = [...this.tools.values()]
     if (!filter?.category) return all
     return all.filter((t) => t.category === filter.category)
+  }
+
+  async initAll(ctx: ToolInitContext): Promise<void> {
+    for (const tool of this.tools.values()) {
+      await tool.init?.(ctx)
+    }
   }
 
   materialize(layers: readonly ToolAccessRules[], filter?: ToolListFilter): readonly ToolDefinition[] {
