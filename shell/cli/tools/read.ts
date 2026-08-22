@@ -6,7 +6,7 @@
 // ============================================================
 
 import { readdir } from 'node:fs/promises'
-import type { ToolCapability } from '../../src/core/tools'
+import type { ToolCapability } from '../../../src/core/tools'
 import { inspect, isBinary, resolvePath } from './fs-util'
 
 const MAX_READ_LINES = 2000

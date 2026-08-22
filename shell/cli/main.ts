@@ -33,19 +33,15 @@ import {
   USER_ID,
   type AgentID,
   type AgentClassID,
-} from '../src/core/kernel'
-import { createOpencodeGateway, GatewayError, isGatewayError, type ModelGateway } from '../src/core/gateway'
-import { DefaultToolCapabilityRegistry, type ToolCapability } from '../src/core/tools'
-import type { AccessReply } from '../src/core/tools'
-import type { PilotEvent } from '../src/core/events'
-import { startMockSse, defaultScript, type MockResponse } from '../test-support/mockSse'
+} from '../../src/core/kernel'
+import { GatewayError, isGatewayError } from '../../src/core/gateway'
+import { DefaultToolCapabilityRegistry, type ToolCapability } from '../../src/core/tools'
+import type { AccessReply } from '../../src/core/tools'
+import type { PilotEvent } from '../../src/core/events'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
-import { createHostTools } from './tools'
-import { createNodeConfigBundle, FALLBACK_MODEL } from './config'
-import { createStemSystem, type InitReport } from '../src/core/init'
-import { parseModelRef } from '../src/core/config'
+import { bootStem, createHostTools, demoTemplatesHook } from './platform'
+import type { InitReport } from '../../src/core/init'
 
-const DEFAULT_MODEL = 'deepseek-v4-flash'
 const DEFAULT_PROJECT = process.env.STEM_PROJECT_ROOT ?? join(process.cwd(), 'tmp')
 const DEFAULT_USER_PROMPT = '你好，请做一个简短的自我介绍。'
 
@@ -108,132 +104,31 @@ const ocReadFile: ToolCapability = {
   },
 }
 
-async function buildGateway(modelId?: string): Promise<{ gateway: ModelGateway; source: string }> {
-  const apiKey = process.env.OPENCODE_API_KEY
-  if (apiKey) {
-    return {
-      gateway: createOpencodeGateway({ apiKey }),
-      source: `real go/zen (model=${process.env.OPENCODE_MODEL ?? modelId ?? DEFAULT_MODEL})`,
-    }
-  }
-  // mock 模式：按 system 区分角色，按轮次推进（创建→等待→汇报）。
-  const systemRounds = new Map<string, number>()
-  const mock = await startMockSse({
-    requiredApiKey: 'test-key',
-    delayMs: 6,
-    script: (body): MockResponse => {
-      const messages = (body.messages ?? []) as Array<{ role: string; content: unknown }>
-      const system = typeof messages[0]?.content === 'string' ? messages[0].content : ''
-      const lastUser = [...messages].reverse().find((m) => m.role === 'user')
-      const text = typeof lastUser?.content === 'string' ? lastUser.content : ''
-      const hasToolResult = messages.some((m) => m.role === 'tool')
-      const tools = (body.tools ?? []) as Array<{ function?: { name: string } }>
-
-      const key = system.includes('creator-sys') ? 'creator' : system.includes('tool-sys') ? 'tool' : 'other'
-      const round = systemRounds.get(key) ?? 0
-      systemRounds.set(key, round + 1)
-
-      if (key === 'creator') {
-        if (round === 0) {
-          return toolCall('agent_instantiate', { classId: 'tool-agent', userPrompt: '请读取当前时间，然后把时间告诉我。' })
-        }
-        if (round === 1) {
-          const lastTool = [...messages].reverse().find((m) => m.role === 'tool')
-          const toolText = typeof lastTool?.content === 'string' ? lastTool.content : ''
-          const created = /已创建 agent (\w+)/.exec(toolText)
-          return toolCall('context_wait', { agentId: created?.[1] ?? 'sub-0' })
-        }
-        return streamText('（mock）子agent 报告当前时间是 12:00:00')
-      }
-      if (key === 'tool') {
-        if (round === 0) return toolCall('oc_get_time', {})
-        return streamText('（mock）当前时间是 12:00:00')
-      }
-
-      if (tools.some((t) => t.function?.name === 'oc_echo') && /echo|回显/i.test(text) && !hasToolResult) {
-        return toolCall('oc_echo', { text })
-      }
-      if (hasToolResult) {
-        const lastTool = [...messages].reverse().find((m) => m.role === 'tool')
-        const toolText = typeof lastTool?.content === 'string' ? lastTool.content : ''
-        return streamText(`（mock）工具已执行，结果：${toolText}`)
-      }
-      return defaultScript(body)
-    },
-  })
-  return {
-    gateway: createOpencodeGateway({ server: mock.url, apiKey: 'test-key' }),
-    source: `mock SSE (${mock.url})`,
-  }
-}
-
+/** 示例模板注册钩子（从 platform 共享；此处移除本地定义）。 */
 async function createShell(): Promise<ShellState> {
-  // 1. 读取唯一配置（`<projectRoot>/.stem/stem.jsonc`）→ 解析模型 → 构建网关。
-  const bundle = createNodeConfigBundle(DEFAULT_PROJECT)
-  const loaded = await bundle.store.load()
-  const config = loaded.config
-  const model = parseModelRef(config.model, FALLBACK_MODEL)
-  const { gateway, source } = await buildGateway(model.id)
-
   const dialogs = new QueueDialog()
   const display = { streamedAny: false }
   // 先建 state 骨架，回调引用 state.currentAgentId（动态，避免旧值闭包）。
   const state: ShellState = {
     kernel: undefined as never,
     currentAgentId: '' as never,
-    source,
+    source: '',
     dialogs,
     display,
     init: undefined as never,
   }
 
-  // 2. 自治系统装配（createStemSystem：init 管线 + kernel + user0 实例化 + 工具 initAll）。
-  const system = await createStemSystem({
-    config: { store: bundle.store, paths: bundle.paths },
-    fs: bundle.fs,
-    tools: { loadTool: bundle.loadTool },
-    gateway,
-    defaultModel: model,
+  // 自治系统装配（platform.bootStem：config + 网关 + createStemSystem + user0 实例化）。
+  const { system, source } = await bootStem({
+    projectRoot: DEFAULT_PROJECT,
     // 宿主工具（oc_* 演示 + read/write/edit/grep/glob）。
     hostTools: [ocEcho, ocGetTime, ocReadFile, ...createHostTools(DEFAULT_PROJECT)],
     // 统一事件流（PilotEvent）：流式 / 回信 / 访问申请（消息化）。
     onEvent: (event) => handlePilotEvent(state, event),
     // 用户注入钩子：注册示例模板（init 末尾调用）。
-    userHooks: [
-      async ({ kernel }) => {
-        // 带工具白名单的示例模板。
-        await kernel.templates.register({
-          name: makeAgentClassID('tool-assistant'),
-          description: '能调用工具（oc_echo / oc_get_time / oc_read_file）的助手（示例）',
-          systemPrompt:
-            'You are a helpful assistant with tool access. Use the available tools when appropriate. If you need a result from another agent, call agent_instantiate to create it (returns its id), then context_wait(id) to await its reply.',
-          tools: {
-            oc_echo: 'allow',
-            oc_get_time: 'allow',
-            oc_read_file: 'allow',
-            context_wait: 'allow',
-            bus_send: 'allow',
-            bus_participants: 'allow',
-          },
-        })
-        // 创造者模板（可创建子 agent；无时间权限）。
-        await kernel.templates.register({
-          name: makeAgentClassID('creator'),
-          description: '调度者：可创建子 agent 获取信息（示例）',
-          systemPrompt:
-            "creator-sys: 你是调度者，负责创建子 agent 获取信息并汇总给用户。\n可用模板 id：'tool-agent'（带 oc_get_time 时间工具）、'simple-chat'（纯对话）、'coder'。\n流程：① 用 agent_instantiate 创建子 agent，参数 className 填 'tool-agent'，必填 userPrompt 说明要它做什么；它返回新建 agent 的 id。② 随后调用 context_wait(agentId)（agentId 填①返回的 id）等待子 agent 的回复——其 assistant_message 会作为 context_wait 的 tool 结果进入你的上下文。③ 拿到结果后向用户汇报。",
-          tools: {
-            agent_instantiate: 'allow',
-            agent_list: 'allow',
-            agent_terminate: 'allow',
-            context_wait: 'allow',
-            bus_send: 'allow',
-            bus_participants: 'allow',
-          },
-        })
-      },
-    ],
+    userHooks: [demoTemplatesHook],
   })
+  state.source = source
   state.kernel = system.kernel
   state.init = system.init
   for (const issue of system.init.issues) console.log(`  [init] ${formatInitIssue(issue)}`)
@@ -407,41 +302,6 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
 
 function truncate(text: string, max: number): string {
   return text.length <= max ? text : `${text.slice(0, max)}…`
-}
-
-function splitText(text: string): Array<Record<string, unknown>> {
-  return text.split(/(?<=。) |(?<=。)/).map((piece, i) => ({
-    id: `chatcmpl-mock-${i}`,
-    choices: [{ index: 0, delta: { content: piece }, finish_reason: null }],
-  }))
-}
-
-function streamText(text: string): MockResponse {
-  return {
-    kind: 'stream',
-    chunks: [
-      ...splitText(text),
-      { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 8 } },
-    ],
-  }
-}
-
-function toolCall(name: string, args: Record<string, unknown>): MockResponse {
-  return {
-    kind: 'stream',
-    chunks: [
-      {
-        choices: [
-          {
-            index: 0,
-            delta: { tool_calls: [{ index: 0, id: `call_mock_${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] },
-            finish_reason: null,
-          },
-        ],
-      },
-      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 15, completion_tokens: 4 } },
-    ],
-  }
 }
 
 async function main(): Promise<number> {

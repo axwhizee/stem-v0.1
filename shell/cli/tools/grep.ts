@@ -6,7 +6,7 @@
 // ============================================================
 
 import { readFile } from 'node:fs/promises'
-import type { ToolCapability } from '../../src/core/tools'
+import type { ToolCapability } from '../../../src/core/tools'
 import { globToRegExp, inspect, isBinary, resolvePath, walkTextFiles } from './fs-util'
 
 export interface GrepMatch {

@@ -10,9 +10,9 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { runInit } from '../../src/core/init'
-import { DefaultToolCapabilityRegistry } from '../../src/core/tools'
-import { DefaultTemplateRegistry } from '../../src/core/kernel'
+import { runInit } from '../../../src/core/init'
+import { DefaultToolCapabilityRegistry } from '../../../src/core/tools'
+import { DefaultTemplateRegistry } from '../../../src/core/kernel'
 import { createNodeConfigBundle } from './nodeConfig'
 
 async function makeProjectSpace(): Promise<string> {
@@ -31,7 +31,7 @@ send_countdown: 700
 You review code.
 `
 
-const TOOL_TEXT = `import type { ToolCapability } from '../../src/core/tools'
+const TOOL_TEXT = `import type { ToolCapability } from '../../../src/core/tools'
 
 const tool: ToolCapability = {
   id: 'my_tool',

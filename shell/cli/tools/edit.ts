@@ -8,7 +8,7 @@
 // ============================================================
 
 import { writeFile } from 'node:fs/promises'
-import type { ToolCapability } from '../../src/core/tools'
+import type { ToolCapability } from '../../../src/core/tools'
 import { inspect, readText, resolvePath } from './fs-util'
 
 export function createEditTool(root: string): ToolCapability {

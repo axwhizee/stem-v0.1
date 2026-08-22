@@ -5,7 +5,7 @@
 // MCP / VSCode 等宿主工具同样通过该接口注册）。
 // ============================================================
 
-import type { ToolCapability } from '../../src/core/tools'
+import type { ToolCapability } from '../../../src/core/tools'
 import { createReadTool } from './read'
 import { createWriteTool } from './write'
 import { createEditTool } from './edit'

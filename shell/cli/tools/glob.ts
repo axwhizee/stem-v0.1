@@ -5,7 +5,7 @@
 // （支持 ** / * / ? / {a,b}），返回匹配文件列表。
 // ============================================================
 
-import type { ToolCapability } from '../../src/core/tools'
+import type { ToolCapability } from '../../../src/core/tools'
 import { globToRegExp, inspect, resolvePath, walkTextFiles } from './fs-util'
 
 export function createGlobTool(root: string): ToolCapability {

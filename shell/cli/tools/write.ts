@@ -7,7 +7,7 @@
 
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
-import type { ToolCapability } from '../../src/core/tools'
+import type { ToolCapability } from '../../../src/core/tools'
 import { resolvePath } from './fs-util'
 
 export function createWriteTool(root: string): ToolCapability {
