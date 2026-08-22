@@ -30,8 +30,9 @@ npm install                 # 安装依赖（node >= 20）
 npm run typecheck           # tsc --noEmit 类型检查（唯一 lint/typecheck）
 npm test                    # 全量单测：tsx --test src/**/*.test.ts shell/**/*.test.ts
 npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑（node:test 并发）
-npm run shell               # 交互式调试 shell（mock 网关）
+npm run shell               # CLI 交互 shell（参考 shell，mock 网关）
 OPENCODE_API_KEY=<key> npm run shell   # 真实网关（opencode-go）
+npm run web                 # WebUIShell（浏览器打开 http://localhost:4321）
 npm run build               # 与 typecheck 相同（tsc --noEmit）
 ```
 
@@ -41,20 +42,27 @@ npm run build               # 与 typecheck 相同（tsc --noEmit）
 src/core/                  # 纯 TS 领域逻辑，零平台依赖（D11 硬规则）
   ├── config/              # 全局配置：StemConfig 类型 + JSONC 解析（唯一配置文件 .stem/stem.jsonc）
   ├── context/             # 重建邮局：仓库 Repository + 管理员 ContextManager + 快递员 Courier
-  │                        #   + tag/双索引 + exportJsonl/overview
+  │                        #   + tag/双索引 + exportJsonl/overview + legalize（组装合法化）
+  ├── events/              # PilotEvent 判别联合 + EventHub（多订阅者事件中心）
   ├── gateway/             # ModelGateway 接口 + providers/(opencodeLlm / fetch) + FakeGateway
-  ├── init/                # 初始化管线：扫描 .stem/tool + .stem/agent → 同步注册表 → 注册进 core
-  ├── kernel/              # Kernel 组合根 + TemplateRegistry/InstanceManager/SpaceManager/
-  │                        #   Runtime/LineageTree（族谱）
+  ├── init/                # 系统初始化与装配：createStemSystem（组合根）+ runInit 扫描管线
+  │                        #   （.stem/tool + .stem/agent → 同步注册表 → 注册进 core）
+  ├── kernel/              # Kernel + TemplateRegistry/InstanceManager/SpaceManager/
+  │                        #   Runtime + userClass（内置 user 类，user0 采用）
+  ├── lineage/             # 族谱树（纯关系无状态视图）：getParent/children/ancestors/
+  │                        #   descendants/getRoot/isAncestorOf（零 tools 依赖）
   ├── logging/             # LogEvent 判别联合 + Logger（经注入 LogSink，无总线）
-  ├── panel/               # PanelBus：面板消息统一通道（letter/访问确认/通知）
-  ├── tools/               # ToolCapabilityRegistry + access.ts（四态评估）+ AccessManager
+  ├── pilot/               # Pilot：user0 扮演接口（驾驶舱；sendMessage/instantiate/
+  │                        #   replyAccess/订阅事件流）
+  ├── tools/               # ToolCapabilityRegistry（含 init 生命周期）+ access.ts（四态评估）
+  │                        #   + accessRequest.ts（ask 消息化：投递根信箱 + access_reply）
+  │                        #   + SkillRegistry + skill 工具
   └── types.ts
-shell/                     # 宿主层（node/CLI），实现 core 注入的接口
-  ├── main.ts              # 调试 shell 入口（组合根）：跑 init + 注册工具/模板
-  ├── config/              # node fs 版 ConfigStore / InitFs / 动态 import 用户工具
-  ├── tools/               # host 内置工具（kind=shell）：read/write/edit/grep/glob
-  └── ui/                  # 弹窗模块（访问确认队列）
+shell/                     # 宿主层（node/CLI + Web），实现 core 注入的接口
+  ├── cli/                 # 参考 shell：platform.ts（bootStem 共享装配）+ gateway +
+  │                        #   fs 工具集（read/write/edit/grep/glob）+ CLI 命令
+  └── webui/               # WebUIShell：HTTP + SSE 浏览器交互层（agent 侧栏/timeline/composer）
+extension/                 # 可选功能扩展（预留：扩展工具集 seam，如 VSCode 工具集）
 templates/                 # 内置 AgentClass 模板（JSON，name 即 id，tools 为 Record）
 test-support/              # 测试支撑：kernelHarness.ts（内存 + FakeGateway + 手动计时器）
 tmp/                       # 测试项目空间（.stem/ 配置 + 用户 tool/agent 示例）
@@ -68,7 +76,7 @@ log.md                     # 开发日志（root）
 ### Core 零平台依赖（最高优先级硬规则）
 
 - `src/core/` 内**禁止** `import 'vscode'`、禁止平台全局（`window`/`process`/`Deno`）。
-- 平台能力（fs、动态 import、网络）全部**以接口暴露、由宿主注入**：如 `ConfigStore`、`InitFs`、`InitToolLoader`、`ModelGateway`、`LogSink`、`PanelConsumer`。
+- 平台能力（fs、动态 import、网络）全部**以接口暴露、由宿主注入**：如 `ConfigStore`、`InitFs`、`InitToolLoader`、`ModelGateway`、`LogSink`、`TimerFactory`、工具 `init` 的 `ToolInitFs`。
 - 跨层引用**只能 import `index.ts`**（禁止 import 内部文件）。
 - 接口 + 实现同文件（`interface X` + `DefaultX`），模块目录含 `index.ts` 唯一出口。
 
@@ -77,15 +85,17 @@ log.md                     # 开发日志（root）
 - **AgentClass（模板）**：`name` 即 id（注册查重）；`description`；`systemPrompt`；`tools`（`Record<访问键, ask|deny|allow|ignore>`，**键即白名单**，空 Record=无工具、undefined=全部）；`contextStrategy`（默认 classic）；`model`；`sendCountdown`。
 - **AgentInstance**：`id` / `classRef`（模板名）/ `parentId`（= 创建者，user0 为 null 即根）/ `displayName` / `spaceId` / `status` / `turnCount` / `totalCost` / `userPrompt` / `toolOverride`。**creatorId 已合并进 parentId**（谁创建谁就是父），运行时属性多于工具调用参数。
 - **状态机**：`idle → thinking → holding`；`interrupted`（当前轮被中断，仅暂停、消息闭合、可恢复）。
-- **族谱树（LineageTree）**：无状态关系查询视图——parentId 挂实例上，实时推导 parent/children/ancestors/descendants；销毁权（祖先或 user0 可销毁；有活跃子默认拒，recursive 级联）。
+- **族谱树（LineageTree）**：无状态关系查询视图——parentId 挂实例上，实时推导 parent/children/ancestors/descendants/getRoot；销毁权（祖先或 user0 可销毁；有活跃子默认拒，recursive 级联）。
 - **重建邮局（无总线）**：仓库（存储）→ 管理员（打戳/组装/context_wait 填充）→ 快递员（倒计时送信）；agent 通信经 `kernel.sendMessage` 直接投递；log/access_reply 走注入接口。
+- **事件流（PilotEvent）**：`stream`（LLM 流式）/ `letter`（信箱来信，含 access_request）/ `status` / `notice`，经 EventHub 多订阅者发布，外部（shell/webui）统一订阅。
 
 ### 工具体系与访问
 
 - `ToolKind` 三分类：`internal`（core 系统工具，默认 `ignore` 隐藏）/ `shell`（宿主内置）/ `user`（用户 `.stem/tool/` 提供）。
 - `ToolAccess` 四态：`allow`（暴露+执行）/ `ask`（暴露+执行弹窗）/ `deny`（不暴露+拒绝）/ `ignore`（不暴露+等同 allow）。
 - **分层评估（单调收缩）**：`[全局 → 祖先链 → agent 类(tools) → session 批准]`，层间取最严格；`deny` 不可被后序规则撤销；session 批准仅当前实例，不传播后代。默认 ask（internal 默认 ignore）。
-- 统一访问确认在 registry 层（AccessManager）：allow/ignore 执行 / deny 抛错 / ask 挂起 → PanelBus 弹窗 → user0 回复（once/always/reject）。
+- **ask 消息化（扁平化）**：命中 ask 时 `accessRequest` 自动投递 `<access_request>` 消息到**申请者的族谱根信箱**（机制同向模型发消息）并挂起；根 agent 经 `access_reply` 工具回复（once/always/reject）。无 agent 特判（user0 的 ask 发给自己，由扮演它的 shell 经 pilot 确认）。
+- **工具生命周期**：`ToolCapability.init?(ctx)` 参与系统初始化（skill 扫描等）；`registry.initAll(ctx)` 装配后调用一次、幂等、工具间禁跨依赖。
 
 ### 消息库：tag + 双索引
 
@@ -96,16 +106,18 @@ log.md                     # 开发日志（root）
 ### 全局配置与初始化（唯一配置文件）
 
 - 配置文件：`<projectRoot>/.stem/stem.jsonc`（或 `stem.json`），是**最终配置载体**，本阶段无多级合并。
-- 配置项：`model`（`提供商/模型` 格式）、`autoApprove`、`permission`（全局工具访问最弱层）、`sendCountdown`、`tools`/`agents`（**纯镜像注册表**，init 自动维护）。
-- `core/init` 管线（`runInit(deps)`）：扫描 `.stem/tool/*.ts`（默认导出 `ToolCapability`）+ `.stem/agent/*.md`（YAML 头 + 正文）→ 同步注册表（jsonc-parser 定点写回，保留注释）→ 注册进 `ToolCapabilityRegistry` + `TemplateRegistry`。
+- 配置项：`model`（`提供商/模型` 格式）、`autoApprove`、`permission`（**user 模板的工具权限**，内置根类 tools）、`sendCountdown`、`tools`/`agents`（**纯镜像注册表**，init 自动维护）。
+- **系统装配**（`createStemSystem(deps)`，core 组合根）：config → 工具注册表 + Kernel（user 类 tools=config.permission）→ 系统工具/宿主工具 → skill 工具 → `runInit` 扫描管线 → Pilot 初始化（实例化 user0）→ `initAll`（skill 发现）→ 用户注入钩子。
+- `runInit` 管线：扫描 `.stem/tool/*.ts`（默认导出 `ToolCapability`）+ `.stem/agent/*.md`（YAML 头 + 正文）→ 同步注册表（jsonc-parser 定点写回，保留注释）→ 注册进 `ToolCapabilityRegistry` + `TemplateRegistry`。
 - **用户 agent 文件**：文件名即类 id/name（不要求 YAML id/name）；`permission` 的键即工具清单（融合设计，工具=键、动作=值）；`metadata` 等附加字段忽略。
+- **user0**：`user` 类的普通实例（内置根模板，`parentId=null`），在 pilot 初始化流程内实例化；系统 ready 后由用户经 pilot 手动实例化后续 agent。
 
 ### 测试规范
 
 - 单测与源码同目录（`*.test.ts`），用 `node:test` + `node:assert/strict`。
 - **不 mock 全局**；注入 fake（`FakeGateway`、内存 registry、临时目录）。
-- 真实 fs 集成测试用 `mkdtemp` 临时目录（见 `shell/config/nodeConfig.test.ts`）。
-- 纯逻辑抽纯函数（工具访问评估 access.ts、JSONC 解析、agent frontmatter 解析）。
+- 真实 fs 集成测试用 `mkdtemp` 临时目录（见 `shell/cli/config/nodeConfig.test.ts`）。
+- 纯逻辑抽纯函数（工具访问评估 access.ts、JSONC 解析、agent frontmatter 解析、legalize）。
 - **分模块测试**（改哪测哪）：`npm run test:module -- "src/core/kernel/*.test.ts"`。各模块已隔离（无共享全局态、fs 用独立 mkdtemp），模块间无顺序依赖，可并发独立跑。
 
 ## 提交规范
@@ -122,6 +134,6 @@ log.md                     # 开发日志（root）
 - `noUncheckedIndexedAccess: true`：数组索引访问可能为 `undefined`，需判空。
 - core 错误用判别联合对象（`{ kind: ... }`），不是 Error 实例；`assert.throws` 用谓词而非正则。
 - `jsonc-parser` / `yaml` 是运行时依赖（`dependencies`），tsx/node 运行时直接使用。
-- 改动 `ToolKind` / 工具 shape / `AgentClass.tools` 时，同时检查 `shell/tools/` 与 `src/core/tools/`。
+- 改动 `ToolKind` / 工具 shape / `AgentClass.tools` 时，同时检查 `shell/cli/tools/` 与 `src/core/tools/`。
 - `AgentClass`：name 即模板键；`tools` 为 `Record`（键即白名单），不再是数组 + 独立 toolAccess。
 - `AgentInstance`：无 creatorId；族谱关系用 parentId。

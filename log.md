@@ -638,3 +638,56 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - 上下文管理策略实现（coding-hybrid 渐进版 / ltm-stm-mix / self-focus 裁剪开关）。
 - contextRefs 支持"轮索引 or 轮+序号"定位语法（当前仅消息 id 或轮索引）。
 - 后台总结工具（每轮每消息短摘要）——用户暂缓。
+
+## 阶段：user0 平等化 + ask 消息化 + 自治系统装配 + shell 分层
+
+**日期**：2026-08-22
+
+### 目标
+
+按「全体 agent 绝对平等」原则做系统性重构：user0 落回 `user` 类普通实例、ask 审批消息化、core 自治装配（createStemSystem）、外部交互统一为 Pilot 扮演 + PilotEvent 事件流、shell 分层（cli 参考 shell + webui）。
+
+### 完成内容
+
+1. **设计理念固化**（AGENTS.md 新增六条硬规则）：全体平等 / 机制大于判断 / 权限收敛走族谱 / 模块自治 / 少即是多 / 架构分层。
+
+2. **工具生命周期 + skill 生态**（core/tools/）：
+   - `ToolCapability.init?(ctx: ToolInitContext)` + `registry.initAll(ctx)`（fs/skills/skillDir/log 注入，装配后调用一次、幂等）；
+   - `SkillRegistry`（register/get/list/manifest `<available_skills>`）+ `skill` 工具（internal，类配置显式 allow；init 扫描 `.stem/skills/*.md`，execute 懒加载正文）——渐进式披露，避免工具上下文膨胀。
+
+3. **legalize（上下文合法化）**（core/context/legalize.ts，纯函数）：组装 delivery 统一过——悬空 tool_calls 裁剪 / 孤儿 tool 剔除 / tool→user 相邻插边界。保证删除/修改后的上下文仍可经 gateway 发送。
+
+4. **族谱树独立模块化**（core/lineage/）：纯关系视图（parent/children/ancestors/descendants/getRoot/isAncestorOf），零 tools 依赖；权限继承收敛至 `tools/access.ts`（`collectAncestorAccessLayers`）。
+
+5. **ask 权限消息化**（core/tools/accessRequest.ts，取代 AccessManager/PanelBus）：
+   - 命中 ask → `AccessAskBus` 自动投递 `<access_request>` 到**申请者的族谱根信箱**（机制同向模型发消息）并挂起；
+   - 根 agent 经 `access_reply` 工具回复（once/always/reject，可带 feedback，`reply(input, by)` 校验调用者是根）；
+   - **删除 `core/panel/`（PanelBus）与 `core/tools/AccessManager.ts`**；kernel 事件流收敛为 `PilotEvent`（stream/letter/status/notice）+ `EventHub`（多订阅者）。
+
+6. **user0 平等化**（core/kernel/）：
+   - 内置 `user` 类（`userClass.ts`：systemPrompt=''、sendCountdown=0、**tools = config.permission**）；user0 = user 类普通实例（parentId=null 即根）；
+   - 移除 `META_CLASS_ID` / `registerMetaAgent` / `registerUser`，根经 `registerRootAgent` 走正常 `instantiate` 路径；终止权泛化为 `isAncestorOf`（根无祖先 → 天然不可销毁）；
+   - config.permission 语义重定义 = user 模板 tools（不再独立全局最弱层，由祖先链首层承接）。
+
+7. **Pilot + 系统装配**（core/pilot/ + core/init/）：
+   - `Pilot`：user0 扮演接口（sendMessage/instantiate/terminate/interrupt/replyAccess/context 管理 + subscribe(PilotEvent)）；`createPilot` 内实例化 user0；
+   - `createStemSystem(deps)`：config → 工具注册表 + Kernel（user 类 tools=config.permission + skills 注入）→ 系统/宿主/skill 工具 → runInit 管线 → pilot(user0) → initAll(skill 发现) → 用户注入钩子（userHooks）；shell 只注入平台能力。
+
+8. **上下文删除/修改工具**：`context_remove`（markInvalid，system 除外，可整轮删）+ `context_edit`（updateMessage，system 除外）；user0 亦适用（无特判）。
+
+9. **修复潜在无限循环**：只有外部来信（`deposit`）才唤醒快递员，agent 自身 `appendHistory` 不触发重投递（否则 agent 自回复会无限循环——原设计在真实计时器下暴露）。
+
+10. **shell 分层**：`shell/cli/`（参考 shell：platform.bootStem 共享装配 + gateway + fs 工具集 + CLI）+ `shell/webui/`（HTTP + SSE 浏览器交互层：agent 侧栏/timeline/composer/权限弹窗）+ `extension/tools/`（预留扩展工具集 seam）。
+
+### 验证
+
+- 139/139 测试通过（新增：lineage 迁移 + getRoot、legalize、skill/init 生命周期、accessRequest 总线、createStemSystem 装配、pilot 扮演）。
+- typecheck 0 错误。
+- `npm run shell`（CLI）与 `npm run web`（http://localhost:4321）冒烟正常：agents/templates/context API、发送消息、SSE、权限弹窗流程。
+
+### 后续（未执行）
+
+- `context_validate` 预览工具（首期只做 remove+edit）。
+- 上下文管理策略实现（coding-hybrid / ltm-stm-mix / self-focus）。
+- extension 工具集迁移（fs 工具 → extension/tools，可替换为 VSCode 工具集）。
+- user0 transcript 完整化（assemble=true 全转录 + skills 清单注入已就绪，webui 渲染细化）。

@@ -4,7 +4,7 @@
 > 干细胞之意：如同原始 Agent 类，可分化出任意角色与能力。
 > 抛弃会话概念：以**原子化 Agent 类 + Agent 实例**为核心，配合**族谱树**与模块化 harness 系统，构建可自我进化的多智能体集群。
 
-**状态**：架构定稿，实现阶段（核心骨架落地，115 单测全绿）。
+**状态**：架构定稿，实现阶段（核心骨架落地，139 单测全绿）。
 **日期**：2026-08
 
 ---
@@ -15,7 +15,7 @@
 - 是**用户主权的 Agent 系统**：
   - 一切 Agent 来自 **AgentClass（模板）**，用户自由创建/修改/删除/实例化，**绝不固定任何角色**。
   - 简单对话 = 简单类 + 空上下文实例；复杂任务 = 调度器类再创建子实例并传递上下文。
-  - **族谱树**：所有 agent 一律平等（同地位独立个体），唯一区别是 `parentId`——user0（面板）是原点、元 agent（`parentId=null`）；父可销毁/中断子（`agent_terminate`/`agent_interrupt` + 祖先校验）。
+  - **族谱树**：所有 agent 一律平等（同地位独立个体），唯一区别是 `parentId`——user0（`user` 类实例）是原点、根（`parentId=null`）；父可销毁/中断子（`agent_terminate`/`agent_interrupt` + 祖先校验）。
   - **工具访问四态**：权限融合进工具清单（allow/ask/deny/ignore），层间**单调收缩**（子 ≤ 父，deny 不可被撤销）；系统级工具默认 `ignore`（隐藏，显式 `allow` 才暴露）。
   - **元能力工具**（`agent_class_create` / `agent_inspect` / `agent_ancestry` / `agent_descendants` …）让 AI 自己管理 Agent 信息，实现自我进化（特修斯之船）。
   - **消息库 tag + 双索引**：为上下文管理策略（压缩/印象/记忆）提供定位，引导从经典组装走向自聚焦/记忆分层。
@@ -27,24 +27,23 @@
 
 ```text
 ┌───────────────────────────────────────────────────────────────────────┐
-│ Layer 4  Host / 面板 (shell/ 当前 CLI，未来 VSCode)   ← 平台能力       │
-│   面板 = user0（元 agent）：发消息 / 收汇总 / 工具访问弹窗             │
+│ Layer 3  shell/（交互层，最外）—— 平台适配 + UI                          │
+│   cli/（参考 shell：bootStem + fs 工具集 + CLI）· webui/（HTTP+SSE）     │
 ├───────────────────────────────────────────────────────────────────────┤
-│ Layer 3  Kernel (core/kernel/)   ← 纯 TS，零平台依赖                   │
-│   Kernel（组合根）· TemplateRegistry · InstanceManager · SpaceManager │
-│   Runtime（被动驱动状态机）· LineageTree（族谱，无状态视图）           │
-├───────────────────────────────────────────────────────────────────────┤
-│ Layer 2  Core Infra (core/context/, core/tools/, core/panel/)         │
-│   仓库·管理员·快递员（重建邮局）· ToolCapabilityRegistry               │
-│   access.ts（四态评估）· AccessManager · PanelBus                      │
+│ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                       │
+│   init/（createStemSystem 组合根）· kernel/（Kernel/Runtime/userClass） │
+│   pilot/（user0 扮演接口）· events/（PilotEvent + EventHub）            │
+│   lineage/（族谱纯关系视图）· context/（重建邮局 + legalize）            │
+│   tools/（注册表 + access + accessRequest + SkillRegistry + skill）     │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 1  Model Gateway (core/gateway/)   ← 纯 TS（opencode 隔离）     │
 │   ModelGateway · providers/(opencodeLlm / fetch) · FakeGateway         │
 └───────────────────────────────────────────────────────────────────────┘
-  横切  Logging (core/logging/) —— LogEvent 经注入 LogSink 直达记录器（无总线）
+   extension/tools/  可选功能扩展（预留：扩展工具集 seam，如 VSCode 工具集）
+   横切  Logging (core/logging/) —— LogEvent 经注入 LogSink 直达记录器（无总线）
 ```
 
-依赖方向（单向）：`shell → kernel → context/tools → gateway`。core 目录零平台依赖（禁止 `import 'vscode'` 与平台全局）。
+依赖方向（单向）：`shell → core(kernel/pilot/context/tools) → gateway`。core 目录零平台依赖（禁止 `import 'vscode'` 与平台全局）；平台能力（fs/网络/动态 import）全部以接口注入。
 
 ## 核心概念
 
@@ -53,10 +52,11 @@
 | **AgentClass（模板）** | 角色设定：name（即 id）/ description / systemPrompt / **tools**（Record，键即白名单）/ contextStrategy / model / sendCountdown。用户主权载体。 |
 | **AgentInstance** | 运行时原子单位：classRef / **parentId**（=创建者，族谱）/ displayName / status / turnCount / totalCost。 |
 | **族谱树 LineageTree** | 无状态关系视图：parentId 挂实例上，实时推导 children/ancestors/descendants；销毁权判定。 |
-| **user0（元 agent）** | 面板=user0：classRef=`__meta__`、parentId=null（根）、元权限短路 allow。 |
-| **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore，融合进 `core/tools/`（access.ts + AccessManager）。 |
-| **重建邮局** | 无集中式总线：仓库（存储）→ 管理员（处理/打戳/组装）→ 快递员（倒计时+发送）。 |
-| **AccessManager** | 分层评估（全局→祖先链→类→session 批准，取最严格）；ask 挂起经 PanelBus 弹窗。 |
+| **user0** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.permission` 即 user 类 tools。 |
+| **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore，融合进 `core/tools/`（access.ts + accessRequest.ts）。 |
+| **重建邮局** | 无集中式总线：仓库（存储）→ 管理员（处理/打戳/组装 + legalize）→ 快递员（倒计时+发送）。 |
+| **ask 消息化** | ask 审批 = 消息交换：`access_request` 投递根信箱 → 根经 `access_reply` 回复（once/always/reject）。 |
+| **PilotEvent** | 统一事件流（stream/letter/status/notice）+ EventHub 多订阅者；外部（shell/webui）订阅。 |
 | **tag + 双索引** | StoredMessage 带 tag（非原生合成消息）+ turn/indexInTurn（双索引），为上下文策略提供精确定位。 |
 
 ## 文档索引
@@ -83,13 +83,14 @@
 ```bash
 npm install                 # 安装依赖（node >= 20）
 npm run typecheck           # tsc --noEmit 类型检查（唯一 lint/typecheck）
-npm test                    # 全量单测（115）
+npm test                    # 全量单测（139）
 npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑
-npm run shell               # 交互式调试 shell（mock 网关）
+npm run shell               # CLI 交互 shell（参考 shell，mock 网关）
 OPENCODE_API_KEY=<key> npm run shell   # 真实网关（opencode-go）
+npm run web                 # WebUIShell（浏览器打开 http://localhost:4321）
 ```
 
-shell 内可交互：直接输入对话；`/new` 创建实例、`/agents` 查看族谱、`/templates` 查看模板、`/tools` 查看工具、`/config` 看配置、`/stop` 中断当前 agent、`/help` 帮助、`/exit` 退出。
+shell 内可交互：直接输入对话；`/new` 创建实例、`/agents` 查看族谱、`/templates` 查看模板、`/tools` 查看工具、`/config` 看配置、`/stop` 中断当前 agent、`/help` 帮助、`/exit` 退出。web 端为浏览器交互（agent 侧栏 / timeline / composer / 权限弹窗）。
 
 ## 关键前提
 
