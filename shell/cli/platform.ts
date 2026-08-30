@@ -6,10 +6,12 @@
 // 无需研究 core 接口即可完成引导。
 // ============================================================
 
+import { join } from 'node:path'
 import { createNodeConfigBundle, FALLBACK_MODEL } from './config'
 import { createHostTools } from './tools'
 import { buildGateway } from './gateway'
-import { createStemSystem, type UserInitHook } from '../../src/core/init'
+import { createSqliteStateStore } from './storage'
+import { createStemSystem, type StemSystemDeps, type UserInitHook } from '../../src/core/init'
 import type { StemSystem } from '../../src/core/init'
 import { parseModelRef } from '../../src/core/config'
 import type { PilotEvent } from '../../src/core/events'
@@ -60,20 +62,28 @@ export interface BootOptions {
   readonly onEvent?: (event: PilotEvent) => void
   /** 用户注入钩子（init 末尾调用）。 */
   readonly userHooks?: readonly UserInitHook[]
+  /**
+   * 个体层持久化（缺省 = SQLite：`STEM_DB_PATH` 或 `<projectRoot>/.stem/stem.db`）；
+   * `false` = 显式纯内存运行（不落盘）。
+   */
+  readonly stateStore?: StemSystemDeps['stateStore'] | false
 }
 
 export interface BootResult {
   readonly system: StemSystem
   readonly source: string
   readonly projectRoot: string
+  /** 生效的持久化存储（undefined = 纯内存）。 */
+  readonly stateStore?: StemSystemDeps['stateStore']
 }
 
-/** 节点平台装配：读取配置 → 构建网关 → createStemSystem（含 user0 实例化）。 */
+/** 节点平台装配：读取配置 → 构建网关 → createStemSystem（含 user0 实例化 + SQLite 恢复）。 */
 export async function bootStem(opts: BootOptions): Promise<BootResult> {
   const bundle = createNodeConfigBundle(opts.projectRoot)
   const loaded = await bundle.store.load()
   const model = parseModelRef(loaded.config.model, FALLBACK_MODEL)
   const { gateway, source } = await buildGateway(model.id)
+  const stateStore = opts.stateStore === false ? undefined : (opts.stateStore ?? createSqliteStateStore(defaultDbFile(opts.projectRoot)))
   const system = await createStemSystem({
     config: { store: bundle.store, paths: bundle.paths },
     fs: bundle.fs,
@@ -83,6 +93,12 @@ export async function bootStem(opts: BootOptions): Promise<BootResult> {
     hostTools: opts.hostTools ?? createHostTools(opts.projectRoot),
     onEvent: opts.onEvent,
     userHooks: opts.userHooks,
+    ...(stateStore !== undefined ? { stateStore } : {}),
   })
-  return { system, source, projectRoot: opts.projectRoot }
+  return { system, source, projectRoot: opts.projectRoot, ...(stateStore !== undefined ? { stateStore } : {}) }
+}
+
+/** 默认 DB 位置：`STEM_DB_PATH` 覆盖；否则 `.stem/stem.db`（与配置同目录，随 volume 持久）。 */
+function defaultDbFile(projectRoot: string): string {
+  return process.env.STEM_DB_PATH ?? join(projectRoot, '.stem', 'stem.db')
 }

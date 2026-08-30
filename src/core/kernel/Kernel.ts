@@ -15,8 +15,8 @@
 import type { ModelGateway } from '../gateway'
 import type { LLMEvent, ModelRef, UsageEvent } from '../gateway'
 import type { ContextAssembler, MailDelivery, Repository, Courier } from '../context'
-import { DefaultRepository, DefaultCourier, DefaultContextManager } from '../context'
-import type { ContextManager } from '../context'
+import { DefaultRepository, DefaultCourier, DefaultContextManager, PersistedRepository } from '../context'
+import type { ContextManager, MessageStore } from '../context'
 import type { Logger } from '../logging'
 import { InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
@@ -31,6 +31,8 @@ import { DefaultTemplateRegistry } from './TemplateRegistry'
 import type { TemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
 import type { InstanceManager, InstantiateOptions } from './InstanceManager'
+import { PersistedInstanceManager, PersistedSpaceManager } from './persisted'
+import type { InstanceStore } from './store'
 import { DefaultSpaceManager } from './SpaceManager'
 import type { SpaceManager } from './SpaceManager'
 import { DefaultRuntime } from './Runtime'
@@ -39,8 +41,8 @@ import { DefaultLineageTree } from '../lineage'
 import type { LineageTree } from '../lineage'
 import { createSystemTools } from './systemTools'
 import { createUserClass, USER_CLASS_ID } from './userClass'
-import type { AgentClass, AgentClassID, AgentID, AgentSpaceID, ProjectRef } from './types'
-import { makeAgentID, makeAgentSpaceID } from './types'
+import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentSpaceID, ProjectRef } from './types'
+import { makeAgentID } from './types'
 
 /** 内置示例模板（从 templates/*.json 加载，非硬编码角色）。 */
 export const BUILTIN_TEMPLATES: readonly AgentClass[] = [
@@ -78,6 +80,12 @@ export interface KernelOptions {
   readonly skills?: import('../tools').SkillRegistry
   /** 工具访问自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
   readonly autoApprove?: boolean
+  /**
+   * 持久化端口（宿主注入，如 SQLite 实现）：注入后仓库/实例管理器
+   * 套 write-through 装饰器（内存为准，同步落行），并在构造期恢复内存态；
+   * 缺省纯内存（测试 harness 不受影响）。
+   */
+  readonly stateStore?: { readonly messages: MessageStore; readonly instances: InstanceStore }
 }
 
 export class Kernel {
@@ -100,14 +108,38 @@ export class Kernel {
   readonly events: EventHub
   /** 日志记录器。 */
   readonly logger: Logger
+  /** 启动期从持久化端口恢复出的实例（构造末尾接线上下文用；空 = 首启/纯内存）。 */
+  private readonly restoredInstances: readonly AgentInstance[]
 
   constructor(options: KernelOptions) {
     this.templates = new DefaultTemplateRegistry([
       createUserClass(options.userClassTools),
       ...(options.templates ?? BUILTIN_TEMPLATES),
     ])
-    this.instances = new DefaultInstanceManager(this.templates)
-    this.spaces = new DefaultSpaceManager()
+
+    // ---------- 持久化装配（可选 stateStore 注入，core 零平台依赖：端口由宿主实现） ----------
+    // 内存核 → （注入时）同一对内存核上恢复 → 套 write-through 装饰器（恢复期不反向写）。
+    // 恢复出的实例在构造末尾统一接线上下文（wireRestoredInstances）。
+    const store = options.stateStore
+    const memoryInstances = new DefaultInstanceManager(this.templates)
+    const memoryRepository = new DefaultRepository({ onLog: (event) => this.emitLog(event) })
+    const memorySpaces = new DefaultSpaceManager()
+    if (store) {
+      const persistedInstances = new PersistedInstanceManager(memoryInstances, store.instances)
+      const persistedRepository = new PersistedRepository(memoryRepository, store.messages)
+      this.restoredInstances = persistedInstances.restoreFromStore()
+      persistedRepository.restoreFromStore()
+      const persistedSpaces = new PersistedSpaceManager(memorySpaces, store.instances)
+      persistedSpaces.restoreFromStore()
+      this.instances = persistedInstances
+      this.repository = persistedRepository
+      this.spaces = persistedSpaces
+    } else {
+      this.restoredInstances = []
+      this.instances = memoryInstances
+      this.repository = memoryRepository
+      this.spaces = memorySpaces
+    }
     this.tools = options.tools
     this.logger = options.logger ?? new InMemoryLogger()
 
@@ -134,8 +166,7 @@ export class Kernel {
       autoApprove: options.autoApprove,
     })
 
-    // 重建邮局：仓库（存储）→ 管理员（处理，经 onChange 驱动）→ 快递员（发送）。
-    this.repository = new DefaultRepository({ onLog: (event) => this.emitLog(event) })
+    // 重建邮局：仓库（存储，已在持久化装配段创建）→ 管理员（onChange 驱动）→ 快递员（发送）。
     this.courier = new DefaultCourier({
       defaultCountdownMs: options.defaultCountdownMs,
       timer: options.timer,
@@ -202,6 +233,37 @@ export class Kernel {
     // 工具调用日志；访问确认 → AccessManager。
     this.tools?.setLogSink?.({ log: (event) => this.emitLog(event) })
     this.tools?.setAccessSink?.(this.access)
+
+    // 恢复接线：持久化实例重新挂上管理员/快递员（跳过仓库开辟，箱已恢复）。
+    this.wireRestoredInstances()
+  }
+
+  /**
+   * 恢复接线（构造末尾调用一次）：为启动期恢复出的每个实例注册上下文处理
+   * （restore=true：仓库箱已由 restoreFromStore 重建，只补管理员 box + 快递员注册）。
+   * 根（parentId=null，即 user0）沿用 registerRootAgent 的面板接线（assemble:false + letter 事件）。
+   */
+  private wireRestoredInstances(): void {
+    for (const instance of this.restoredInstances) {
+      const template = this.templates.getSync(instance.classRef)
+      const isRoot = instance.parentId === null
+      void this.contextManager.register({
+        agentId: instance.id,
+        sendCountdownMs: isRoot ? template?.sendCountdown ?? 0 : template?.sendCountdown,
+        assemble: !isRoot,
+        restore: this.repository.has(instance.id),
+        // 面板 diff 基线：恢复箱内的全部消息 id（防重启后旧信当新信重放）。
+        initialSentIds: this.repository.has(instance.id) ? this.repository.list(instance.id).map((m) => m.id) : [],
+        ...(isRoot ? {} : { systemPrompt: template?.systemPrompt ?? '' }),
+        onDelivery: isRoot
+          ? (delivery) => {
+              if (delivery.kind !== 'user') return
+              this.events.emit({ type: 'letter', agentId: delivery.agentId, letters: delivery.letters, at: Date.now() })
+            }
+          : (delivery) => this.handleDelivery(delivery),
+        ...(isRoot ? {} : { onHold: (id: string) => void this.runtime.notifyHold(makeAgentID(id)) }),
+      })
+    }
   }
 
   /** 某 agent 的访问规则（模板 tools + 实例 toolOverride 合并生成）。 */
@@ -221,11 +283,12 @@ export class Kernel {
   /** 注册根 agent（user0）：从内置 user 类实例化（parentId=null 即根，与其他实例等同）。 */
   async registerRootAgent(displayName = 'User'): Promise<AgentID> {
     const template = await this.templates.get(USER_CLASS_ID)
+    const rootSpace = await this.spaces.getOrCreate(USER_ID)
     const instance = await this.instances.instantiate({
       className: USER_CLASS_ID,
       parentId: null,
       userPrompt: '',
-      spaceId: makeAgentSpaceID('__meta__'),
+      spaceId: rootSpace.id,
       agentId: USER_ID,
     })
     this.emitLog({
@@ -321,13 +384,19 @@ export class Kernel {
     }
   }
 
-  /** 终止实例：销毁权校验（by 是祖先或 user0）+ 注销上下文 + 实例。 */
+  /**
+   * 终止实例：销毁权校验（by 是祖先，实例管理器内 fail-fast）→ 实例删除
+   * （含 recursive 级联）→ 逐个注销上下文（仓库行经装饰器归档）。
+   * 顺序保证：校验先于一切副作用（原实现先注销目标上下文再校验，抛出时上下文已丢）。
+   */
   async terminateAgent(agentId: string, opts?: { by?: string; recursive?: boolean }): Promise<void> {
-    await this.contextManager.unregister(agentId)
-    await this.instances.terminate(makeAgentID(agentId), {
+    const target = makeAgentID(agentId)
+    const subtree = [target, ...this.lineage.getDescendants(target)]
+    await this.instances.terminate(target, {
       by: makeAgentID(opts?.by ?? USER_ID),
       recursive: opts?.recursive,
     })
+    for (const id of subtree) await this.contextManager.unregister(id)
     this.emitLog({ type: 'kernel.instance.terminated', at: Date.now(), agentId })
   }
 

@@ -38,9 +38,9 @@ async function main(): Promise<void> {
     userHooks: [demoTemplatesHook],
   })
 
-  // 首次启动：无任何 agent 时创建一个 simple-chat（供直接对话）。
+  // 首次启动：除 user0 外无任何 agent 时创建一个 simple-chat（供直接对话）。
   const existing = await system.pilot.listAgents()
-  if (existing.length === 0) {
+  if (existing.every((a) => a.id === 'user0')) {
     await system.pilot.instantiate(
       { className: 'simple-chat', userPrompt: '你好，请做一个简短的自我介绍。' },
       PROJECT_ROOT,

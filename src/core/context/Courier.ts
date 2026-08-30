@@ -36,6 +36,11 @@ export interface CourierRegistration {
   readonly onHold?: (agentId: string) => void
   /** false = 用户面板（不组装，只汇总信件）。 */
   readonly assemble?: boolean
+  /**
+   * 恢复接线：已发送消息 id 预置（持久化重启后 lastSentIds 不再为空，
+   * 面板不会把历史旧信当新信重放）。
+   */
+  readonly initialSentIds?: readonly string[]
 }
 
 export interface CourierOptions {
@@ -103,7 +108,7 @@ export class DefaultCourier implements Courier {
       onHold: registration.onHold,
       assemble: registration.assemble ?? true,
       ready: false,
-      lastSentIds: [],
+      lastSentIds: registration.initialSentIds ?? [],
       timer: undefined,
       coolingDown: false,
     })

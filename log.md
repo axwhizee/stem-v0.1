@@ -691,3 +691,41 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - 上下文管理策略实现（coding-hybrid / ltm-stm-mix / self-focus）。
 - extension 工具集迁移（fs 工具 → extension/tools，可替换为 VSCode 工具集）。
 - user0 transcript 完整化（assemble=true 全转录 + skills 清单注入已就绪，webui 渲染细化）。
+
+## 阶段：个体层持久化（SQLite write-through）——M1~M4
+
+**日期**：2026-08-29
+
+### 目标
+
+四大特色中"上下文可扩展管理"与"自我进化"都需要**跨进程存活的个体记忆**：实例族谱、上下文消息、空间落盘（Docker 部署的前置——此前会话历史纯内存，重启即失）。分层边界：类层持久 = 文件（`.stem/agent/*.md`），个体层持久 = SQLite。
+
+### 完成内容
+
+1. **持久化端口（core，零平台依赖）**：
+   - `context/store.ts`：`MessageStore`（upsert/archiveAgent/loadBoxes/maxMessageSeq）+ `MemoryMessageStore` 参考实现；
+   - `kernel/store.ts`：`InstanceStore`（实例 + 空间两表）+ `MemoryInstanceStore`；
+   - 同步接口（对齐 `node:sqlite` DatabaseSync 与仓库同步读——读接口零破坏）。
+2. **write-through 装饰器（core）**：`PersistedRepository` / `PersistedInstanceManager` / `PersistedSpaceManager`——内存为准、写操作同步落行；`Repository.restore/setCounterFloor`、`InstanceManager.restore`（活跃状态归一化 thinking/holding→interrupted）为恢复专用方法。
+3. **Kernel/装配接线**：`KernelOptions.stateStore`（可选注入，缺省纯内存）→ 内存核恢复 → 套装饰器 → 构造末尾 `wireRestoredInstances`（`ContextRegistration.restore=true` 跳过仓库开辟，快递员 `initialSentIds` 预置 = **重启零重放**）；`createStemSystem` deps 透传 + dispose 关句柄。
+4. **terminate 语义改造**：实例/空间行删除，**消息行归档**（archived 标记保留进化语料；恢复不加载，id 计数器经 `maxMessageSeq` 避开历史序号）。顺带修复两问题：`terminateAgent` 校验先于副作用（原实现先注销上下文再抛销毁权错误）+ recursive 级联的子体上下文原本泄漏（现按族谱子树逐个注销）。
+5. **SQLite 适配（shell/cli/storage/）**：node:sqlite（行 = 记录全量 JSON + agent_id/seq 冗余列；`PRAGMA user_version` 迁移守卫；rollback journal 避开 9P/WAL-shm 风险）；`bootStem` 默认注入（`<projectRoot>/.stem/stem.db`，`STEM_DB_PATH` 覆盖，`stateStore:false` 显式纯内存）；.gitignore 排除 `*.db*`。
+6. **user0 空间常规化**：`registerRootAgent` 改走 `spaces.getOrCreate`（清 `__meta__` 遗留特判，平等原则）；空间随实例持久化（spaceId 重启可解析，listAgents 恢复可见）；webui 首启判空条件相应修正（现为"除 user0 外无 agent"）。
+
+### 验证
+
+- 156/156 测试（新增 17：装饰器/端口 13 + SQLite 真库 round-trip 3 + 重启 e2e 1）；typecheck 0 错误。
+- e2e（`init/restart.test.ts`）：A 对话 → B 重启（族谱/上下文/计数器续接/零重放/续聊送达）→ terminate 归档 → C 归档不加载 + id 防撞。
+- 冒烟：bootStem 双生命周期 + webui HTTP 双生命周期（真库落 `.stem/stem.db`，同 id 恢复、holding→interrupted 归一、SIGTERM 优雅退出）。
+
+### 已知边界
+
+- `turnCount/totalCost` 引用直改不经装饰器，随下次状态快照收敛（丢进行中的一轮记账零头，消息本体不受影响）。
+- 单进程假设；`node:sqlite` 标记 experimental（只用 prepare/run/all，API 极稳）；engines 升 `>=23.4`（免 flag），Docker 基像计划相应改 node:24-slim。
+- 重启后 user0 出现在 agent 列表（平等化后的正常视图，webui UI 未过滤）。
+
+### 后续
+
+- 上下文管理策略（summary/impression 等 tag 合成消息随 write-through 天然持久）。
+- `agent_class_create` 类落盘回写 `.stem/agent/*.md`（自我进化闭环，类层文件哲学）。
+- Docker 部署方案按定稿执行（此轮持久化落地后"会话内存态"限制已消除）。

@@ -25,11 +25,13 @@ export { DefaultTemplateRegistry } from './TemplateRegistry'
 // 实例管理
 export type { InstantiateOptions, InstanceManager } from './InstanceManager'
 export { DefaultInstanceManager } from './InstanceManager'
+export type { InstanceStore } from './store'
+export { MemoryInstanceStore } from './store'
+export { PersistedInstanceManager, PersistedSpaceManager } from './persisted'
 
 // 空间管理
 export type { SpaceManager } from './SpaceManager'
 export { DefaultSpaceManager } from './SpaceManager'
-
 // 运行时
 export type { RuntimeDeps, Runtime } from './Runtime'
 export { DefaultRuntime } from './Runtime'

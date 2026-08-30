@@ -10,3 +10,9 @@ reference/
 
 # 临时
 prompts.md
+
+# SQLite 持久化（stem.db 及 journal）
+*.db
+*.db-journal
+*.db-wal
+*.db-shm

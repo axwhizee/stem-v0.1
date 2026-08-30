@@ -19,6 +19,10 @@ export { legalize } from './legalize'
 export type { RepositoryOptions, AppendInput, Repository } from './Repository'
 export { DefaultRepository, estimateTokens } from './Repository'
 
+export type { RestoredBox, MessageStore } from './store'
+export { MemoryMessageStore, messageSeqOf } from './store'
+export { PersistedRepository } from './persisted'
+
 export type {
   TimerHandle,
   TimerFactory,

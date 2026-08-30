@@ -26,7 +26,7 @@
 ## 快速命令
 
 ```bash
-npm install                 # 安装依赖（node >= 20）
+npm install                 # 安装依赖（node >= 23.4，node:sqlite 免 flag）
 npm run typecheck           # tsc --noEmit 类型检查（唯一 lint/typecheck）
 npm test                    # 全量单测：tsx --test src/**/*.test.ts shell/**/*.test.ts
 npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑（node:test 并发）
@@ -43,12 +43,14 @@ src/core/                  # 纯 TS 领域逻辑，零平台依赖（D11 硬规�
   ├── config/              # 全局配置：StemConfig 类型 + JSONC 解析（唯一配置文件 .stem/stem.jsonc）
   ├── context/             # 重建邮局：仓库 Repository + 管理员 ContextManager + 快递员 Courier
   │                        #   + tag/双索引 + exportJsonl/overview + legalize（组装合法化）
+  │                        #   + store.ts（MessageStore 端口）+ persisted.ts（write-through 装饰器）
   ├── events/              # PilotEvent 判别联合 + EventHub（多订阅者事件中心）
   ├── gateway/             # ModelGateway 接口 + providers/(opencodeLlm / fetch) + FakeGateway
   ├── init/                # 系统初始化与装配：createStemSystem（组合根）+ runInit 扫描管线
   │                        #   （.stem/tool + .stem/agent → 同步注册表 → 注册进 core）
   ├── kernel/              # Kernel + TemplateRegistry/InstanceManager/SpaceManager/
   │                        #   Runtime + userClass（内置 user 类，user0 采用）
+  │                        #   + store.ts（InstanceStore 端口）+ persisted.ts（实例/空间写穿装饰器）
   ├── lineage/             # 族谱树（纯关系无状态视图）：getParent/children/ancestors/
   │                        #   descendants/getRoot/isAncestorOf（零 tools 依赖）
   ├── logging/             # LogEvent 判别联合 + Logger（经注入 LogSink，无总线）
@@ -60,7 +62,7 @@ src/core/                  # 纯 TS 领域逻辑，零平台依赖（D11 硬规�
   └── types.ts
 shell/                     # 宿主层（node/CLI + Web），实现 core 注入的接口
   ├── cli/                 # 参考 shell：platform.ts（bootStem 共享装配）+ gateway +
-  │                        #   fs 工具集（read/write/edit/grep/glob）+ CLI 命令
+  │                        #   fs 工具集（read/write/edit/grep/glob）+ storage/（SQLite 端口实现）+ CLI 命令
   └── webui/               # WebUIShell：HTTP + SSE 浏览器交互层（agent 侧栏/timeline/composer）
 extension/                 # 可选功能扩展（预留：扩展工具集 seam，如 VSCode 工具集）
 templates/                 # 内置 AgentClass 模板（JSON，name 即 id，tools 为 Record）
@@ -87,6 +89,7 @@ log.md                     # 开发日志（root）
 - **状态机**：`idle → thinking → holding`；`interrupted`（当前轮被中断，仅暂停、消息闭合、可恢复）。
 - **族谱树（LineageTree）**：无状态关系查询视图——parentId 挂实例上，实时推导 parent/children/ancestors/descendants/getRoot；销毁权（祖先或 user0 可销毁；有活跃子默认拒，recursive 级联）。
 - **重建邮局（无总线）**：仓库（存储）→ 管理员（打戳/组装/context_wait 填充）→ 快递员（倒计时送信）；agent 通信经 `kernel.sendMessage` 直接投递；log/access_reply 走注入接口。
+- **个体层持久化（SQLite write-through）**：core 端口 `MessageStore`/`InstanceStore`（+内存默认实现）+ 装饰器（PersistedRepository/InstanceManager/SpaceManager，内存为准同步落行）；宿主注入 node:sqlite 实现（`shell/cli/storage/`，默认 `.stem/stem.db`）。**terminate 归档消息保留语料**；重启恢复 = 装载 + 状态归一化（thinking/holding→interrupted）+ 计数器续接 + 快递员 lastSentIds 预置（零重放）；类层持久仍走文件，不进 DB。
 - **事件流（PilotEvent）**：`stream`（LLM 流式）/ `letter`（信箱来信，含 access_request）/ `status` / `notice`，经 EventHub 多订阅者发布，外部（shell/webui）统一订阅。
 
 ### 工具体系与访问
@@ -107,7 +110,7 @@ log.md                     # 开发日志（root）
 
 - 配置文件：`<projectRoot>/.stem/stem.jsonc`（或 `stem.json`），是**最终配置载体**，本阶段无多级合并。
 - 配置项：`model`（`提供商/模型` 格式）、`autoApprove`、`permission`（**user 模板的工具权限**，内置根类 tools）、`sendCountdown`、`tools`/`agents`（**纯镜像注册表**，init 自动维护）。
-- **系统装配**（`createStemSystem(deps)`，core 组合根）：config → 工具注册表 + Kernel（user 类 tools=config.permission）→ 系统工具/宿主工具 → skill 工具 → `runInit` 扫描管线 → Pilot 初始化（实例化 user0）→ `initAll`（skill 发现）→ 用户注入钩子。
+- **系统装配**（`createStemSystem(deps)`，core 组合根）：config → 工具注册表 + Kernel（user 类 tools=config.permission；注入 `stateStore` 时 Kernel 内恢复+套写穿装饰器）→ 系统工具/宿主工具 → skill 工具 → `runInit` 扫描管线 → Pilot 初始化（实例化 user0；已恢复则幂等跳过）→ `initAll`（skill 发现）→ 用户注入钩子。
 - `runInit` 管线：扫描 `.stem/tool/*.ts`（默认导出 `ToolCapability`）+ `.stem/agent/*.md`（YAML 头 + 正文）→ 同步注册表（jsonc-parser 定点写回，保留注释）→ 注册进 `ToolCapabilityRegistry` + `TemplateRegistry`。
 - **用户 agent 文件**：文件名即类 id/name（不要求 YAML id/name）；`permission` 的键即工具清单（融合设计，工具=键、动作=值）；`metadata` 等附加字段忽略。
 - **user0**：`user` 类的普通实例（内置根模板，`parentId=null`），在 pilot 初始化流程内实例化；系统 ready 后由用户经 pilot 手动实例化后续 agent。
@@ -137,3 +140,5 @@ log.md                     # 开发日志（root）
 - 改动 `ToolKind` / 工具 shape / `AgentClass.tools` 时，同时检查 `shell/cli/tools/` 与 `src/core/tools/`。
 - `AgentClass`：name 即模板键；`tools` 为 `Record`（键即白名单），不再是数组 + 独立 toolAccess。
 - `AgentInstance`：无 creatorId；族谱关系用 parentId。
+- 持久化端口是**同步**接口（对齐 `node:sqlite` DatabaseSync 与仓库同步读）：写穿在内存生效后落行，`turnCount/totalCost` 引用直改不经装饰器，随下次状态快照收敛（可接受边界）。
+- 运行依赖 tsx（无扩展名相对导入 + `.stem/tool/*.ts` 动态 import）：tsx 属运行期必需（打包/镜像勿按 devDependency 剔除）；node >= 23.4（node:sqlite）。

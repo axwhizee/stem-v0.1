@@ -44,6 +44,12 @@ export interface InstanceManager {
   readonly listAllSync: () => readonly AgentInstance[]
   readonly updateStatus: (agentId: AgentID, status: AgentStatus) => Promise<void>
   readonly takeover: (agentId: AgentID, patch: Partial<AgentInstancePatch>) => Promise<void>
+  /**
+   * 持久化恢复专用（绕过模板校验，仅由组合根启动期调用）：
+   * 直接装载实例行；活跃状态归一化——thinking/holding → interrupted
+   *（进程已死，halt 语义下消息闭合，"可恢复中断"语义现成）。
+   */
+  readonly restore: (instance: AgentInstance) => void
 }
 
 /** 销毁权错误（判别联合）。 */
@@ -147,6 +153,13 @@ export class DefaultInstanceManager implements InstanceManager {
   async takeover(agentId: AgentID, patch: Partial<AgentInstancePatch>): Promise<void> {
     const instance = await this.get(agentId)
     if (patch.displayName !== undefined) instance.displayName = patch.displayName
+  }
+
+  restore(instance: AgentInstance): void {
+    if (this.agents.has(instance.id)) return
+    const status: AgentStatus =
+      instance.status === 'thinking' || instance.status === 'holding' ? 'interrupted' : instance.status
+    this.agents.set(instance.id, { ...instance, status })
   }
 
   /** 祖先链判定（user0 恒为根）。 */

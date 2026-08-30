@@ -13,6 +13,7 @@
 import type { LogEvent } from '../logging'
 import type { ChatMessage } from '../gateway'
 import type { RepositoryState, StoredMessage } from './types'
+import { messageSeqOf } from './store'
 
 /** 消息变更通知（组合根装配时设置 onChange）。 */
 export interface RepositoryOptions {
@@ -54,6 +55,14 @@ export interface Repository {
   readonly listRegistered: () => readonly string[]
   /** 判断 agent 是否已注册。 */
   readonly has: (agentId: string) => boolean
+  /**
+   * 持久化恢复专用：用已存行直接开辟/重建消息箱（绕过 append 打戳，
+   * 保留 id / turn / indexInTurn / valid 原样）。计数器从行内推导；
+   * 若箱已存在则跳过（幂等，供恢复与首启竞争时兜底）。
+   */
+  readonly restore: (agentId: string, messages: readonly StoredMessage[]) => void
+  /** 抬高消息 id 计数器下限（恢复时防撞；含归档行的历史最大序号）。 */
+  readonly setCounterFloor: (floor: number) => void
 }
 
 interface InternalBox {
@@ -152,6 +161,39 @@ export class DefaultRepository implements Repository {
 
   has(agentId: string): boolean {
     return this.boxes.has(agentId)
+  }
+
+  restore(agentId: string, messages: readonly StoredMessage[]): void {
+    // 反演 push 状态机重建计数器（幂等：箱已存在则跳过）。
+    let nextTurn = 0
+    let nextIndexInTurn = 0
+    for (const msg of messages) {
+      if (msg.id > `m-${String(this.counter)}`.replace('m-', '') || true) {
+        const seq = messageSeqOf(msg.id)
+        if (seq > this.counter) this.counter = seq
+      }
+      if (msg.message.role === 'system') {
+        nextTurn = 1
+        nextIndexInTurn = 0
+      } else if (msg.message.role === 'user') {
+        nextTurn = msg.turn + 1
+        nextIndexInTurn = 1
+      } else {
+        nextTurn = msg.turn + 1
+        nextIndexInTurn = msg.indexInTurn + 1
+      }
+    }
+    if (this.boxes.has(agentId)) return
+    this.boxes.set(agentId, {
+      agentId,
+      messages: messages.map((m) => ({ ...m })),
+      nextTurn,
+      nextIndexInTurn,
+    })
+  }
+
+  setCounterFloor(floor: number): void {
+    if (floor > this.counter) this.counter = floor
   }
 
   /** 内部入库（不触发 onChange）。 */

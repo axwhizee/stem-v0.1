@@ -192,6 +192,7 @@
 
 - 配置项：`model`（`提供商/模型`）、`autoApprove`、`permission`（**= user 模板的工具权限**，内置根类 tools，族谱首层收敛起点）、`sendCountdown`、`tools`/`agents`（同步注册表，init 自动维护）。
 - **系统装配**（`core/init/system.ts`，`createStemSystem(deps)` 组合根）：
+  0. （可选 `stateStore` 注入）Kernel 构造内：内存核建好后先从 store 恢复（实例/消息/空间 + 状态归一化 + id 计数器续接），再套 write-through 装饰器，恢复出的实例在构造末尾统一接线上下文——装配顺序不变，恢复收敛在 Kernel 内；
   1. 读取配置 → 工具注册表 + Kernel（user 类 tools = config.permission，`skills` 注入）；
   2. 系统工具（agent_*/bus_*/context_* + access_reply）→ 宿主工具 → skill 工具；
   3. `runInit` 管线：扫描 `.stem/tool/*.ts`（默认导出 ToolCapability）+ `.stem/agent/*.md`（YAML 头 + 正文）→ 同步注册表（jsonc-parser 定点写回）→ 注册进 registry；
@@ -201,13 +202,23 @@
 
 ### 4.13 shell 层（`shell/cli/` + `shell/webui/`）
 
-- **cli**（参考 shell）：`platform.ts`（`bootStem`：config + 网关 + createStemSystem + fs 工具集 + 示例模板钩子，供任何 shell 复用）+ `gateway.ts`（真实 go/zen / mock SSE）+ CLI 命令（直接对话 /new /use /agents /templates /tools /stop）。
+- **cli**（参考 shell）：`platform.ts`（`bootStem`：config + 网关 + createStemSystem + fs 工具集 + 示例模板钩子，供任何 shell 复用）+ `gateway.ts`（真实 go/zen / mock SSE）+ `storage/`（`createSqliteStateStore`：node:sqlite 实现两端口，默认 `.stem/stem.db`）+ CLI 命令（直接对话 /new /use /agents /templates /tools /stop）。
 - **webui**（WebUIShell）：`node:http` + SSE，复用 cli 的 platform；REST（send/instantiate/terminate/interrupt/access）+ 观察（agents/templates/context）+ 单页 UI（agent 侧栏 / timeline / composer / 权限弹窗 = 渲染 `<access_request>` 消息 + `access_reply`）。
 
 ### 4.14 extension（`extension/tools/`，预留）
 
 - 可选功能扩展 seam：`registerExtensionTools(registry)` 约定签名（未实现迁移）；fs 工具集未来迁此，可被 VSCode 工具集替换。
 - skill / MCP 属 core 生态（上下文组装 + 配置目录解析），不在 extension。
+
+### 4.15 持久化（个体层 SQLite，write-through）
+
+**分层边界**：类层持久 = 文件（`.stem/agent/*.md` 镜像注册表，用户主权可审）；**个体层持久 = SQLite**（实例/消息/空间）。核心思想：**内存为准 + write-through（DB 为影）**——同步读接口（list/listValid/getState）零破坏，写操作内存生效后同步落行（单进程 + DatabaseSync，崩溃窗口为零）。
+
+- **端口（core，零平台依赖）**：`context/store.ts` `MessageStore`（upsert/archiveAgent/loadBoxes/maxMessageSeq）；`kernel/store.ts` `InstanceStore`（实例 upsert/delete/loadAll + 空间 upsertSpace/deleteSpace/loadSpaces）。接口与默认内存实现同文件（`MemoryMessageStore`/`MemoryInstanceStore`，测试即用它观测持久化）。
+- **装饰器（core）**：`context/persisted.ts` `PersistedRepository`；`kernel/persisted.ts` `PersistedInstanceManager` / `PersistedSpaceManager`——全部委托内层内存实现 + 写穿。**terminate = 个体消亡**：实例/空间行删除，**消息行归档**（archived 标记，进化语料保留，恢复不加载、id 计数器避开历史序号）。
+- **恢复语义（Kernel 构造内，装配步骤 0）**：实例装载（**活跃状态归一化** thinking/holding → interrupted，halt 语义下消息闭合可恢复）→ 消息箱重放（反演 push 状态机还原 turn/indexInTurn 计数器 + `setCounterFloor` 防撞）→ 空间装载（spaceId 重启可解析）→ 上下文接线（`ContextRegistration.restore=true` 跳过仓库开辟；快递员 `initialSentIds` 预置 → **重启零重放**）→ user0 幂等（`createPilot` 检测根已存在即跳过）。悬空 context_wait 等待不恢复，交给组装期 **legalize** 自然兜底。
+- **SQLite 适配（shell/cli/storage/）**：`node:sqlite`（`DatabaseSync`）；行 = 记录全量 JSON + `agent_id/seq` 冗余列；`PRAGMA user_version` 迁移守卫；rollback journal（9P/WAL-shm 安全）；默认 `<projectRoot>/.stem/stem.db`（`STEM_DB_PATH` 覆盖，`bootStem` 注入，缺省即持久，`stateStore:false` 显式纯内存）。
+- **已知边界**：`turnCount/totalCost` 经引用直改不经装饰器，最后一次状态变更时全字段快照收敛——最多丢"进行中的一轮"记账零头（消息本体不受影响）；单进程假设；webui/cli 重启后 user0 出现在 agent 列表（平等化后属正常视图，UI 未过滤）。
 
 ## 五、messages 经典模式的定制化
 
@@ -229,23 +240,7 @@
 
 ## 七、技术选型
 
-- TypeScript + tsx（运行/测试）+ node:test；运行时依赖 jsonc-parser / yaml。
-- 仓库存储：内存 JSON 消息列表；后续换 SQLite（`Repository` 存储接口已隔离）。
-- 族谱存储：无独立存储（parentId 挂在实例上，LineageTree 实时推导）。
+- TypeScript + tsx（运行/测试）+ node:test；运行时依赖 jsonc-parser / yaml；**node >= 23.4**（`node:sqlite` 免 flag）。
+- 个体层存储：SQLite（`node:sqlite` DatabaseSync）write-through，经 core 端口注入（4.15）；缺省纯内存（测试 harness 不受影响）。
+- 族谱存储：无独立存储（parentId 挂在实例上，LineageTree 实时推导；实例行本身持久化即族谱持久）。
 - LLM 端点：真实 go/zen（`https://opencode.ai/zen/go/v1/chat/completions`）或 mock SSE 兜底。
-
-## 八、与最初规划（docs/architecture.md）的差异
-
-| 项 | 规划 | 实际 |
-|---|---|---|
-| 通信 | MessageBus 半双工 | **重建邮局**：仓库→管理员→快递员三模块；agent 通信经 kernel.sendMessage 直接投递；log 走注入接口 |
-| 事件 | PanelBus 三路回调 | **PilotEvent + EventHub（多订阅者）**：stream/letter/status/notice 统一订阅 |
-| 权限 | PermissionLevel 角色等级 | **工具访问四态 ToolAccess** + 族谱收敛；**ask 消息化**（access_request → 根信箱 → access_reply） |
-| user0 | 元 agent 特判短路 | **user 类普通实例**（parentId=null 即根，无任何特判）；config.permission = user 模板 tools |
-| 访问确认 | AccessManager + PanelBus | **AccessAskBus（accessRequest.ts）**：申请投递根信箱 + 根经 access_reply 授权校验 |
-| 族谱树 | kernel 内 | **core/lineage/** 独立模块（纯关系 + getRoot），权限继承收敛至 tools/access |
-| 初始化 | runInit 扫描管线 | **createStemSystem 组合根**（config → 工具 → init 管线 → pilot(user0) → initAll(skill) → 用户钩子） |
-| 上下文 | 组装即发送 | 组装统一过 **legalize**（删除/修改后仍可经 gateway 发送）；**仅外部来信唤醒快递员** |
-| 工具 | 仅 execute | **ToolCapability.init 生命周期**（skill 扫描等）+ SkillRegistry + skill 工具 |
-| shell | 单一 CLI | **cli（参考 shell）+ webui（HTTP+SSE）**；extension/tools 预留扩展工具集 seam |
-| 面板 | shell/ui 弹窗模块 | webui 权限弹窗 = 渲染 `<access_request>` 消息 + access_reply；CLI 沿用弹窗队列 |

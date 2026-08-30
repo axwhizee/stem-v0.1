@@ -47,6 +47,13 @@ export interface ContextRegistration {
   readonly onDelivery: (delivery: MailDelivery) => void
   /** 倒计时结束但无信可送时调用（agent → 进入 hold）。 */
   readonly onHold?: (agentId: string) => void
+  /**
+   * true = 持久化恢复接线：跳过仓库开辟（消息箱已由恢复流程重建，
+   * system 行本身在恢复的消息里），只补管理员 box + 快递员注册。
+   */
+  readonly restore?: boolean
+  /** 恢复接线：快递员已发送 id 预置（防面板重放旧信）。 */
+  readonly initialSentIds?: readonly string[]
 }
 
 interface InternalBox {
@@ -121,11 +128,13 @@ export class DefaultContextManager implements ContextManager {
     }
     this.boxes.set(registration.agentId, box)
 
-    // 仓库开辟记录（systemPrompt + <available_skills> 清单作为首条 system message）。
-    const base = registration.systemPrompt ?? ''
-    const manifest = this.skills?.manifest() ?? ''
-    const systemPrompt = manifest !== '' ? (base === '' ? manifest : `${base}\n\n${manifest}`) : base
-    await this.repository.register(registration.agentId, systemPrompt)
+    // 恢复接线跳过仓库开辟（箱已存在，system 行在恢复消息里）；新注册正常开辟。
+    if (registration.restore !== true) {
+      const base = registration.systemPrompt ?? ''
+      const manifest = this.skills?.manifest() ?? ''
+      const systemPrompt = manifest !== '' ? (base === '' ? manifest : `${base}\n\n${manifest}`) : base
+      await this.repository.register(registration.agentId, systemPrompt)
+    }
 
     // 快递员注册。
     const courierRegistration: CourierRegistration = {
@@ -134,6 +143,7 @@ export class DefaultContextManager implements ContextManager {
       onDelivery: registration.onDelivery,
       onHold: registration.onHold,
       assemble: registration.assemble,
+      initialSentIds: registration.initialSentIds,
     }
     await this.courier.register(courierRegistration)
   }

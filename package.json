@@ -5,7 +5,7 @@
   "type": "module",
   "description": "Self-Training Evolutionary Matrix — 独立原型验证：opencode provider 模块剥离 + chat 模块",
   "engines": {
-    "node": ">=20"
+    "node": ">=23.4"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",

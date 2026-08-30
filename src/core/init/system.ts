@@ -17,7 +17,8 @@
 import type { ConfigPaths, ConfigStore, StemConfig } from '../config'
 import type { ModelGateway, ModelRef, UsageEvent } from '../gateway'
 import type { Logger } from '../logging'
-import type { TimerFactory } from '../context'
+import type { MessageStore, TimerFactory } from '../context'
+import type { InstanceStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
 import { DefaultSkillRegistry, DefaultToolCapabilityRegistry, createSkillTool } from '../tools'
 import { Kernel } from '../kernel'
@@ -36,8 +37,8 @@ export interface StemSystem {
   /** 同步后的配置（含注册表镜像）。 */
   readonly config: StemConfig
   readonly init: InitReport
-  /** 优雅收尾（中断所有活跃 agent）。 */
-  readonly dispose: () => Promise<void>
+    /** 优雅收尾（中断所有活跃 agent；注入 stateStore 时释放存储句柄）。 */
+    readonly dispose: () => Promise<void>
 }
 
 /** 用户注入钩子（init 末尾调用，深度扩展自定义）。 */
@@ -59,6 +60,12 @@ export interface StemSystemDeps {
   readonly userHooks?: readonly UserInitHook[]
   /** 事件流回调（PilotEvent；pilot 创建后订阅）。 */
   readonly onEvent?: (event: PilotEvent) => void
+  /**
+   * 持久化端口（宿主注入，典型：shell 的 SQLite 实现）。注入后个体层
+   *（消息/实例）write-through 落库并在启动期恢复；缺省纯内存。
+   * 类层持久仍走文件（.stem/agent/*.md 镜像注册表），不进 DB。
+   */
+  readonly stateStore?: { readonly messages: MessageStore; readonly instances: InstanceStore }
 }
 
 export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem> {
@@ -80,6 +87,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     maxSteps: deps.maxSteps,
     estimateCost: deps.estimateCost,
     logger: deps.logger,
+    ...(deps.stateStore !== undefined ? { stateStore: deps.stateStore } : {}),
   })
 
   // 系统工具（agent_*/bus_*/context_* + access_reply）。
@@ -118,7 +126,11 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     tools,
     config: init.config,
     init,
-    dispose: async () => kernel.abortAllAgents(),
+    dispose: async () => {
+      kernel.abortAllAgents()
+      deps.stateStore?.messages.close?.()
+      deps.stateStore?.instances.close?.()
+    },
   }
 
   // 用户注入钩子（init 末尾）。

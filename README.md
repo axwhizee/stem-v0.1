@@ -4,7 +4,7 @@
 > 干细胞之意：如同原始 Agent 类，可分化出任意角色与能力。
 > 抛弃会话概念：以**原子化 Agent 类 + Agent 实例**为核心，配合**族谱树**与模块化 harness 系统，构建可自我进化的多智能体集群。
 
-**状态**：架构定稿，实现阶段（核心骨架落地，139 单测全绿）。
+**状态**：架构定稿，实现阶段（核心骨架 + 个体层持久化落地，156 单测全绿）。
 **日期**：2026-08
 
 ---
@@ -33,7 +33,7 @@
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                       │
 │   init/（createStemSystem 组合根）· kernel/（Kernel/Runtime/userClass） │
 │   pilot/（user0 扮演接口）· events/（PilotEvent + EventHub）            │
-│   lineage/（族谱纯关系视图）· context/（重建邮局 + legalize）            │
+│   lineage/（族谱纯关系视图）· context/（重建邮局 + legalize + 持久化端口）│
 │   tools/（注册表 + access + accessRequest + SkillRegistry + skill）     │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 1  Model Gateway (core/gateway/)   ← 纯 TS（opencode 隔离）     │
@@ -54,7 +54,7 @@
 | **族谱树 LineageTree** | 无状态关系视图：parentId 挂实例上，实时推导 children/ancestors/descendants；销毁权判定。 |
 | **user0** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.permission` 即 user 类 tools。 |
 | **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore，融合进 `core/tools/`（access.ts + accessRequest.ts）。 |
-| **重建邮局** | 无集中式总线：仓库（存储）→ 管理员（处理/打戳/组装 + legalize）→ 快递员（倒计时+发送）。 |
+| **重建邮局** | 无集中式总线：仓库（存储）→ 管理员（处理/打戳/组装 + legalize）→ 快递员（倒计时+发送）。个体层经 MessageStore/InstanceStore 端口 write-through 落 SQLite（宿主注入），缺省纯内存。 |
 | **ask 消息化** | ask 审批 = 消息交换：`access_request` 投递根信箱 → 根经 `access_reply` 回复（once/always/reject）。 |
 | **PilotEvent** | 统一事件流（stream/letter/status/notice）+ EventHub 多订阅者；外部（shell/webui）订阅。 |
 | **tag + 双索引** | StoredMessage 带 tag（非原生合成消息）+ turn/indexInTurn（双索引），为上下文策略提供精确定位。 |
@@ -81,7 +81,7 @@
 ## 快速上手
 
 ```bash
-npm install                 # 安装依赖（node >= 20）
+npm install                 # 安装依赖（node >= 23.4）
 npm run typecheck           # tsc --noEmit 类型检查（唯一 lint/typecheck）
 npm test                    # 全量单测（139）
 npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑

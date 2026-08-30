@@ -14,6 +14,8 @@ export interface SpaceManager {
   readonly get: (spaceId: AgentSpaceID) => Promise<AgentSpace>
   readonly list: () => Promise<AgentSpace[]>
   readonly remove: (spaceId: AgentSpaceID) => Promise<void>
+  /** 持久化恢复专用：装载空间行并抬高 id 计数器（从 space-N 后缀解析）。 */
+  readonly restore: (space: AgentSpace) => void
 }
 
 export class DefaultSpaceManager implements SpaceManager {
@@ -26,6 +28,13 @@ export class DefaultSpaceManager implements SpaceManager {
     const space: AgentSpace = { id: makeAgentSpaceID(`space-${++this.counter}`), project }
     this.spaces.set(space.id, space)
     return space
+  }
+
+  restore(space: AgentSpace): void {
+    const m = /^space-(\d+)$/.exec(space.id)
+    if (m?.[1] !== undefined) this.counter = Math.max(this.counter, Number(m[1]))
+    if (this.spaces.has(space.id)) return
+    this.spaces.set(space.id, space)
   }
 
   async get(spaceId: AgentSpaceID): Promise<AgentSpace> {
