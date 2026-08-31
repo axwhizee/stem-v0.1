@@ -9,7 +9,6 @@ export type {
   AgentSpaceID,
   ProjectRef,
   AgentStatus,
-  ContextProfile,
   AgentClass,
   AgentInstance,
   AgentInstancePatch,

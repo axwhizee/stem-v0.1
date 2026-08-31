@@ -70,3 +70,37 @@ test('frontmatter 必须是对象', () => {
 test('extractPrompt 提取正文并 trim', () => {
   assert.equal(extractPrompt('---\ndescription: x\n---\n\n  hello world  \n'), 'hello world')
 })
+
+// ---------- S3′：自由式 frontmatter（context_strategy / model / custom 透传） ----------
+
+test('context_strategy / model 已知键提取', () => {
+  const parsed = parseAgentFile(
+    '---\ndescription: x\ncontext_strategy: self_focus\nmodel: opencode-go/deepseek-v4-flash\n---\nbody',
+    'agent-x',
+  )
+  assert.equal(parsed.contextStrategy, 'self_focus')
+  assert.deepEqual(parsed.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
+})
+
+test('未知字段透传 custom（自定义扩展位不丢弃）', () => {
+  const parsed = parseAgentFile('---\ndescription: x\nmetadata:\n  author: owl\ntags:\n  - a\n---\nbody', 'agent-y')
+  assert.deepEqual(parsed.custom, { metadata: { author: 'owl' }, tags: ['a'] })
+})
+
+test('无未知字段 → custom 空对象', () => {
+  const parsed = parseAgentFile('---\ndescription: x\n---\nbody', 'agent-z')
+  assert.deepEqual(parsed.custom, {})
+})
+
+test('model 缺斜杠抛错', () => {
+  assert.throws(() => parseAgentFile('---\nmodel: no-slash\n---\nbody', 'bad'), /提供商\/模型/)
+})
+
+test('context_strategy 类型非法抛错', () => {
+  assert.throws(() => parseAgentFile('---\ncontext_strategy: 42\n---\nbody', 'bad'), /context_strategy/)
+})
+
+test('完整样例：SAMPLE 的 metadata 进 custom（旧"忽略"→新"透传"）', () => {
+  const parsed = parseAgentFile(SAMPLE, 'user-reviewer')
+  assert.deepEqual(parsed.custom, { metadata: { author: 'someone' } })
+})

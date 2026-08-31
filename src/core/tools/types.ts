@@ -5,9 +5,10 @@
 //  1. ToolContext 是开放接口 —— 工具访问层、日志等宿主能力
 //     以「字段注入」方式扩展，core 只定义最小必要字段；
 //  2. 工具访问统一模型（权限融合进 tools）：每个工具声明访问键
-//     （accessKey，如 read/edit/grep/glob/bash），agent 类 toolAccess
-//     列表 + 祖先链 + session 用户批准决定 allow/ask/deny/ignore；
-//     registry 执行时统一确认（evaluateAccess，分层取最严格）；
+//     （accessKey，如 read/edit/grep/glob/bash）；生效权限 = 族谱位置的
+//     函数（lineage/AccessLedger 台账物化，经 AccessResolver 端口查询）；
+//     族谱无判定时落工具默认（internal → ignore，其余 → ask）；
+//     always 批准记入 per-agent 豁免备忘（只免询问，不破 deny/ignore）；
 //  3. 执行生命周期暴露 ToolHooks（before/after/error），
 //     供 telemetry、审计、限流等横切能力挂载；
 //  4. kind（internal/shell/user）是工具固有属性：internal=core 系统工具
@@ -88,14 +89,13 @@ export interface ToolInitContext {
 
 /**
  * 工具执行上下文。
- * core 只定义最小字段；宿主/上层可扩展为带权限策略、MCP 通道、
- * 日志器等能力的子接口（组合注入，不修改 core）。
+ * core 只定义最小字段；宿主/上层可扩展为带日志器、MCP 通道等能力的
+ * 子接口（组合注入，不修改 core）。
+ * 权限查询已反转至 AccessResolver 端口（族谱台账供给），不再随上下文传递。
  */
 export interface ToolContext {
   readonly agentId: string
   readonly spaceId: string
-  /** 调用方 agent 的生效工具访问层（Runtime 从模板 toolAccess 生成；registry 用它统一确认）。 */
-  readonly accessLayers?: readonly ToolAccessRules[]
   readonly signal?: AbortSignal
   /** 本次调用 id（registry 执行时填充，供工具绑定自身 tool_call）。 */
   readonly callId?: string
@@ -149,13 +149,20 @@ export interface AccessReplyInput {
   readonly message?: string
 }
 
+/**
+ * 族谱权限查询端口：由 lineage/AccessLedger 实现、kernel 接线注入。
+ * tools 侧只认本接口（不认识族谱），返回 undefined = 无人显式判定，
+ * 调用方落工具默认值（internal → ignore，其余 → ask）。
+ */
+export interface AccessResolver {
+  readonly accessOf: (agentId: string, key: string) => ToolAccess | undefined
+}
+
 /** 访问断言输入。 */
 export interface AccessAssertInput {
   readonly accessKey: string
   readonly agentId: string
-  /** 该 agent 的完整访问层（kernel 合成：[全局, ...祖先链, agent 类]）。 */
-  readonly layers?: readonly ToolAccessRules[]
-  /** 该访问键的默认动作（internal 系统工具默认 'ignore'，其余 'ask'）。 */
+  /** 该访问键的默认动作（internal 系统工具默认 'ignore'，其余 'ask'；族谱无判定时兜底）。 */
   readonly defaultAccess?: ToolAccess
   readonly metadata?: Readonly<Record<string, unknown>>
 }

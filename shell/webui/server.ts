@@ -93,6 +93,15 @@ async function main(): Promise<void> {
           })
           return sendJson(res, { ok: true })
         }
+        if (path === '/api/context_action') {
+          // 上下文策略专有动作（pilot 通道 = user0 根授权；如 classic compact）。
+          const result = await system.pilot.runContextAction(
+            String(body.agentId ?? 'user0'),
+            String(body.action),
+            body.args !== undefined ? String(body.args) : '',
+          )
+          return sendJson(res, { ok: true, result })
+        }
       }
       return sendJson(res, { error: 'not found' }, 404)
     } catch (error) {

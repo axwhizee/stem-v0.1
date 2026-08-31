@@ -729,3 +729,45 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - 上下文管理策略（summary/impression 等 tag 合成消息随 write-through 天然持久）。
 - `agent_class_create` 类落盘回写 `.stem/agent/*.md`（自我进化闭环，类层文件哲学）。
 - Docker 部署方案按定稿执行（此轮持久化落地后"会话内存态"限制已消除）。
+
+## 阶段：权限台账 + 上下文策略框架 + user0 配置对象化
+
+**日期**：2026-08-31
+
+### 目标
+
+三目标收敛为一次架构闭环：①实现 classic 上下文管理方案（对齐 opencode compact）；②明确族谱树与 tools 的权限系统划分（生效权限 = 族谱位置的函数，统一收敛接口）；③配置模块完善（user0 内嵌 agent 类全对象可配）。全部经四方讨论冻结方案后按 S2′→S1′→S3′ 实施（权限是语义地基，策略消费权限语义，配置收口参数面）。
+
+### 完成内容
+
+1. **S2′ 族谱权限台账（8498714）**：
+   - 新增 `lineage/AccessLedger`：注册两步曲（继承 inherit → 收敛 converge）物化标准形 `{explicit, fallback}`；语义四则——键即白名单（本地封闭）、祖先只供**显式**判定（匿名封闭不下传；显式 deny/ask 锁子孙）、不设限 = 完整继承父档案（子面不宽于父）、**grant 加法** = 系统特权整表替换（免除逐个填 deny；未列一律 deny；祖先显式 deny 铁律不可豁免）；重启拓扑 rebind（纯派生态不入库）。
+   - tools 查询反转：`AccessResolver` 端口注入（registry/ask 总线向台账查询，`ToolContext` 删 accessLayers，Runtime 删层传递与空表特判）；kernel 编排三件套（resolveAccessLayers/rulesOf/resolveClassLayer）删除，只剩 provider 接线；`LineageTree` 保纯关系视图，台账并列于 lineage 目录。
+   - 修复三个存量语义 bug：**B1** 白名单未强制（未列键落到默认照常暴露）、**B2** always 批准跨 agent 泄漏、**B5** always 参与分层取严永远压不住 ask——session 批准重定义为 **per-agent ask 豁免备忘**（非权限层）。interrupt 去 user0 特判（自身或祖先）；agent_inspect 出示生效权限表（物化红利）。
+2. **S1′ 上下文策略框架（368ad99）**：
+   - **组装权收归管理员**（结构性缺口修复：旧 `contextAssembler` 注入不影响真实送信——快递员硬组装；现快递员只发不组装，送信快照 = 管理员按 agent 策略分发 + legalize）。
+   - `context/strategies/` 独立子模块：契约 `ContextStrategyModule`（note/role/assemble/process/actions）+ 注册表；两段式生命周期（触发 = user_prompt 信件抵达，终点 = process 返回"完整上下文就绪"再唤醒快递员；process 异步许可 / assemble 纯函数；重入合并 guard；失败兜底绝不卡死送信）；未知策略注册期 fail-fast、恢复接线兜底默认；**面板（assemble:false，user0 与策略 role）恒绑 none**（note 不污染人格）。
+   - **classic = opencode 式 compact**：估算 token 逼近 window×threshold 时按轮边界把旧段交摘要 worker，摘要经 `append(tag='summary')` 正规入库 + 旧段 `markInvalid`——**语料归档可逆可审计**（opencode 无此优势）、轮边界 + append-only 前缀缓存稳定；参数全走 `config.context`。
+   - **模块扮演 agent（role）**：策略懒生成扮演 agent（父 = **宿主**→级联回收、creator=parent 规则零例外——pilot 扮演 user0 的同构推广）；worker（summarizer 规格硬编码于策略模块，决策 C）经邮局正规往返 + 回信配对 `waitForReply`（信箱兑现原语），用完 terminate 归档；递归终止双保险（worker/role = none/panel）。
+   - 策略专有动作通道：`pilot.runContextAction` / internal 工具 `context_apply`（仅自身或祖先）/ CLI `/compact` / webui `/api/context_action`。
+   - **`.stem/context/*.ts` 用户策略加载**（init 管线，与 `.stem/tool/` 同构、同名覆盖内置）——"让 agent 自己写上下文策略"的通路。删 ContextProfile 死代码。
+3. **S3′ 配置对象化（43ea41b）**：顶层 `permission` 迁移为 **`user` 完整 agent 类对象**（description/systemPrompt/permission/contextStrategy/model/sendCountdown——元 agent 人格进配置文件；permission 整表替换内置 **DEFAULT_USER_TOOLS**，含 access_reply 根义务——修复 user0 零工具死锁 B3）；新增 `maxSteps` + `context` 块（window/compact 全参数 → ContextSettings 逐项兜底映射）；agentParse **自由式 frontmatter**（context_strategy/model 已知键 + 未知键透传 custom）；ConfigPaths.strategyDir、strategies 镜像、CLI /config 更新。
+
+### 验证
+
+- 193/193 测试（本轮 +37：台账语义矩阵 11 / ask 总线重写 10 / classic compact 单测 6 / 策略框架集成 5 / user 类 3 / 配置解析重写 +4 / init 策略加载 4 / system user 装配 1 / 手动动作 1 等）；typecheck 0 错误；存量 156 测试语义迁移后全绿（行为兼容硬验收）。
+- webui 双生命周期冒烟（真实 `.stem` 模板配置含 user/context 块）：首启自动 simple-chat + 手动实例对话落库 → 重启同 id 恢复、holding→interrupted 归一 ✔。
+
+### 已知边界
+
+- grant 不入库（纯派生）：重启后策略 role/worker 重新懒生成并复绑；`always` 豁免不跨进程。
+- compact 的 role agent 会作为"活跃子"参与销毁权判定：terminate 宿主须 `recursive`（子树级联含 role——设计内行为，UI 折叠显示可后补）。
+- worker 回信走正规投递会进 role 信箱（审计留痕），重启后 role 按 classRef 找回复用（幂等）。
+- 权限语义整体收紧（B1 落地）：模板未声明的工具现在真不可见——示例配置已随之扩写（tmp/.stem user.permission）。
+- 策略模块跑在系统信任级（`.stem/context/` 与 `.stem/tool/` 同前提：用户主权模型，非沙箱）。
+
+### 后续
+
+- self_focus / ltm-stm-mix / coding-hybrid 策略（契约与插槽就绪，逐策略独立模块交付）。
+- `agent_class_create` 落盘回写 `.stem/agent/*.md`（自我进化闭环）；benchmark 模块（评估→进化回路）。
+- Docker 打包（node:24-slim 基像、tsx 移入 dependencies、/api/health）——按定稿在 v1.0 前执行。

@@ -15,7 +15,7 @@ import { createGrepTool } from './grep'
 import { createGlobTool } from './glob'
 
 let root: string
-const ctx: ToolContext = { agentId: 'a1', spaceId: 's1', accessLayers: [] }
+const ctx: ToolContext = { agentId: 'a1', spaceId: 's1' }
 
 before(async () => {
   root = await mkdtemp(join(tmpdir(), 'stem-tools-'))

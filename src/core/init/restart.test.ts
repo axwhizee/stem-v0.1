@@ -32,6 +32,7 @@ function makeDeps(config: StemConfig = {}) {
     configFile: '/proj/.stem/stem.jsonc',
     toolDir: '/proj/.stem/tool',
     agentDir: '/proj/.stem/agent',
+    strategyDir: '/proj/.stem/context',
   }
   const fs: InitFs = { listFiles: async () => [], readText: async () => '' }
   const loader: InitToolLoader = { loadTool: async () => ({}) }

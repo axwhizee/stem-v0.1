@@ -167,10 +167,22 @@ export interface InitAgentRegistered {
   readonly file: string
 }
 
+/** 上下文压缩记录（classic 策略 compact：轮边界摘要替换，语料归档保留）。 */
+export interface ContextCompacted {
+  readonly type: 'context.compacted'
+  readonly at: number
+  readonly agentId: string
+  /** compacted=已压缩；skipped=条件不足跳过；failed=失败（不阻塞送信）。 */
+  readonly outcome: 'compacted' | 'skipped' | 'failed'
+  readonly compactedCount: number
+  readonly message: string
+}
+
 export type LogEvent =
   | ToolInvoked
   | ApiRequestRecorded
   | ContextAssembled
+  | ContextCompacted
   | MailboxCountdown
   | MailboxDelivered
   | AgentClassRegistered

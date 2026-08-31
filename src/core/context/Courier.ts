@@ -2,16 +2,17 @@
 // core/context/Courier.ts —— 快递员子模块（倒计时 + 发送）
 //
 // 职责（严格单一）：
-//   - 不参与上下文处理/组装（管理员 ContextManager 的职责）；
+//   - 不组装上下文（组装权归管理员：策略要影响真实送信，快递员只消费
+//     管理员经 buildAgentDelivery 委托产出的送信快照；user 面板的
+//     信件 diff 仍在本模块——那是发送节流状态，不是上下文处理）；
 //   - 按 agentId 维护发送倒计时（初始 0 立即发送；发送后开始；
 //     倒计时中新内容就绪则重置 —— 合并滑动窗口）；
-//   - 收到「上下文待发送事件」（notifyReady）且倒计时就绪时，
-//     从仓库取有效消息（按顺序）发送给对应 agent / 用户面板。
+//   - 收到「上下文待发送事件」（notifyReady，由管理员在策略 process
+//     完成后发出）且倒计时就绪时，执行发送。
 //
-// 发送条件：上下文就绪（管理员已组装/打戳）& 倒计时就绪。
+// 发送条件：上下文就绪（管理员处理完成）& 倒计时就绪。
 // ============================================================
 
-import type { ChatMessage } from '../gateway'
 import type { LogEvent } from '../logging'
 import type { Repository } from './Repository'
 import type { AgentDelivery, MailDelivery, UserDelivery } from './types'
@@ -46,8 +47,13 @@ export interface CourierRegistration {
 export interface CourierOptions {
   readonly defaultCountdownMs?: number
   readonly timer?: TimerFactory
-  /** 仓库（发送时按有效性取消息）。 */
+  /** 仓库（user 面板 diff 读取；agent 送信经管理员委托组装）。 */
   readonly repository: Repository
+  /**
+   * agent 送信快照构造（组合根注入 = 管理员 buildAgentDelivery，
+   * 策略 assemble + legalize 的正规出口；undefined 表示无有效上下文）。
+   */
+  readonly buildAgentDelivery?: (agentId: string) => AgentDelivery | undefined
   /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: (event: LogEvent) => void
 }
@@ -67,6 +73,11 @@ export interface Courier {
   /** 管理员处理完成后的「上下文待发送事件」。 */
   readonly notifyReady: (agentId: string) => Promise<void>
   readonly getState: (agentId: string) => CourierState
+  /**
+   * agent 送信快照构造（组合根在管理员就绪后注入；同 repository.onChange 模式）。
+   * 返回 undefined = 无有效上下文，本轮不发。
+   */
+  buildAgentDelivery: (agentId: string) => AgentDelivery | undefined
 }
 
 interface InternalBox {
@@ -89,12 +100,15 @@ export class DefaultCourier implements Courier {
   private readonly timer: TimerFactory
   private readonly repository: Repository
   private readonly onLog?: (event: LogEvent) => void
+  /** 送信快照构造（组合根注入管理员 buildAgentDelivery；缺省不发 agent 信）。 */
+  buildAgentDelivery: (agentId: string) => AgentDelivery | undefined = () => undefined
 
   constructor(options: CourierOptions) {
     this.defaultCountdownMs = options.defaultCountdownMs ?? 1000
     this.timer = options.timer ?? defaultTimer
     this.repository = options.repository
     this.onLog = options.onLog
+    if (options.buildAgentDelivery !== undefined) this.buildAgentDelivery = options.buildAgentDelivery
   }
 
   async register(registration: CourierRegistration): Promise<void> {
@@ -147,10 +161,14 @@ export class DefaultCourier implements Courier {
 
   private deliver(box: InternalBox): void {
     box.ready = false
-    // 从仓库取有效消息（按顺序）。
-    const valid = this.repository.listValid(box.agentId)
-    if (valid.length === 0) return
-    const delivery: MailDelivery = box.assemble ? this.buildAgentDelivery(box.agentId, valid) : this.buildUserDelivery(box.agentId)
+    const delivery: MailDelivery | undefined = box.assemble
+      ? // agent：送信快照由管理员按该 agent 的上下文策略组装（快递员零组装逻辑）。
+        this.buildAgentDelivery(box.agentId)
+      : // user 面板/扮演面板：信件 diff（发送节流状态，非上下文处理）。
+        this.repository.listValid(box.agentId).length === 0
+          ? undefined
+          : this.buildUserDelivery(box.agentId)
+    if (delivery === undefined) return
     this.emit({
       type: 'mailbox.delivered',
       at: Date.now(),
@@ -160,19 +178,6 @@ export class DefaultCourier implements Courier {
     })
     box.onDelivery(delivery)
     this.startCountdown(box)
-  }
-
-  private buildAgentDelivery(agentId: string, valid: readonly import('./types').StoredMessage[]): AgentDelivery {
-    const systemIndex = valid.findIndex((m) => m.message.role === 'system')
-    const system = systemIndex >= 0 ? contentOf(valid[systemIndex]!.message) : ''
-    const rest = valid.filter((m) => m.message.role !== 'system')
-    return {
-      kind: 'agent',
-      agentId,
-      system,
-      messages: rest.map((m) => m.message),
-      messageIds: valid.map((m) => m.id),
-    }
   }
 
   private buildUserDelivery(agentId: string): UserDelivery {
@@ -213,8 +218,4 @@ export class DefaultCourier implements Courier {
     if (!box) throw { kind: 'courier_not_found', agentId }
     return box
   }
-}
-
-function contentOf(message: ChatMessage): string {
-  return typeof message.content === 'string' ? message.content : ''
 }

@@ -12,7 +12,6 @@ import { DefaultTemplateRegistry, DefaultInstanceManager } from '../kernel'
 import { DefaultLineageTree } from './LineageTree'
 import type { AgentClass, AgentID } from '../kernel'
 import { makeAgentClassID, makeAgentID } from '../kernel'
-import { collectAncestorAccessLayers, toolAccessToRules } from '../tools'
 
 const cls: AgentClass = {
   name: makeAgentClassID('worker'),
@@ -80,27 +79,6 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
     assert.equal(lineage.getRoot(makeAgentID('user0')), 'user0')
     assert.equal(lineage.getRoot(root.id), 'user0')
     assert.equal(lineage.getRoot(child.id), 'user0')
-  })
-
-  test('collectAncestorAccessLayers：祖先链逐层收集访问规则（父在前）', async () => {
-    const { manager, lineage, spaceId, registry } = await makeTree()
-    const root = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId, agentId: 'root5' })
-    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId, agentId: 'child5' })
-
-    const layers = collectAncestorAccessLayers(lineage.getAncestors(child.id), (id) => {
-      const instance = manager.getSync(makeAgentID(id))
-      const template = instance ? registry.getSync(instance.classRef) : undefined
-      return template ? toolAccessToRules(template.tools) : undefined
-    })
-    // 祖先链 [root5, user0]：user0 也是普通实例（classRef=worker）→ 有效层数为 2。
-    assert.equal(layers.length, 2)
-    assert.deepEqual(
-      layers.map((l) => l.map((r) => [r.key, r.action])),
-      [
-        [['read', 'allow'], ['write', 'deny']],
-        [['read', 'allow'], ['write', 'deny']],
-      ],
-    )
   })
 
   test('销毁权：非祖先调用者被拒；有活跃子默认拒绝；recursive 级联', async () => {

@@ -50,6 +50,11 @@ export interface Pilot {
   readonly contextOverview: (agentId: string) => Promise<string>
   /** 导出上下文为 jsonl（只读）。 */
   readonly exportContext: (agentId: string) => Promise<string>
+  /**
+   * 执行 agent 上下文策略的专有动作（如 classic 的 compact）——
+   * 策略独立接口的用户通道（模型侧走 context_apply 工具）。
+   */
+  readonly runContextAction: (agentId: string, action: string, args?: string) => Promise<string>
 }
 
 export interface PilotOptions {
@@ -140,6 +145,11 @@ export class DefaultPilot implements Pilot {
 
   async exportContext(agentId: string): Promise<string> {
     return this.kernel.exportContext(agentId)
+  }
+
+  async runContextAction(agentId: string, action: string, args?: string): Promise<string> {
+    // user0 = 族谱根（全体祖先）：策略动作授权校验天然通过。
+    return this.kernel.contextManager.runStrategyAction(agentId, action, args)
   }
 }
 

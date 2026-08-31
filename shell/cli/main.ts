@@ -215,7 +215,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
   const [cmd, ...rest] = line.split(/\s+/)
   switch (cmd) {
     case '/help':
-      console.log('命令: /new <classId> [name] [userPrompt] · /use <agentId> · /agents · /templates · /tools · /config · /source · /stop · /help · /exit')
+      console.log('命令: /new <classId> [name] [userPrompt] · /use <agentId> · /agents · /templates · /tools · /config · /source · /compact [agentId] · /stop · /help · /exit')
       return false
     case '/exit':
       return true
@@ -236,9 +236,11 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       console.log(`  model: ${init.config.model ?? '(未配置)'}`)
       console.log(`  autoApprove: ${init.config.autoApprove ?? false}`)
       console.log(`  sendCountdown: ${init.config.sendCountdown ?? '(未配置)'}`)
-      console.log(`  全局权限: ${Object.keys(init.config.permission ?? {}).length > 0 ? JSON.stringify(init.config.permission) : '(空，默认 ask)'}`)
+      console.log(`  user 类: ${init.config.user?.permission !== undefined ? `permission=${JSON.stringify(init.config.user.permission)}` : '(内置默认表)'}`)
+      console.log(`  context: ${init.config.context !== undefined ? JSON.stringify(init.config.context) : '(默认 window/compact)'}`)
       console.log(`  注册工具: ${init.tools.length > 0 ? init.tools.map((t) => `${t.id}(${t.file})`).join(', ') : '-'}`)
       console.log(`  注册 agent: ${init.agents.length > 0 ? init.agents.map((a) => `${a.id}(${a.file})`).join(', ') : '-'}`)
+      console.log(`  注册策略: ${init.config.strategies && init.config.strategies.length > 0 ? init.config.strategies.map((s) => `${s.id}(${s.file})`).join(', ') : '-'}`)
       return false
     }
     case '/source':
@@ -292,6 +294,16 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       await state.kernel.instances.get(makeAgentID(agentId))
       state.currentAgentId = makeAgentID(agentId)
       console.log(`已切换到: ${agentId}`)
+      return false
+    }
+    case '/compact': {
+      // classic 策略手动压缩（缺省作用于当前对话 agent）。
+      const target = (rest[0] as string | undefined) ?? (state.currentAgentId as string | undefined)
+      if (!target) {
+        console.log('用法: /compact [agentId]')
+        return false
+      }
+      console.log(`compact: ${await state.kernel.contextManager.runStrategyAction(target, 'compact')}`)
       return false
     }
     default:

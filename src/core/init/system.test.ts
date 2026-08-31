@@ -22,6 +22,7 @@ function makeDeps(config: StemConfig = {}, fsFiles: Record<string, string> = {})
     configFile: '/proj/.stem/stem.jsonc',
     toolDir: '/proj/.stem/tool',
     agentDir: '/proj/.stem/agent',
+    strategyDir: '/proj/.stem/context',
   }
   const fs: InitFs = {
     listFiles: async (dir) => Object.keys(fsFiles).filter((f) => f.startsWith(dir)),
@@ -59,6 +60,40 @@ describe('createStemSystem（系统装配组合根）', () => {
     assert.ok(await system.tools.get('agent_instantiate'))
     assert.ok(await system.tools.get('access_reply'))
     assert.ok(await system.tools.get('skill'))
+    await system.dispose()
+  })
+
+  test('config.user 对象全生效：user0 人格/整表权限/面板无策略 note；context 映射 compact 参数', async () => {
+    const d = makeDeps({
+      user: {
+        systemPrompt: '你是根。',
+        permission: { read: 'allow', agent_terminate: 'deny' },
+      },
+      context: { window: 100, compact: { threshold: 0.5, keepRecentTurns: 2 } },
+      maxSteps: 3,
+    })
+    const system = await createStemSystem({
+      config: { store: d.store, paths: d.paths },
+      fs: d.fs,
+      tools: d.loader,
+      gateway: d.gateway,
+      defaultModel: { provider: 'opencode', id: 'test' },
+    })
+    // user0 人格进配置文件（面板态不跑 LLM 但 transcript 真实）。
+    const state = await system.kernel.contextManager.getState(USER_ID)
+    const systemLine = String(state.messages.find((m) => m.message.role === 'system')!.message.content)
+    assert.match(systemLine, /你是根。/)
+    assert.ok(!systemLine.includes('<stem_context>'), '面板绑定 none 策略——不注入 classic note')
+    // permission 整表替换：声明生效、默认表（含 access_reply）被替换——用户自担根义务配置。
+    assert.equal(system.kernel.accessLedger.effectiveAccess(USER_ID, 'read'), 'allow')
+    assert.equal(system.kernel.accessLedger.effectiveAccess(USER_ID, 'agent_terminate'), 'deny')
+    assert.equal(system.kernel.accessLedger.effectiveAccess(USER_ID, 'agent_instantiate'), 'deny', '未列出 = 白名单封闭')
+    // config.context 已映射（缺省参数兜底不炸；compact 动作可执行）。
+    const result = await system.kernel.contextManager.runStrategyAction(
+      await system.kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj'),
+      'compact',
+    )
+    assert.match(result, /轮数不足|已压缩|无历史消息/)
     await system.dispose()
   })
 

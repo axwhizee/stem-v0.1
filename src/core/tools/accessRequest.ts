@@ -9,20 +9,29 @@
 //   - 无任何 agent 特判：user0 也是普通 agent，其自身 ask 同样发给自己
 //     的根（= 自己），由扮演它的 shell 经 pilot 确认。
 //
+// 权限评估（查询反转）：生效访问经注入的 AccessResolver 端口向族谱台账
+//   （lineage/AccessLedger）查询，本模块不再接收/拼装任何权限层；
+//   族谱无判定时落 defaultAccess（internal → ignore，其余 → ask）。
+//
+// session 豁免备忘（once/always 的正确语义）：
+//   - always 批准 = 该 (agent, accessKey) 后续**免于询问**（ask 静默放行），
+//     仅当前实例生效、不传播后代；它是 ask 环节的备忘，**不是权限层**——
+//     不参与单调收敛，绝不豁免 deny/ignore（旧实现把 allow 规则混进分层
+//     取严，ask 永远压不掉，且跨 agent 泄漏）。
+//
 // 依赖注入（组合根装配）：
+//   - resolve：族谱权限查询端口（kernel 接线 AccessLedger）；
 //   - askRoot：投递申请消息到根信箱（contextManager.deposit）；
 //   - getRoot：解析申请者的族谱根（lineage.getRoot），用于 reply 授权校验。
 // ============================================================
 
 import type { LogSink } from '../logging'
-import { evaluateAccess } from './access'
 import type {
   AccessAssertInput,
   AccessError,
   AccessReplyInput,
   AccessRequest,
-  ToolAccessRule,
-  ToolAccessRules,
+  AccessResolver,
 } from './types'
 
 export interface AccessAskOptions {
@@ -30,6 +39,8 @@ export interface AccessAskOptions {
   readonly askRoot: (request: AccessRequest) => Promise<void> | void
   /** 解析申请者的族谱根（注入 lineage.getRoot；用于 access_reply 授权校验）。 */
   readonly getRoot: (agentId: string) => string
+  /** 族谱权限查询端口（kernel 接线 AccessLedger；缺省 = 全部走 defaultAccess）。 */
+  readonly resolve?: AccessResolver
   /** 访问自动批准（配置 `autoApprove`）：true 时 ask 直接放行。 */
   readonly autoApprove?: boolean
   /** 可注入请求 id 生成器（测试用）。 */
@@ -45,8 +56,8 @@ export interface AccessAskBus {
   readonly reply: (input: AccessReplyInput, by: string) => Promise<void>
   /** 列出挂起中的请求。 */
   readonly list: () => readonly AccessRequest[]
-  /** session 内已批准规则（always 累积，仅当前实例生效，不传播后代）。 */
-  readonly approvedRules: () => ToolAccessRules
+  /** session 已豁免的 (agent, accessKey) 备忘（always 累积；仅 ask 环节生效）。 */
+  readonly listApprovals: () => readonly { agentId: string; accessKey: string }[]
 }
 
 interface PendingEntry {
@@ -55,11 +66,17 @@ interface PendingEntry {
   readonly reject: (error: AccessError) => void
 }
 
+/** 豁免备忘键（agent 隔离：不同实例同键互不影响）。 */
+function memoKey(agentId: string, accessKey: string): string {
+  return `${agentId}\u0000${accessKey}`
+}
+
 export class DefaultAccessAskBus implements AccessAskBus {
-  private readonly approved: ToolAccessRule[] = []
+  private readonly approvals = new Map<string, { agentId: string; accessKey: string }>()
   private readonly pending = new Map<string, PendingEntry>()
   private readonly askRoot: (request: AccessRequest) => Promise<void> | void
   private readonly getRoot: (agentId: string) => string
+  private readonly resolvePort: AccessResolver | undefined
   private readonly autoApprove: boolean
   private readonly nextRequestId?: () => string
   private readonly onLog?: LogSink
@@ -68,15 +85,16 @@ export class DefaultAccessAskBus implements AccessAskBus {
   constructor(options: AccessAskOptions) {
     this.askRoot = options.askRoot
     this.getRoot = options.getRoot
+    this.resolvePort = options.resolve
     this.autoApprove = options.autoApprove ?? false
     this.nextRequestId = options.nextRequestId
     this.onLog = options.onLog
   }
 
   async assert(input: AccessAssertInput): Promise<void> {
-    // 分层评估：kernel 合成的完整访问层（全局 → 祖先链 → agent 类）
-    // 追加 session 批准（仅当前实例），层间取最严格（单向收缩）。
-    const action = evaluateAccess(input.accessKey, [...(input.layers ?? []), this.approved], input.defaultAccess)
+    // 族谱台账查询（生效权限 = 族谱位置的函数）；无判定 → 工具默认值。
+    const action =
+      this.resolvePort?.accessOf(input.agentId, input.accessKey) ?? input.defaultAccess ?? 'ask'
     this.onLog?.log({
       type: 'access.asked',
       at: Date.now(),
@@ -88,8 +106,10 @@ export class DefaultAccessAskBus implements AccessAskBus {
     if (action === 'deny') {
       throw { kind: 'access_denied', accessKey: input.accessKey, agentId: input.agentId } satisfies AccessError
     }
-    // ask：autoApprove 放行，否则投递申请到根信箱并挂起等根回复。
+    // ask：autoApprove 放行；已被 always 豁免（同 agent 同键）静默通过；
+    // 否则投递申请到根信箱并挂起等根回复。
     if (this.autoApprove) return
+    if (this.approvals.has(memoKey(input.agentId, input.accessKey))) return
     const info: AccessRequest = {
       id: this.nextRequestId?.() ?? `access_${++this.counter}`,
       accessKey: input.accessKey,
@@ -131,8 +151,11 @@ export class DefaultAccessAskBus implements AccessAskBus {
       return
     }
     if (input.reply === 'always') {
-      // 根批准优先于类规则：加入 approved，后续同访问键直接通过。
-      this.approved.push({ key: entry.info.accessKey, action: 'allow' })
+      // 豁免备忘（仅该 agent 该键）：后续 ask 免询问放行，deny/ignore 不受影响。
+      this.approvals.set(memoKey(entry.info.agentId, entry.info.accessKey), {
+        agentId: entry.info.agentId,
+        accessKey: entry.info.accessKey,
+      })
     }
     entry.resolve()
   }
@@ -141,8 +164,8 @@ export class DefaultAccessAskBus implements AccessAskBus {
     return [...this.pending.values()].map((entry) => entry.info)
   }
 
-  approvedRules(): ToolAccessRules {
-    return [...this.approved]
+  listApprovals(): readonly { agentId: string; accessKey: string }[] {
+    return [...this.approvals.values()]
   }
 }
 

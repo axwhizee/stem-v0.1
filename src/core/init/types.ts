@@ -21,9 +21,13 @@ export interface InitFs {
   readonly readText: (file: string) => Promise<string>
 }
 
-/** 动态加载用户工具模块（宿主注入：node 动态 import 等）。 */
+/**
+ * 动态模块加载器（宿主注入：node 动态 import；tsx 环境可加载 .ts）。
+ * loadTool 为通用「默认导出模块导入」——用户工具（ToolCapability）与
+ * 用户上下文策略（ContextStrategyModule）共用，差异只在管线校验形状。
+ */
 export interface InitToolLoader {
-  /** 加载工具模块，返回其 default 导出（ToolCapability 形状）。 */
+  /** 加载模块文件，返回其 default 导出（ToolCapability / ContextStrategyModule 形状）。 */
   readonly loadTool: (file: string) => Promise<{ readonly default?: unknown }>
 }
 
@@ -41,6 +45,8 @@ export interface InitDeps {
   readonly toolRegistry: import('../tools').ToolCapabilityRegistry
   /** 模板注册表（注册用户 agent 类）。 */
   readonly templateRegistry: import('../kernel').TemplateRegistry
+  /** 上下文策略注册表（注册用户 `.stem/context/` 策略；可选）。 */
+  readonly strategyRegistry?: import('../context').StrategyRegistry
   /** 日志出口（组合根注入 → bus → core/logging）。 */
   readonly onLog?: import('../logging').LogSink
 }
@@ -51,7 +57,9 @@ export type InitIssue =
   | { readonly kind: 'tool_invalid'; readonly file: string; readonly message: string }
   | { readonly kind: 'agent_parse_failed'; readonly file: string; readonly message: string }
   | { readonly kind: 'agent_invalid'; readonly file: string; readonly message: string }
-  | { readonly kind: 'orphan_registration'; readonly type: 'tool' | 'agent'; readonly id: string; readonly file: string }
+  | { readonly kind: 'strategy_load_failed'; readonly file: string; readonly message: string }
+  | { readonly kind: 'strategy_invalid'; readonly file: string; readonly message: string }
+  | { readonly kind: 'orphan_registration'; readonly type: 'tool' | 'agent' | 'strategy'; readonly id: string; readonly file: string }
 
 /** 初始化报告。 */
 export interface InitReport {

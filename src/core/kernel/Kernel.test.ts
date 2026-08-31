@@ -194,21 +194,20 @@ describe('Kernel 邮局模式', () => {
 
   test('系统工具：agent_class_create/list（admin）创建类，且类不含实例数据', async () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
-    const { kernel, tools } = await createKernelHarness(gateway)
+    // user 类清单显式声明管理工具 = user0 生效权限（族谱台账物化，白名单语义）。
+    const { kernel, tools } = await createKernelHarness(gateway, {
+      userClass: {
+        permission: {
+          agent_class_create: 'allow',
+          agent_class_list: 'allow',
+          agent_instantiate: 'allow',
+        },
+      },
+    })
     await kernel.registerSystemTools(tools)
 
-    // 调用方规则：允许类管理工具（统一 per-tool 访问）。
-    const adminCtx = {
-      agentId: USER_ID,
-      spaceId: 'space-1',
-      accessLayers: [
-        [
-          { key: 'agent_class_create', action: 'allow' },
-          { key: 'agent_class_list', action: 'allow' },
-          { key: 'agent_instantiate', action: 'allow' },
-        ],
-      ] as const,
-    }
+    // user0 身份调用：registry/ask 总线经 AccessResolver 查询台账（不再手传权限层）。
+    const adminCtx = { agentId: USER_ID, spaceId: 'space-1' }
 
     const created = await tools.execute(
       {
@@ -240,21 +239,17 @@ describe('Kernel 邮局模式', () => {
     )
     assert.match(inst.text, /已创建 agent/)
 
-    // 访问校验：deny agent_class_create → access_denied
-    const deniedCtx = {
-      agentId: 'some-agent',
-      spaceId: 'space-1',
-      accessLayers: [[{ key: 'agent_class_create', action: 'deny' }]] as const,
-    }
+    // 白名单隔离：封闭清单类（simple-chat tools={}）的 agent 调管理工具 → deny
+    const closedAgent = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
     await assert.rejects(
       () =>
         tools.execute(
           {
             id: 'call_4',
             name: 'agent_class_create',
-            input: { id: 'x', name: 'X', description: 'x', systemPrompt: 'x' },
+            input: { name: 'X', description: 'x', systemPrompt: 'x' },
           },
-          deniedCtx,
+          { agentId: closedAgent, spaceId: 'space-1' },
         ),
       (e: { kind?: string }) => e.kind === 'access_denied',
     )
@@ -290,15 +285,22 @@ describe('Kernel 邮局模式', () => {
     const assembled = kernel.logger.query({ type: 'context.assembled' })[0] as { messages: readonly unknown[] }
     assert.ok(Array.isArray(assembled.messages))
 
-    // 工具调用日志（tool.invoked：called/success/error）
+    // 工具调用日志（tool.invoked：called/success/error）——
+    // 类清单显式声明 oc_echo（白名单语义下"声明即可用"，经台账查询）。
     await tools.register({
       id: 'oc_echo',
       description: 'echo',
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
     })
-    const normalCtx = { agentId, spaceId: 'space-1', accessLayers: [[{ key: 'oc_echo', action: 'allow' }]] as const }
-    await tools.execute({ id: 'call_5', name: 'oc_echo', input: { text: 'hi' } }, normalCtx)
+    await kernel.registerAgentClass({
+      name: makeAgentClassID('echo-user'),
+      description: 'echo 使用者',
+      systemPrompt: 'echo-user',
+      tools: { oc_echo: 'allow' },
+    })
+    const echoAgentId = await kernel.getOrCreateAgent(makeAgentClassID('echo-user'), '/proj')
+    await tools.execute({ id: 'call_5', name: 'oc_echo', input: { text: 'hi' } }, { agentId: echoAgentId, spaceId: 'space-1' })
     const toolLogs = kernel.logger.query({ type: 'tool.invoked' })
     assert.ok(toolLogs.some((e) => (e as { phase?: string }).phase === 'called'))
     assert.ok(

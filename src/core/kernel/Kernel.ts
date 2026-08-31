@@ -1,8 +1,12 @@
 // ============================================================
 // core/kernel/Kernel.ts —— Kernel 组合根（core 内部装配）
 //
-// 装配：模板注册表 / 实例管理 / 空间 / 族谱树 / 上下文仓库+管理员+快递员
-//      / 运行时 / 工具访问管理器 / 工具注册表。
+// 装配：模板注册表 / 实例管理 / 空间 / 族谱树（关系 + 权限台账）
+//      / 上下文仓库+管理员+快递员 / 运行时 / ask 总线 / 工具注册表。
+//
+// 权限模型（查询反转）：生效权限 = 族谱位置的函数——实例注册（创建/恢复）
+// 时在 lineage/AccessLedger 台账物化（继承→收敛两步），tools registry /
+// ask 总线经 AccessResolver 端口查询，kernel 只做接线，不再逐层拼装。
 //
 // 通信模型（重建邮局，无总线）：
 //   - sendMessage(from, to, payload) → 管理员 deposit（打戳 + 入库 + 触发处理）；
@@ -14,14 +18,22 @@
 
 import type { ModelGateway } from '../gateway'
 import type { LLMEvent, ModelRef, UsageEvent } from '../gateway'
-import type { ContextAssembler, MailDelivery, Repository, Courier } from '../context'
+import type {
+  AgentDelivery,
+  ContextSettings,
+  MailDelivery,
+  Repository,
+  Courier,
+  StrategyAgentSpec,
+  StrategyRegistry,
+} from '../context'
 import { DefaultRepository, DefaultCourier, DefaultContextManager, PersistedRepository } from '../context'
 import type { ContextManager, MessageStore } from '../context'
 import type { Logger } from '../logging'
 import { InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
-import type { AccessAskBus, ToolAccess, ToolAccessRules } from '../tools'
-import { DefaultAccessAskBus, toolAccessToRules, collectAncestorAccessLayers, formatAccessRequest } from '../tools'
+import type { AccessAskBus, AccessResolver, ToolAccess } from '../tools'
+import { DefaultAccessAskBus, formatAccessRequest } from '../tools'
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
@@ -39,10 +51,13 @@ import { DefaultRuntime } from './Runtime'
 import type { Runtime } from './Runtime'
 import { DefaultLineageTree } from '../lineage'
 import type { LineageTree } from '../lineage'
+import { DefaultAccessLedger } from '../lineage'
+import type { AccessLedger } from '../lineage'
 import { createSystemTools } from './systemTools'
 import { createUserClass, USER_CLASS_ID } from './userClass'
+import type { UserClassConfig } from './userClass'
 import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentSpaceID, ProjectRef } from './types'
-import { makeAgentID } from './types'
+import { makeAgentClassID, makeAgentID } from './types'
 
 /** 内置示例模板（从 templates/*.json 加载，非硬编码角色）。 */
 export const BUILTIN_TEMPLATES: readonly AgentClass[] = [
@@ -61,7 +76,10 @@ export interface KernelOptions {
   readonly templates?: readonly AgentClass[]
   /** 工具注册表（缺省不启用工具轮）。 */
   readonly tools?: ToolCapabilityRegistry
-  readonly contextAssembler?: ContextAssembler
+  /** 上下文策略注册表（缺省内置 classic/none；init 管线注册 `.stem/context/` 用户策略）。 */
+  readonly strategies?: StrategyRegistry
+  /** 上下文策略配置（window/compact；缺省 DEFAULT_CONTEXT_SETTINGS，S3 起来自 config.context）。 */
+  readonly contextSettings?: ContextSettings
   readonly defaultCountdownMs?: number
   /** 可注入倒计时实现（测试用）。 */
   readonly timer?: import('../context').TimerFactory
@@ -72,10 +90,10 @@ export interface KernelOptions {
   /** 日志记录器（缺省内存版）。 */
   readonly logger?: Logger
   /**
-   * user 模板的工具权限（来自配置 `permission`）：内置 user 类的 tools。
-   * 生效权限 = 祖先链（含 user0 根）→ 类清单 → session 批准，层间单调收缩。
+   * user0 内嵌 agent 类配置（config.user 全对象：permission/systemPrompt/
+   * sendCountdown/model/contextStrategy）；缺省 = 内置默认表（DEFAULT_USER_TOOLS）。
    */
-  readonly userClassTools?: Readonly<Record<string, ToolAccess>>
+  readonly userClass?: UserClassConfig
   /** skill 注册表（可选）：实例化 agent 时把 <available_skills> 清单注入 system 消息。 */
   readonly skills?: import('../tools').SkillRegistry
   /** 工具访问自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
@@ -102,7 +120,9 @@ export class Kernel {
   readonly courier: Courier
   readonly runtime: Runtime
   readonly tools?: ToolCapabilityRegistry
-  /** 工具访问确认（ask 消息化：投递申请到根信箱 + access_reply 解析）。 */
+  /** 族谱权限台账（生效权限 = 族谱位置的函数；注册期物化，运行期只读查询）。 */
+  readonly accessLedger: AccessLedger
+  /** 访问确认（ask 消息化：投递申请到根信箱 + access_reply 解析）。 */
   readonly access: AccessAskBus
   /** 统一事件流（PilotEvent：stream/letter/status/notice；多订阅者）。 */
   readonly events: EventHub
@@ -113,7 +133,7 @@ export class Kernel {
 
   constructor(options: KernelOptions) {
     this.templates = new DefaultTemplateRegistry([
-      createUserClass(options.userClassTools),
+      createUserClass(options.userClass),
       ...(options.templates ?? BUILTIN_TEMPLATES),
     ])
 
@@ -153,6 +173,12 @@ export class Kernel {
       getAllInstances: () => this.instances.listAllSync(),
     })
 
+    // 族谱权限台账 + 查询端口（tools registry / ask 总线统一消费，kernel 只接线）。
+    this.accessLedger = new DefaultAccessLedger()
+    const accessResolver: AccessResolver = {
+      accessOf: (agentId, key) => this.accessLedger.effectiveAccess(agentId, key),
+    }
+
     // 工具访问确认（ask 消息化）：投递申请到申请者的族谱根信箱；根经 access_reply 回复。
     this.access = new DefaultAccessAskBus({
       askRoot: (request) =>
@@ -162,24 +188,32 @@ export class Kernel {
           request.agentId,
         ),
       getRoot: (agentId) => this.lineage.getRoot(makeAgentID(agentId)),
+      resolve: accessResolver,
       onLog: { log: (event) => this.emitLog(event) },
       autoApprove: options.autoApprove,
     })
 
-    // 重建邮局：仓库（存储，已在持久化装配段创建）→ 管理员（onChange 驱动）→ 快递员（发送）。
+    // 重建邮局：仓库（存储，已在持久化装配段创建）→ 管理员（策略处理 + 组装权）
+    // → 快递员（只发不组装；agent 送信快照经管理员委托构造，面板 diff 自持）。
     this.courier = new DefaultCourier({
       defaultCountdownMs: options.defaultCountdownMs,
       timer: options.timer,
       repository: this.repository,
+      buildAgentDelivery: (agentId) => this.contextManager.buildAgentDelivery(agentId),
       onLog: (event) => this.emitLog(event),
     })
     this.contextManager = new DefaultContextManager({
-      contextAssembler: options.contextAssembler,
-      defaultCountdownMs: options.defaultCountdownMs,
+      strategies: options.strategies,
+      settings: options.contextSettings,
       timer: options.timer,
+      defaultCountdownMs: options.defaultCountdownMs,
       repository: this.repository,
       courier: this.courier,
       skills: options.skills,
+      // 策略系统能力面（模块扮演 agent 与工具 worker 的创建/回收，kernel 执行）。
+      spawnRole: (hostAgentId, role) => this.spawnRoleAgent(hostAgentId, role),
+      spawnWorker: (roleAgentId, task, spec) => this.spawnStrategyWorker(roleAgentId, task, spec),
+      terminateWorker: (workerId, by) => this.terminateAgent(workerId, { by }),
       onLog: (event) => this.emitLog(event),
     })
     // 仓库 onChange → 管理员处理入口。
@@ -198,13 +232,6 @@ export class Kernel {
       onEvent: (agentId, event) => this.events.emit({ type: 'stream', agentId, event }),
       onStatus: (agentId, from, to) => this.events.emit({ type: 'status', agentId, from, to, at: Date.now() }),
       onLog: { log: (event) => this.emitLog(event) },
-      // 完整访问层：[祖先链(父→…→user0 根，即 config.permission), agent 类]。
-      resolveAccessLayers: (agentId) => [
-        ...collectAncestorAccessLayers(this.lineage.getAncestors(agentId), (id) =>
-          this.rulesOf(makeAgentID(id)),
-        ),
-        this.resolveClassLayer(agentId),
-      ],
     })
 
     // 工具自动记录 → 仓库（触发/成功/失败），不依赖 runtime 手动发送。
@@ -230,9 +257,10 @@ export class Kernel {
         })
       }
     })
-    // 工具调用日志；访问确认 → AccessManager。
+    // 工具调用日志；访问确认 → AccessAskBus；族谱权限查询 → 台账。
     this.tools?.setLogSink?.({ log: (event) => this.emitLog(event) })
     this.tools?.setAccessSink?.(this.access)
+    this.tools?.setAccessResolver?.(accessResolver)
 
     // 恢复接线：持久化实例重新挂上管理员/快递员（跳过仓库开辟，箱已恢复）。
     this.wireRestoredInstances()
@@ -244,13 +272,22 @@ export class Kernel {
    * 根（parentId=null，即 user0）沿用 registerRootAgent 的面板接线（assemble:false + letter 事件）。
    */
   private wireRestoredInstances(): void {
+    // 权限台账重放（族谱拓扑序，纯派生态不入库）。
+    this.accessLedger.rebind(
+      this.restoredInstances.map((instance) => ({
+        agentId: instance.id as string,
+        parentId: instance.parentId as string | null,
+        own: this.ownAccessOf(instance.id),
+      })),
+    )
     for (const instance of this.restoredInstances) {
       const template = this.templates.getSync(instance.classRef)
       const isRoot = instance.parentId === null
       void this.contextManager.register({
         agentId: instance.id,
         sendCountdownMs: isRoot ? template?.sendCountdown ?? 0 : template?.sendCountdown,
-        assemble: !isRoot,
+        assemble: !isRoot && template?.panel !== true,
+        contextStrategy: template?.contextStrategy,
         restore: this.repository.has(instance.id),
         // 面板 diff 基线：恢复箱内的全部消息 id（防重启后旧信当新信重放）。
         initialSentIds: this.repository.has(instance.id) ? this.repository.list(instance.id).map((m) => m.id) : [],
@@ -266,18 +303,13 @@ export class Kernel {
     }
   }
 
-  /** 某 agent 的访问规则（模板 tools + 实例 toolOverride 合并生成）。 */
-  private rulesOf(agentId: AgentID): ToolAccessRules {
+  /** 某 agent 的自身清单（类 tools 与实例 toolOverride 合并；台账 bind 的输入，undefined = 不设限）。 */
+  private ownAccessOf(agentId: AgentID): Readonly<Record<string, ToolAccess>> | undefined {
     const instance = this.instances.getSync(agentId)
-    const template = instance ? this.templates.getSync(instance.classRef) : undefined
-    if (!template) return []
-    const merged = { ...template.tools, ...instance?.toolOverride }
-    return toolAccessToRules(merged)
-  }
-
-  /** 某 agent 的类访问层（实例 classRef 对应模板的 tools + 实例 toolOverride 合并）。 */
-  private resolveClassLayer(agentId: AgentID): ToolAccessRules {
-    return this.rulesOf(agentId)
+    if (!instance) return undefined
+    const template = this.templates.getSync(instance.classRef)
+    if (template?.tools === undefined && instance.toolOverride === undefined) return undefined
+    return { ...template?.tools, ...instance.toolOverride }
   }
 
   /** 注册根 agent（user0）：从内置 user 类实例化（parentId=null 即根，与其他实例等同）。 */
@@ -291,6 +323,8 @@ export class Kernel {
       spaceId: rootSpace.id,
       agentId: USER_ID,
     })
+    // 权限台账绑定（根：自身清单 = user 类 tools 整表，物化生效权限）。
+    this.accessLedger.bind({ agentId: USER_ID, parentId: null, own: this.ownAccessOf(makeAgentID(USER_ID)) })
     this.emitLog({
       type: 'kernel.instance.created',
       at: Date.now(),
@@ -304,6 +338,7 @@ export class Kernel {
       systemPrompt: template.systemPrompt,
       sendCountdownMs: template.sendCountdown ?? 0,
       assemble: false,
+      contextStrategy: template.contextStrategy,
       onDelivery: (delivery) => {
         if (delivery.kind !== 'user') return
         // 来信统一经事件流发布（letter 事件；含 access_request 消息化申请）。
@@ -340,9 +375,16 @@ export class Kernel {
     return this.instantiateInSpace(opts, space.id)
   }
 
-  /** 实例化（指定空间，供系统工具 agent_instantiate 使用）。 */
+  /** 实例化（指定空间，供系统工具 agent_instantiate / 策略 spawn 使用）。 */
   async instantiateInSpace(opts: Omit<InstantiateOptions, 'spaceId'>, spaceId: AgentSpaceID | string): Promise<AgentID> {
     const instance = await this.instances.instantiate({ ...opts, spaceId: spaceId as AgentSpaceID })
+    // 权限台账绑定（注册两步曲：继承父档案 → 自身清单收敛；grant = 系统通道加法整表）。
+    this.accessLedger.bind({
+      agentId: instance.id as string,
+      parentId: instance.parentId as string | null,
+      own: this.ownAccessOf(instance.id),
+      ...(opts.accessMode === 'grant' ? { mode: 'grant' as const } : {}),
+    })
     this.emitLog({
       type: 'kernel.instance.created',
       at: Date.now(),
@@ -352,13 +394,19 @@ export class Kernel {
     })
 
     const template = await this.templates.get(instance.classRef)
+    // 模块扮演面板（class panel=true：策略 role 等）：不组装、不跑 LLM 轮，
+    // 信件由扮演模块消费（信箱配对 waitForReply / 审计），与 user0 面板同构。
+    const isPanel = template.panel === true
     await this.contextManager.register({
       agentId: instance.id,
       systemPrompt: template.systemPrompt,
       sendCountdownMs: template.sendCountdown,
-      assemble: true,
-      onDelivery: (delivery) => this.handleDelivery(delivery),
-      onHold: (id) => void this.runtime.notifyHold(makeAgentID(id)),
+      assemble: !isPanel,
+      contextStrategy: template.contextStrategy,
+      onDelivery: isPanel
+        ? () => {}
+        : (delivery) => this.handleDelivery(delivery),
+      ...(isPanel ? {} : { onHold: (id: string) => void this.runtime.notifyHold(makeAgentID(id)) }),
     })
 
     // 上下文传递：父 agent 指定的仓库消息 id 列表，深拷贝导入新实例上下文空间。
@@ -372,9 +420,59 @@ export class Kernel {
       }
     }
 
-    // userPrompt 作为首封信投递（from=父，管理员打戳）。
-    await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt }, instance.parentId ?? USER_ID)
+    // userPrompt 作为首封信投递（from=父，管理员打戳）；面板 role 无任务信。
+    if (instance.userPrompt !== '') {
+      await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt }, instance.parentId ?? USER_ID)
+    }
     return instance.id
+  }
+
+  /**
+   * 策略扮演 agent 懒生成（模块扮演模式：pilot 扮演 user0 的同构推广）。
+   * 父 = 宿主 agent（级联回收 + 族谱诚实）；grant 加法权限面；已存在则复用
+   * （重启后 roleAgentId 指针丢失时按 classRef 找回，天然幂等）。
+   */
+  async spawnRoleAgent(hostAgentId: string, role: StrategyAgentSpec): Promise<string> {
+    const host = makeAgentID(hostAgentId)
+    const className = makeAgentClassID(role.className)
+    const existing = this.lineage
+      .getChildren(host)
+      .map((id) => this.instances.getSync(id))
+      .find((child) => child !== undefined && child.classRef === className)
+    if (existing) return existing.id
+    await this.ensureSystemTemplate(role)
+    const hostInstance = this.instances.getSync(host)
+    if (!hostInstance) throw { kind: 'agent_not_found', agentId: host }
+    return this.instantiateInSpace({ className, parentId: host, userPrompt: '', accessMode: 'grant' }, hostInstance.spaceId)
+  }
+
+  /** 策略工具 worker 创建（父 = 扮演 agent；任务 = userPrompt 首信；回收交调用方）。 */
+  async spawnStrategyWorker(roleAgentId: string, task: string, spec: StrategyAgentSpec): Promise<string> {
+    const role = makeAgentID(roleAgentId)
+    await this.ensureSystemTemplate(spec)
+    const roleInstance = this.instances.getSync(role)
+    if (!roleInstance) throw { kind: 'agent_not_found', agentId: role }
+    return this.instantiateInSpace(
+      { className: makeAgentClassID(spec.className), parentId: role, userPrompt: task, accessMode: 'grant' },
+      roleInstance.spaceId,
+    )
+  }
+
+  /** 策略声明的系统模板 ensure（幂等；策略硬编码自身人设——决策 C）。 */
+  private async ensureSystemTemplate(spec: StrategyAgentSpec): Promise<void> {
+    const name = makeAgentClassID(spec.className)
+    if (this.templates.getSync(name)) return
+    await this.templates.register({
+      name,
+      description: spec.description,
+      systemPrompt: spec.systemPrompt,
+      tools: spec.tools ?? {},
+      sendCountdown: spec.sendCountdown ?? 0,
+      contextStrategy: spec.contextStrategy ?? 'none',
+      ...(spec.panel !== undefined ? { panel: spec.panel } : {}),
+      ...(spec.model !== undefined ? { model: spec.model } : {}),
+    })
+    this.emitLog({ type: 'kernel.class.registered', at: Date.now(), classId: spec.className })
   }
 
   /** 注册系统管理工具（agent_ 与 bus_ 前缀）到工具注册表。 */
@@ -396,18 +494,21 @@ export class Kernel {
       by: makeAgentID(opts?.by ?? USER_ID),
       recursive: opts?.recursive,
     })
-    for (const id of subtree) await this.contextManager.unregister(id)
+    for (const id of subtree) {
+      await this.contextManager.unregister(id)
+      this.accessLedger.unbind(id)
+    }
     this.emitLog({ type: 'kernel.instance.terminated', at: Date.now(), agentId })
   }
 
   /**
    * 中断指定 agent 的当前轮（仅暂停，不销毁；消息闭合后可恢复）。
-   * 销毁权复用：仅祖先或 user0 可中断。
+   * 中断权与销毁权同源：自身或祖先（根为全树祖先，天然有权；无 agent 特判）。
    */
   async interruptAgent(agentId: string, opts?: { by?: string }): Promise<void> {
     const by = makeAgentID(opts?.by ?? USER_ID)
     const target = makeAgentID(agentId)
-    if (by !== makeAgentID(USER_ID) && !this.lineage.isAncestorOf(by, target)) {
+    if (by !== target && !this.lineage.isAncestorOf(by, target)) {
       throw { kind: 'agent_terminate_denied', agentId: target, by: by as string }
     }
     this.runtime.abort(target)

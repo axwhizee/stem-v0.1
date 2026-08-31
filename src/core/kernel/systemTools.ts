@@ -10,6 +10,7 @@
 import type { ToolCapability } from '../tools'
 import type { ToolAccess } from '../tools'
 import type { AccessReply } from '../tools'
+import type { AccessProfile } from '../lineage'
 import type { Kernel } from './Kernel'
 import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentID } from './types'
@@ -32,6 +33,7 @@ export function createSystemTools(kernel: Kernel): ToolCapability[] {
     contextOverview(kernel),
     contextRemove(kernel),
     contextEdit(kernel),
+    contextApply(kernel),
     accessReply(kernel),
   ]
 }
@@ -192,6 +194,7 @@ function agentInspect(kernel: Kernel): ToolCapability {
         `  children: ${children.length > 0 ? children.join(', ') : '-'}`,
         `  ancestry: ${ancestors.length > 0 ? ancestors.join(' → ') : '（user0 根）'}`,
         `  status: ${instance.status}  turns: ${instance.turnCount}  cost: ${instance.totalCost}`,
+        `  access: ${formatEffectiveAccess(kernel.accessLedger.profileOf(agentId))}`,
       ]
       return { text: lines.join('\n') }
     },
@@ -451,6 +454,36 @@ function contextEdit(kernel: Kernel): ToolCapability {
   }
 }
 
+/** 执行上下文策略专有动作（策略独立接口的模型侧通道；agent 只能操作自身，祖先可代操作）。 */
+function contextApply(kernel: Kernel): ToolCapability {
+  return {
+    id: 'context_apply',
+    description:
+      '执行该 agent 上下文管理策略的专有动作（如 classic 的 compact 手动压缩历史）。action 取值见系统提示中的 <stem_context>。仅能操作自身上下文（祖先可代子孙触发）。',
+    accessKey: 'context_apply',
+    kind: 'internal',
+    category: 'context',
+    parameters: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: '目标 agent id（缺省为调用者自身；仅自身或祖先可操作）' },
+        action: { type: 'string', description: '策略动作名（如 compact）' },
+        args: { type: 'string', description: '动作参数（策略自定义，可选）' },
+      },
+      required: ['action'],
+    },
+    execute: async (input, ctx) => {
+      const args = input as { agentId?: string; action: string; args?: string }
+      const target = args.agentId ?? ctx.agentId
+      if (target !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(target))) {
+        return { text: '无权操作该 agent 的上下文策略' }
+      }
+      const result = await kernel.contextManager.runStrategyAction(target, args.action, args.args ?? '')
+      return { text: result }
+    },
+  }
+}
+
 /** 批准/拒绝访问申请（ask 消息化的回复侧；授权权：仅申请者的族谱根可调用）。 */
 function accessReply(kernel: Kernel): ToolCapability {
   return {
@@ -482,4 +515,12 @@ function accessReply(kernel: Kernel): ToolCapability {
       return { text: `已回复访问申请 ${args.requestId}: ${args.reply}` }
     },
   }
+}
+
+/** 格式化生效访问（权限台账物化出示：显式判定 + 本地封闭/不设限）。 */
+function formatEffectiveAccess(profile: AccessProfile | undefined): string {
+  if (!profile) return '（未绑定）'
+  const entries = Object.entries(profile.explicit).map(([k, v]) => `${k}:${v}`)
+  const fallback = profile.fallback !== undefined ? `*: ${profile.fallback}` : '*: default'
+  return entries.length > 0 ? `${entries.join(', ')}  |  ${fallback}` : fallback
 }

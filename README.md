@@ -4,15 +4,14 @@
 > 干细胞之意：如同原始 Agent 类，可分化出任意角色与能力。
 > 抛弃会话概念：以**原子化 Agent 类 + Agent 实例**为核心，配合**族谱树**与模块化 harness 系统，构建可自我进化的多智能体集群。
 
-**状态**：架构定稿，实现阶段（核心骨架 + 个体层持久化落地，156 单测全绿）。
+**状态**：架构定稿，实现阶段（核心骨架 + 个体层持久化 + 上下文策略框架 + 族谱权限台账 + user0 配置对象化落地，193 单测全绿）。
 **日期**：2026-08
 
 ---
 
 ## 项目定位
 
-- **不是**"把 opencode 塞进 VSCode"，也**不是**"单 Agent 会话容器"。
-- 是**用户主权的 Agent 系统**：
+- **用户主权的 Agent 系统**：
   - 一切 Agent 来自 **AgentClass（模板）**，用户自由创建/修改/删除/实例化，**绝不固定任何角色**。
   - 简单对话 = 简单类 + 空上下文实例；复杂任务 = 调度器类再创建子实例并传递上下文。
   - **族谱树**：所有 agent 一律平等（同地位独立个体），唯一区别是 `parentId`——user0（`user` 类实例）是原点、根（`parentId=null`）；父可销毁/中断子（`agent_terminate`/`agent_interrupt` + 祖先校验）。
@@ -52,24 +51,13 @@
 | **AgentClass（模板）** | 角色设定：name（即 id）/ description / systemPrompt / **tools**（Record，键即白名单）/ contextStrategy / model / sendCountdown。用户主权载体。 |
 | **AgentInstance** | 运行时原子单位：classRef / **parentId**（=创建者，族谱）/ displayName / status / turnCount / totalCost。 |
 | **族谱树 LineageTree** | 无状态关系视图：parentId 挂实例上，实时推导 children/ancestors/descendants；销毁权判定。 |
-| **user0** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.permission` 即 user 类 tools。 |
-| **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore，融合进 `core/tools/`（access.ts + accessRequest.ts）。 |
-| **重建邮局** | 无集中式总线：仓库（存储）→ 管理员（处理/打戳/组装 + legalize）→ 快递员（倒计时+发送）。个体层经 MessageStore/InstanceStore 端口 write-through 落 SQLite（宿主注入），缺省纯内存。 |
-| **ask 消息化** | ask 审批 = 消息交换：`access_request` 投递根信箱 → 根经 `access_reply` 回复（once/always/reject）。 |
+| **user0** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.user` = 其内嵌 agent 类完整对象（人格/权限/模型声明式可配）。 |
+| **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`lineage/AccessLedger` 注册期物化：继承→收敛，键即白名单；grant 加法为系统特权），tools 经 `AccessResolver` 端口查询。 |
+| **重建邮局** | 无集中式总线：仓库（存储）→ 管理员（打戳/策略处理/组装 + legalize）→ 快递员（倒计时+发送，只发不组装）。个体层经 MessageStore/InstanceStore 端口 write-through 落 SQLite（宿主注入），缺省纯内存。 |
+| **上下文策略** | `context/strategies/` 独立子模块（契约：process 触发=user_prompt 抵达、终点=就绪唤醒快递员；assemble 纯函数）。classic = 全量直出 + opencode 式 compact（摘要 worker 邮局正规往返、markInvalid 归档可逆）；`.stem/context/*.ts` 可加载用户策略（自我进化承载之一）。 |
+| **ask 消息化** | ask 审批 = 消息交换：`access_request` 投递根信箱 → 根经 `access_reply` 回复（once/always/reject；always = per-agent 免询问备忘）。 |
 | **PilotEvent** | 统一事件流（stream/letter/status/notice）+ EventHub 多订阅者；外部（shell/webui）订阅。 |
 | **tag + 双索引** | StoredMessage 带 tag（非原生合成消息）+ turn/indexInTurn（双索引），为上下文策略提供精确定位。 |
-
-## 文档索引
-
-| 文档 | 内容 |
-|---|---|
-| [`architecture.md`](architecture.md) | **实际架构**（落地形态，以此为准）：族谱树、工具访问四态、重建邮局、消息库、模块职责 |
-| [`docs/decisions.md`](docs/decisions.md) | 战略决策（D1–D12）、API 铁律、opencode 复用、勘误 |
-| [`docs/architecture.md`](docs/architecture.md) | 最初的目标规划（Agent Kernel 四层、权限分级、自我进化） |
-| [`docs/ui-design.md`](docs/ui-design.md) | UI 设计：AgentSpace 列表、session 复用、用户接管 |
-| [`docs/scenarios.md`](docs/scenarios.md) | 应用场景路线图（S1–S11）：简单对话 → 公司模拟 → GAN → 自我进化 |
-| [`docs/code-style.md`](docs/code-style.md) | 模块化代码风格、接口约定、依赖注入、事件驱动、自检清单 |
-| [`docs/implementation-plan.md`](docs/implementation-plan.md) | 场景驱动的实现阶段与任务清单 |
 
 ## 本地参考资料
 
@@ -83,14 +71,14 @@
 ```bash
 npm install                 # 安装依赖（node >= 23.4）
 npm run typecheck           # tsc --noEmit 类型检查（唯一 lint/typecheck）
-npm test                    # 全量单测（139）
+npm test                    # 全量单测（193）
 npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑
 npm run shell               # CLI 交互 shell（参考 shell，mock 网关）
 OPENCODE_API_KEY=<key> npm run shell   # 真实网关（opencode-go）
 npm run web                 # WebUIShell（浏览器打开 http://localhost:4321）
 ```
 
-shell 内可交互：直接输入对话；`/new` 创建实例、`/agents` 查看族谱、`/templates` 查看模板、`/tools` 查看工具、`/config` 看配置、`/stop` 中断当前 agent、`/help` 帮助、`/exit` 退出。web 端为浏览器交互（agent 侧栏 / timeline / composer / 权限弹窗）。
+shell 内可交互：直接输入对话；`/new` 创建实例、`/agents` 查看族谱、`/templates` 查看模板、`/tools` 查看工具、`/config` 看配置、`/compact` 手动压缩上下文、`/stop` 中断当前 agent、`/help` 帮助、`/exit` 退出。web 端为浏览器交互（agent 侧栏 / timeline / composer / 权限弹窗）。
 
 ## 关键前提
 

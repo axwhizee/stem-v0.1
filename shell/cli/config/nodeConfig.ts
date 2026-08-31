@@ -25,6 +25,7 @@ export function resolveConfigPaths(projectRoot: string): ConfigPaths {
     configFile: join(configDir, 'stem.jsonc'),
     toolDir: join(configDir, 'tool'),
     agentDir: join(configDir, 'agent'),
+    strategyDir: join(configDir, 'context'),
   }
 }
 

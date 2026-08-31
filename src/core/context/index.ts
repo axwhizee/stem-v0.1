@@ -13,8 +13,24 @@ export type {
   MailDelivery,
   PendingHold,
 } from './types'
-export { classicAssemble } from './types'
 export { legalize } from './legalize'
+
+// 上下文策略子模块（契约 + 注册表 + 内置 classic/none）。
+export type {
+  ContextSettings,
+  ContextStrategyModule,
+  StrategyAgentSpec,
+  StrategyApi,
+  StrategyRegistry,
+} from './strategies'
+export {
+  DEFAULT_CONTEXT_SETTINGS,
+  DefaultStrategyRegistry,
+  createBuiltinStrategyRegistry,
+  createClassicStrategy,
+  createNoneStrategy,
+  classicAssemble,
+} from './strategies'
 
 export type { RepositoryOptions, AppendInput, Repository } from './Repository'
 export { DefaultRepository, estimateTokens } from './Repository'

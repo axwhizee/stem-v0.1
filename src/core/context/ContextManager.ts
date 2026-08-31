@@ -5,45 +5,62 @@
 //   - 收到「上下文待处理事件」（仓库 onChange）→ 处理该 agent：
 //       1. context_wait 判定：from 命中挂起等待 → 作为 tool 结果填充到 owner；
 //       2. 打发送者戳：user 消息累积时用 from 元数据生成 `<sender id=...>`；
-//       3. 组装（classic/coding-hybrid 模式，可注入策略）；
-//       4. 通知快递员「上下文待发送事件」。
-//   - 打标签（发送者戳）行为由本模块完成，而非 kernel（D11 分层）。
+//       3. **策略处理（process，异步）**：user_prompt 信件抵达触发，
+//          返回 = 完整上下文就绪 → 才提醒快递员（classic 的 compact 在此）；
+//       4. 组装（策略 assemble 纯函数 + legalize）→ 送信快照；
+//   - 组装权归管理员（快递员只发不组装——策略对真实送信生效的前提）；
+//   - 信箱配对（waitForReply）：模块扮演 agent 的程序化等待原语
+//    （策略 spawn worker 的回信兑现点）；
+//   - 策略专有动作入口（runStrategyAction ← pilot / context_apply）。
 //
-// 存储交给仓库（Repository），发送交给快递员（Courier）。
+// 存储交给仓库（Repository），发送交给快递员（Courier），
+// 造 agent（role/worker）经 kernel 注入回调（策略的系统能力面）。
 // ============================================================
 
 import type { ChatMessage } from '../gateway'
 import type { LogEvent } from '../logging'
 import type { ToolRecord } from '../tools'
-import type { Courier, CourierRegistration } from './Courier'
+import type { Courier, CourierRegistration, TimerFactory } from './Courier'
 import type { Repository } from './Repository'
-import type { AssembleInput, AssembleResult, ContextAssembler, MailDelivery, RepositoryState } from './types'
-import { classicAssemble } from './types'
+import type { AgentDelivery, AssembleInput, AssembleResult, MailDelivery, RepositoryState } from './types'
 import { legalize } from './legalize'
+import type { ContextStrategyModule, StrategyApi, StrategyAgentSpec, ContextSettings, StrategyRegistry } from './strategies'
+import { createBuiltinStrategyRegistry, DEFAULT_CONTEXT_SETTINGS } from './strategies'
 
 export interface ContextManagerOptions {
-  /** 组装策略（缺省经典组装 classicAssemble）。 */
-  readonly contextAssembler?: ContextAssembler
+  /** 策略注册表（缺省内置 classic/none；init 管线可注册 `.stem/context/` 用户策略）。 */
+  readonly strategies?: StrategyRegistry
+  /** 上下文策略配置（window/compact 阈值等；缺省 DEFAULT_CONTEXT_SETTINGS）。 */
+  readonly settings?: ContextSettings
+  /** 可注入计时器（回信配对超时；缺省 setTimeout）。 */
+  readonly timer?: TimerFactory
   readonly defaultCountdownMs?: number
-  readonly timer?: import('./Courier').TimerFactory
   /** 仓库（组合根注入）。 */
   readonly repository: Repository
   /** 快递员（组合根注入）。 */
   readonly courier: Courier
   /** skill 注册表（可选）：实例化时把 <available_skills> 清单注入 system 消息。 */
   readonly skills?: { readonly manifest: () => string }
+  /** 创建策略扮演 agent（kernel 接线：grant + panel 模板 ensure + 实例化；父 = 宿主）。 */
+  readonly spawnRole?: (hostAgentId: string, role: StrategyAgentSpec) => Promise<string>
+  /** 创建策略工具 worker（kernel 接线：grant + instantiate；任务 = userPrompt 首信）。 */
+  readonly spawnWorker?: (roleAgentId: string, task: string, spec: StrategyAgentSpec) => Promise<string>
+  /** 回收策略工具 worker（kernel 接线：terminate → 消息归档保语料）。 */
+  readonly terminateWorker?: (workerId: string, by: string) => Promise<void>
   /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: (event: LogEvent) => void
 }
 
-/** 实例化时注册（成分信息 + 发送回调）。 */
+/** 实例化时注册（成分信息 + 送信回调）。 */
 export interface ContextRegistration {
   readonly agentId: string
   readonly systemPrompt?: string
   readonly sendCountdownMs?: number
-  /** false = 用户面板（user0，不组装只汇总）。 */
+  /** false = 用户面板（user0/策略扮演 agent：不组装只汇总）。 */
   readonly assemble?: boolean
-  /** 送信回调（agent → kernel；user → 面板）。 */
+  /** 上下文管理策略名（缺省 = 注册表 default 'classic'；未知 → 注册期报错）。 */
+  readonly contextStrategy?: string
+  /** 送信回调（agent → kernel；user/扮演面板 → 模块/面板）。 */
   readonly onDelivery: (delivery: MailDelivery) => void
   /** 倒计时结束但无信可送时调用（agent → 进入 hold）。 */
   readonly onHold?: (agentId: string) => void
@@ -59,8 +76,17 @@ export interface ContextRegistration {
 interface InternalBox {
   readonly agentId: string
   readonly assemble: boolean
+  /** 该 agent 的上下文策略模块（开辟时确定——上下文属性）。 */
+  readonly strategy: ContextStrategyModule
   /** 挂起等待：waitFor agent id → 挂起记录。 */
   readonly pendingFills: Map<string, { waitFor: string; ownerId: string; toolCallId: string }>
+  /** 信箱配对：发件人 id → 回信兑现器（waitForReply 注册）。 */
+  readonly waitPromises: Map<string, (text: string) => void>
+  /** 策略处理中（重入 guard：处理期间的来信合并为一次补跑）。 */
+  processing: boolean
+  processDirty: boolean
+  /** 该策略的扮演 agent（懒生成；spawn worker 的父与回信收集点）。 */
+  roleAgentId: string | undefined
   /** 各成分最近就绪时间（毫秒，供日志）。 */
   lastLetterAt: number | undefined
   lastHistoryAt: number | undefined
@@ -72,7 +98,8 @@ export interface ContextManager {
   readonly unregister: (agentId: string) => Promise<void>
   /**
    * 投信（from 为发送者 id，用于打戳与 context_wait 分流）。
-   * 若 from 命中挂起等待 → 作为 tool 结果填充到等待者上下文（非 user_prompt）。
+   * 命中挂起等待 → tool 结果填充；user_prompt 抵达 → 触发策略 process，
+   * 完整上下文就绪后才提醒快递员。
    */
   readonly deposit: (agentId: string, letter: ChatMessage, from?: string) => Promise<void>
   /** 注册挂起等待：等待 waitFor 的回复作为 tool 结果填充到 owner 上下文。 */
@@ -84,6 +111,20 @@ export interface ContextManager {
   readonly getState: (agentId: string) => Promise<RepositoryState>
   /** 底层仓库（供 kernel/工具读取）。 */
   readonly repository: Repository
+  /** 策略注册表（pilot/init 注册用户策略；内核构造默认内置两枚）。 */
+  readonly strategies: StrategyRegistry
+  /**
+   * 构造 agent 送信快照（策略 assemble + legalize 的正规出口）。
+   * 快递员 deliver 时经委托回调调用——组装权归管理员（策略对真实送信生效）。
+   */
+  readonly buildAgentDelivery: (agentId: string) => AgentDelivery | undefined
+  /**
+   * 信箱配对：等待 target 收到 from 的来信（resolve 文本；超时 reject）。
+   * 消息本体照常入库（审计留痕）——配对只是额外兑现。
+   */
+  readonly waitForReply: (targetId: string, fromId: string, timeoutMs: number) => Promise<string>
+  /** 执行策略专有动作（context_apply / pilot / CLI 通道；如 classic compact）。 */
+  readonly runStrategyAction: (agentId: string, action: string, args?: string) => Promise<string>
   /** 仓库 onChange 处理入口（组合根装配时注入给仓库）。 */
   readonly handleChange: (agentId: string) => void
   /**
@@ -100,17 +141,30 @@ export interface ContextManager {
 
 export class DefaultContextManager implements ContextManager {
   readonly repository: Repository
+  readonly strategies: StrategyRegistry
+  private readonly settings: ContextSettings
+  private readonly timer: TimerFactory
   private readonly boxes = new Map<string, InternalBox>()
-  private readonly assemble: ContextAssembler
   private readonly courier: Courier
   private readonly skills?: { readonly manifest: () => string }
+  private readonly spawnRole?: (hostAgentId: string, role: StrategyAgentSpec) => Promise<string>
+  private readonly spawnWorker?: (roleAgentId: string, task: string, spec: StrategyAgentSpec) => Promise<string>
+  private readonly terminateWorker?: (workerId: string, by: string) => Promise<void>
   private readonly onLog?: (event: LogEvent) => void
 
   constructor(options: ContextManagerOptions) {
-    this.assemble = options.contextAssembler ?? classicAssemble
+    this.strategies = options.strategies ?? createBuiltinStrategyRegistry()
+    this.settings = options.settings ?? DEFAULT_CONTEXT_SETTINGS
+    this.timer = options.timer ?? ((fn, ms) => {
+      const handle = setTimeout(fn, ms)
+      return { cancel: () => clearTimeout(handle) }
+    })
     this.repository = options.repository
     this.courier = options.courier
     this.skills = options.skills
+    this.spawnRole = options.spawnRole
+    this.spawnWorker = options.spawnWorker
+    this.terminateWorker = options.terminateWorker
     this.onLog = options.onLog
   }
 
@@ -118,10 +172,32 @@ export class DefaultContextManager implements ContextManager {
     if (this.boxes.has(registration.agentId)) {
       throw { kind: 'mailbox_conflict', agentId: registration.agentId }
     }
+    // 策略解析（开辟上下文空间时确定——上下文属性）：
+    // 面板（user0 / 模块扮演 role：不组装不处理）恒用 none——策略 note 不污染人格
+    // systemPrompt；未知策略名注册期 fail-fast；恢复接线兜底默认策略
+    //（策略文件被删不炸启动）。
+    let strategy: ContextStrategyModule | undefined
+    if (registration.assemble === false) {
+      strategy = this.strategies.resolve('none') ?? this.strategies.resolve(undefined)
+    } else {
+      strategy = this.strategies.resolve(registration.contextStrategy)
+      if (!strategy && registration.restore === true) {
+        strategy = this.strategies.resolve(undefined)
+      }
+    }
+    if (!strategy) {
+      throw { kind: 'context_strategy_unknown', agentId: registration.agentId, strategy: registration.contextStrategy ?? '' }
+    }
+
     const box: InternalBox = {
       agentId: registration.agentId,
       assemble: registration.assemble ?? true,
+      strategy,
       pendingFills: new Map(),
+      waitPromises: new Map(),
+      processing: false,
+      processDirty: false,
+      roleAgentId: undefined,
       lastLetterAt: undefined,
       lastHistoryAt: undefined,
       lastToolAt: undefined,
@@ -132,8 +208,8 @@ export class DefaultContextManager implements ContextManager {
     if (registration.restore !== true) {
       const base = registration.systemPrompt ?? ''
       const manifest = this.skills?.manifest() ?? ''
-      const systemPrompt = manifest !== '' ? (base === '' ? manifest : `${base}\n\n${manifest}`) : base
-      await this.repository.register(registration.agentId, systemPrompt)
+      const parts = [base, manifest, strategy.note ?? ''].filter((part) => part !== '')
+      await this.repository.register(registration.agentId, parts.join('\n\n'))
     }
 
     // 快递员注册。
@@ -149,8 +225,14 @@ export class DefaultContextManager implements ContextManager {
   }
 
   async unregister(agentId: string): Promise<void> {
+    const box = this.boxes.get(agentId)
     await this.courier.unregister(agentId)
     await this.repository.unregister(agentId)
+    if (box) {
+      // 兑现全部等待（空文本 = 调用方按"未产出"处理，不悬挂）。
+      for (const waiter of box.waitPromises.values()) waiter('')
+      box.waitPromises.clear()
+    }
     this.boxes.delete(agentId)
   }
 
@@ -161,6 +243,7 @@ export class DefaultContextManager implements ContextManager {
 
   async deposit(agentId: string, letter: ChatMessage, from?: string): Promise<void> {
     // context_wait 分流：发送者命中挂起等待 → 该回复作为 tool 结果填充（非信件）。
+    // （轮内填充不触发策略 process——触发点是 user_prompt 信件。）
     if (from !== undefined) {
       const pending = this.findPendingFor(from)
       if (pending) {
@@ -179,8 +262,16 @@ export class DefaultContextManager implements ContextManager {
     box.lastLetterAt = Date.now()
     // 先入库（含 from），管理员处理时统一打戳。
     await this.repository.append(agentId, { message: letter, from })
-    // 外部来信 → 唤醒目标（打戳已在 onChange/handleChange 中先完成）。
-    void this.courier.notifyReady(agentId)
+    // 信箱配对：命中等待 → 兑现（消息本体已入库留痕）。
+    if (from !== undefined) {
+      const waiter = box.waitPromises.get(from)
+      if (waiter !== undefined) {
+        box.waitPromises.delete(from)
+        waiter(typeof letter.content === 'string' ? letter.content : JSON.stringify(letter.content))
+      }
+    }
+    // 触发点 = user_prompt 信件抵达：策略 process（异步许可）→ 就绪 → 提醒快递员。
+    await this.wake(box)
   }
 
   async appendHistory(agentId: string, message: ChatMessage, tag?: string): Promise<void> {
@@ -197,6 +288,44 @@ export class DefaultContextManager implements ContextManager {
 
   async getState(agentId: string): Promise<RepositoryState> {
     return this.repository.getState(agentId)
+  }
+
+  buildAgentDelivery(agentId: string): AgentDelivery | undefined {
+    const box = this.boxes.get(agentId)
+    if (!box || !box.assemble) return undefined
+    const valid = this.repository.listValid(agentId)
+    if (valid.length === 0) return undefined
+    const assembled = box.strategy.assemble({ agentId, messages: valid } as AssembleInput)
+    return {
+      kind: 'agent',
+      agentId,
+      system: assembled.system,
+      messages: legalize(assembled.messages),
+      messageIds: assembled.messageIds,
+    }
+  }
+
+  async waitForReply(targetId: string, fromId: string, timeoutMs: number): Promise<string> {
+    const box = this.require(targetId)
+    return new Promise<string>((resolve, reject) => {
+      const timer = this.timer(() => {
+        box.waitPromises.delete(fromId)
+        reject({ kind: 'context_reply_timeout', targetId, fromId })
+      }, timeoutMs)
+      box.waitPromises.set(fromId, (text) => {
+        timer.cancel()
+        resolve(text)
+      })
+    })
+  }
+
+  async runStrategyAction(agentId: string, action: string, args = ''): Promise<string> {
+    const box = this.require(agentId)
+    const fn = box.strategy.actions?.[action]
+    if (!fn) {
+      throw { kind: 'context_action_unknown', agentId, action, known: Object.keys(box.strategy.actions ?? {}).join(',') }
+    }
+    return fn(this.apiFor(box), args)
   }
 
   async exportJsonl(agentId: string): Promise<string> {
@@ -230,28 +359,116 @@ export class DefaultContextManager implements ContextManager {
     return `上下文概览 ${agentId}（${state.messages.length} 条，${total} tok）:\n${lines.join('\n')}`
   }
 
-  /** 仓库 onChange 入口：打戳 + 组装（供日志）。唤醒快递员由 deposit（外部来信）负责，agent 自身 appendHistory 不触发重投递。 */
+  /** 仓库 onChange 入口：打戳 + 组装快照（供日志）。唤醒快递员由 deposit 策略链负责。 */
   readonly handleChange: (agentId: string) => void = (agentId) => {
     const box = this.boxes.get(agentId)
     if (!box) return
     // 1. 打发送者戳（把所有未打戳的 user 消息补上戳）。
     this.applyStamps(box)
-    // 2. 组装快照（供日志）。
-    const assembled = this.snapshot(box)
-    if (assembled !== undefined) {
+    // 2. 组装快照（供日志；agent = 策略送信快照，user/扮演面板 = 信件汇总）。
+    const readyAt = { letters: box.lastLetterAt, history: box.lastHistoryAt, tools: box.lastToolAt }
+    if (box.assemble) {
+      const delivery = this.buildAgentDelivery(agentId)
+      if (delivery === undefined) return
       this.onLog?.({
         type: 'context.assembled',
         at: Date.now(),
         agentId,
-        assemble: box.assemble,
-        messageCount: assembled.messageIds.length,
-        messages: assembled.messages,
-        readyAt: {
-          letters: box.lastLetterAt,
-          history: box.lastHistoryAt,
-          tools: box.lastToolAt,
-        },
+        assemble: true,
+        messageCount: delivery.messageIds.length,
+        messages: [{ role: 'system', content: delivery.system }, ...delivery.messages],
+        readyAt,
       })
+      return
+    }
+    const letters = this.repository
+      .listValid(agentId)
+      .filter((m) => m.message.role === 'user')
+      .map((m) => m.message)
+    if (letters.length === 0) return
+    this.onLog?.({
+      type: 'context.assembled',
+      at: Date.now(),
+      agentId,
+      assemble: false,
+      messageCount: letters.length,
+      messages: legalize(letters),
+      readyAt,
+    })
+  }
+
+  /**
+   * 来信唤醒（触发点语义）：
+   * 无 process 的策略 / 面板 → 直接提醒快递员；
+   * 有 process → 处理完成（或重入合并补跑完成）才提醒；失败兜底照常唤醒（绝不卡死）。
+   */
+  private async wake(box: InternalBox): Promise<void> {
+    if (!box.assemble || box.strategy.process === undefined) {
+      void this.courier.notifyReady(box.agentId)
+      return
+    }
+    if (box.processing) {
+      box.processDirty = true
+      return
+    }
+    box.processing = true
+    try {
+      do {
+        box.processDirty = false
+        await box.strategy.process(this.apiFor(box))
+      } while (box.processDirty)
+    } catch (cause) {
+      // 双保险（compact 内部已 catch）：策略异常只留日志，不阻塞送信。
+      this.onLog?.({
+        type: 'context.compacted',
+        at: Date.now(),
+        agentId: box.agentId,
+        outcome: 'failed',
+        compactedCount: 0,
+        message: `策略处理异常：${cause instanceof Error ? cause.message : JSON.stringify(cause)}`,
+      })
+    } finally {
+      box.processing = false
+    }
+    void this.courier.notifyReady(box.agentId)
+  }
+
+  /** 构造策略运行时 API（agent 作用域）。 */
+  private apiFor(box: InternalBox): StrategyApi {
+    return {
+      agentId: box.agentId,
+      settings: this.settings,
+      estimatedTokens: () => this.repository.listValid(box.agentId).reduce((sum, m) => sum + m.tokens, 0),
+      list: () => this.repository.list(box.agentId),
+      listValid: () => this.repository.listValid(box.agentId),
+      append: async (message, tag) => {
+        await this.appendHistory(box.agentId, message, tag)
+      },
+      markInvalid: async (ids) => {
+        await this.repository.markInvalid(box.agentId, ids)
+      },
+      spawn: async (task, spec) => {
+        if (!this.spawnWorker || !this.terminateWorker) {
+          throw { kind: 'strategy_spawn_unavailable', agentId: box.agentId }
+        }
+        if (box.roleAgentId === undefined) {
+          const role = box.strategy.role
+          if (role === undefined || !this.spawnRole) {
+            throw { kind: 'strategy_role_unavailable', agentId: box.agentId }
+          }
+          box.roleAgentId = await this.spawnRole(box.agentId, role)
+        }
+        const workerId = await this.spawnWorker(box.roleAgentId, task, spec)
+        try {
+          return await this.waitForReply(box.roleAgentId, workerId, this.settings.compact.replyTimeoutMs)
+        } finally {
+          // 回收：worker 任务完成即销毁（消息归档保语料，进化素材不丢）。
+          await this.terminateWorker(workerId, box.roleAgentId)
+        }
+      },
+      log: (event) => {
+        this.onLog?.({ ...event, at: Date.now() } as LogEvent)
+      },
     }
   }
 
@@ -265,20 +482,6 @@ export class DefaultContextManager implements ContextManager {
       const stamped: ChatMessage = { role: 'user', content: `<sender id="${stored.from}">${text}</sender>` }
       void this.repository.updateMessage(box.agentId, stored.id, stamped)
     }
-  }
-
-  /** 组装（agent）或汇总（user）：返回本次快照供日志。组装结果统一过 legalize（保证可经 gateway 发送）。 */
-  private snapshot(box: InternalBox): AssembleResult | undefined {
-    const valid = this.repository.listValid(box.agentId)
-    if (valid.length === 0) return undefined
-    if (!box.assemble) {
-      // user0：只汇总信件。
-      const letters = valid.filter((m) => m.message.role === 'user')
-      const assembled = { system: '', messages: letters.map((m) => m.message), messageIds: letters.map((m) => m.id) }
-      return { ...assembled, messages: legalize(assembled.messages) }
-    }
-    const assembled = this.assemble({ agentId: box.agentId, messages: valid } as AssembleInput)
-    return { ...assembled, messages: legalize(assembled.messages) }
   }
 
   private findPendingFor(senderId: string): { ownerId: string; toolCallId: string } | undefined {

@@ -1,9 +1,39 @@
 {
-  // stem 唯一配置文件：全局配置 + 同步注册表（tools/agents 由 init 自动维护）。
+  // stem 唯一配置文件：全局配置 + 同步注册表（tools/agents/strategies 由 init 自动维护）。
   "model": "opencode-go/deepseek-v4-flash",
   "autoApprove": false,
-  "permission": {
-    "read": "allow"
+  "maxSteps": 8,
+  // user0 内嵌 agent 类（元 agent 完整可配；permission 给出则整表替换默认——
+  // 键即白名单锁 user0 自己；对子孙只供显式判定，缺席 ≠ 否决，显式 deny = 铁律）。
+  "user": {
+    "permission": {
+      "access_reply": "allow",
+      "agent_instantiate": "allow",
+      "agent_list": "allow",
+      "agent_inspect": "allow",
+      "agent_ancestry": "allow",
+      "agent_descendants": "allow",
+      "agent_class_list": "allow",
+      "bus_send": "allow",
+      "bus_participants": "allow",
+      "context_overview": "allow",
+      "context_export": "allow",
+      "context_remove": "allow",
+      "context_edit": "allow",
+      "context_apply": "allow",
+      "agent_class_create": "ask",
+      "agent_terminate": "ask",
+      "read": "allow",
+      "grep": "allow",
+      "glob": "allow",
+      "write": "ask",
+      "edit": "ask"
+    }
+  },
+  // classic 策略压缩参数（window = 估算 token 预算；threshold 触发比例）。
+  "context": {
+    "window": 128000,
+    "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 }
   },
   "sendCountdown": 1000,
   "tools": [
@@ -19,5 +49,6 @@
       "id": "user-reviewer",
       "file": "user-reviewer.md"
     }
-  ]
+  ],
+  "strategies": []
 }

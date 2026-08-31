@@ -10,17 +10,19 @@ import type { AgentClass, AgentClassID } from '../kernel'
 import { makeAgentClassID } from '../kernel'
 import type { ToolCapability } from '../tools'
 import { DefaultToolCapabilityRegistry } from '../tools'
+import { DefaultStrategyRegistry } from '../context'
 import { DefaultTemplateRegistry } from '../kernel'
 import { runInit } from './init'
 import type { InitDeps, InitFs } from './types'
 
-function makePaths(toolDir = '/proj/.stem/tool', agentDir = '/proj/.stem/agent'): ConfigPaths {
+function makePaths(toolDir = '/proj/.stem/tool', agentDir = '/proj/.stem/agent', strategyDir = '/proj/.stem/context'): ConfigPaths {
   return {
     projectRoot: '/proj',
     configDir: '/proj/.stem',
     configFile: '/proj/.stem/stem.jsonc',
     toolDir,
     agentDir,
+    strategyDir,
   }
 }
 
@@ -44,18 +46,26 @@ interface ToolFile {
   readonly body?: Partial<ToolCapability>
 }
 
+interface StrategyFile {
+  readonly id: string
+  readonly module: unknown
+}
+
 function makeDeps(opts: {
   readonly toolFiles?: readonly ToolFile[]
   readonly agentTexts?: ReadonlyArray<{ readonly file: string; readonly text: string }>
+  readonly strategyFiles?: readonly StrategyFile[]
   readonly configRaw?: string
   readonly brokenTool?: boolean
-}): { deps: InitDeps; saved: () => string; savedCalls: () => number } {
+}): { deps: InitDeps; saved: () => string; savedCalls: () => number; registry: import('../context').StrategyRegistry } {
   const { store, saved } = makeStore(opts.configRaw)
   let saveCalls = 0
+  const registry = new DefaultStrategyRegistry()
   const fs: InitFs = {
     async listFiles(dir: string): Promise<readonly string[]> {
       if (dir.endsWith('/tool')) return (opts.toolFiles ?? []).map((t) => `/proj/.stem/tool/${t.id}.ts`)
       if (dir.endsWith('/agent')) return (opts.agentTexts ?? []).map((a) => `/proj/.stem/agent/${a.file}`)
+      if (dir.endsWith('/context')) return (opts.strategyFiles ?? []).map((s) => `/proj/.stem/context/${s.id}.ts`)
       return []
     },
     async readText(file: string): Promise<string> {
@@ -67,6 +77,8 @@ function makeDeps(opts: {
   const loadTool = async (file: string): Promise<{ readonly default?: unknown }> => {
     if (opts.brokenTool) throw new Error('import 失败')
     const id = file.split('/').pop()?.replace(/\.ts$/, '')
+    const strategy = (opts.strategyFiles ?? []).find((s) => s.id === id)
+    if (strategy) return { default: strategy.module }
     const spec = (opts.toolFiles ?? []).find((t) => `${t.id}.ts` === `${id}.ts`)
     if (!spec) return {}
     return {
@@ -84,9 +96,10 @@ function makeDeps(opts: {
     tools: { loadTool },
     toolRegistry: new DefaultToolCapabilityRegistry(),
     templateRegistry: new DefaultTemplateRegistry(),
+    strategyRegistry: registry,
     onLog: { log: () => {} },
   }
-  return { deps, saved: () => saved[0] ?? '', savedCalls: () => saveCalls }
+  return { deps, saved: () => saved[0] ?? '', savedCalls: () => saveCalls, registry }
 }
 
 test('首次创建：无配置时生成默认配置并登记工具/agent', async () => {
@@ -197,4 +210,45 @@ test('工具已注册冲突 → issue 不抛错', async () => {
   assert.equal(report.issues.length, 1)
   assert.equal(report.issues[0]?.kind, 'tool_invalid')
   assert.equal(report.registeredTools.length, 0)
+})
+
+// ---------- 用户上下文策略（.stem/context/，S1′ 加载通道） ----------
+
+test('用户策略：扫描 .stem/context → 注册进策略注册表 + 配置镜像写回', async () => {
+  const shouty = {
+    name: 'shouty',
+    assemble: (input: { messages: readonly { id: string; message: { role: string; content: unknown } }[] }) => ({
+      system: '',
+      messages: input.messages
+        .filter((m) => m.message.role !== 'system')
+        .map((m) => ({ role: 'user' as const, content: String(m.message.content).toUpperCase() })),
+      messageIds: input.messages.map((m) => m.id),
+    }),
+  }
+  const { deps, saved, registry } = makeDeps({ strategyFiles: [{ id: 'shouty', module: shouty }] })
+  const report = await runInit(deps)
+  assert.deepEqual(report.issues.filter((i) => i.kind.startsWith('strategy')), [])
+  assert.ok(registry.has('shouty'), '策略应注册进注册表')
+  assert.deepEqual(report.config.strategies?.map((s) => [s.id, s.file]), [['shouty', 'shouty.ts']])
+  assert.match(saved(), /"shouty"/)
+})
+
+test('用户策略：形状非法（缺 assemble）→ strategy_invalid issue，不中断', async () => {
+  const { deps, registry } = makeDeps({ strategyFiles: [{ id: 'bad', module: { name: 'bad' } }] })
+  const report = await runInit(deps)
+  assert.equal(report.issues[0]?.kind, 'strategy_invalid')
+  assert.equal(registry.has('bad'), false)
+})
+
+test('用户策略：覆盖内置 classic = 用户主权（后注册生效）', async () => {
+  const myClassic = {
+    name: 'classic',
+    note: 'mine',
+    assemble: () => ({ system: '', messages: [], messageIds: [] }),
+  }
+  const { deps, registry } = makeDeps({ strategyFiles: [{ id: 'my-classic', module: myClassic }] })
+  // 预置内置同名 → 用户注册覆盖之。
+  registry.register({ name: 'classic', assemble: () => ({ system: 'builtin', messages: [], messageIds: [] }) })
+  await runInit(deps)
+  assert.equal((registry.resolve('classic') as { note?: string }).note, 'mine')
 })

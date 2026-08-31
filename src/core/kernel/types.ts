@@ -43,18 +43,6 @@ export function makeAgentSpaceID(id: string): AgentSpaceID {
  */
 export type AgentStatus = 'idle' | 'thinking' | 'holding' | 'interrupted'
 
-// ---------- 上下文策略（最小占位） ----------
-
-/**
- * 上下文组装策略。当前仅支撑：systemPrompt 覆盖 / 是否携带历史。
- * renderPrompt + tokenizer 预算（modelMaxPromptTokens）延后接入。
- */
-export interface ContextProfile {
-  readonly systemPrompt?: string
-  readonly includeHistory?: boolean
-  readonly modelMaxPromptTokens?: number
-}
-
 // ---------- AgentClass（模板，用户主权的载体） ----------
 
 /**
@@ -77,6 +65,11 @@ export interface AgentClass {
   readonly model?: ModelRef
   /** 送信倒计时（毫秒，默认 1000）；实例化时传给邮局。 */
   readonly sendCountdown?: number
+  /**
+   * true = 模块扮演面板（不组装、不跑 LLM 轮，信件由扮演模块消费）：
+   * user0（pilot 扮演）与策略 role（context 模块扮演）共用此形态。
+   */
+  readonly panel?: boolean
   /** 用户自定义元数据。 */
   readonly custom?: Readonly<Record<string, unknown>>
 }

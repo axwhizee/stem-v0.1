@@ -29,4 +29,6 @@ export interface ConfigPaths {
   readonly toolDir: string
   /** 用户 agent 目录（`<projectRoot>/.stem/agent/`）。 */
   readonly agentDir: string
+  /** 用户上下文策略目录（`<projectRoot>/.stem/context/`，默认导出 ContextStrategyModule）。 */
+  readonly strategyDir: string
 }

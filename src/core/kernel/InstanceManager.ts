@@ -24,6 +24,11 @@ export interface InstantiateOptions {
   /** 实例化时传入的工具清单补充（对模板表的收敛，可临时收紧）。 */
   readonly tools?: Readonly<Record<string, ToolAccess>>
   /**
+   * 台账绑定模式（缺省 'inherit' 减法收敛）。'grant' 加法整表替换**仅限系统
+   * 机制通道**（策略 spawn / pilot 初始化）；agent_instantiate 工具路径不可设。
+   */
+  readonly accessMode?: 'inherit' | 'grant'
+  /**
    * 上下文传递：父 agent 指定仓库消息索引（消息 id 列表），
    * 实例化时组装进新上下文空间（深拷贝）。
    */

@@ -25,11 +25,12 @@ export type {
   AccessReplyInput,
   AccessAssertInput,
   AccessError,
+  AccessResolver,
 } from './types'
 
 export { validateArgs } from './validate'
 
-export { evaluateAccess, restrictAccess, accessInLayer, toolAccessToRules, collectAncestorAccessLayers } from './access'
+export { restrictAccess } from './access'
 
 export type { SkillInfo, SkillRegistry, SkillError } from './SkillRegistry'
 export { DefaultSkillRegistry } from './SkillRegistry'

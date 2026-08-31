@@ -18,6 +18,7 @@ import type { ConfigPaths, ConfigStore, StemConfig } from '../config'
 import type { ModelGateway, ModelRef, UsageEvent } from '../gateway'
 import type { Logger } from '../logging'
 import type { MessageStore, TimerFactory } from '../context'
+import { DEFAULT_CONTEXT_SETTINGS } from '../context'
 import type { InstanceStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
 import { DefaultSkillRegistry, DefaultToolCapabilityRegistry, createSkillTool } from '../tools'
@@ -72,21 +73,23 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   const loaded = await deps.config.store.load()
   const config = loaded.config
 
-  // 工具注册表 + skill 生态 + Kernel（user 类 tools = config.permission；根策略收敛起点）。
+  // 工具注册表 + skill 生态 + Kernel（user 类 = config.user 全对象；根策略收敛起点）。
   const tools = new DefaultToolCapabilityRegistry()
   const skills = new DefaultSkillRegistry()
+  const settings = settingsOf(config)
   const kernel = new Kernel({
     gateway: deps.gateway,
     defaultModel: deps.defaultModel,
-    userClassTools: config.permission,
+    userClass: config.user,
     skills,
     tools,
     defaultCountdownMs: config.sendCountdown,
     autoApprove: config.autoApprove,
     timer: deps.timer,
-    maxSteps: deps.maxSteps,
+    maxSteps: deps.maxSteps ?? config.maxSteps,
     estimateCost: deps.estimateCost,
     logger: deps.logger,
+    ...(settings !== undefined ? { contextSettings: settings } : {}),
     ...(deps.stateStore !== undefined ? { stateStore: deps.stateStore } : {}),
   })
 
@@ -98,13 +101,14 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   // skill 工具（internal，类配置显式暴露；发现走 init 生命周期）。
   await tools.register(createSkillTool({ skills }))
 
-  // init 管线：扫描 .stem/tool + .stem/agent → 同步注册表 → 注册进 core。
+  // init 管线：扫描 .stem/tool + .stem/agent + .stem/context → 同步注册表 → 注册进 core。
   const init = await runInit({
     config: { store: deps.config.store, paths: deps.config.paths },
     fs: deps.fs,
     tools: { loadTool: deps.tools.loadTool },
     toolRegistry: tools,
     templateRegistry: kernel.templates,
+    strategyRegistry: kernel.contextManager.strategies,
     ...(deps.logger !== undefined ? { onLog: { log: (event) => deps.logger!.log(event) } } : {}),
   })
 
@@ -141,4 +145,22 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
 
 function skillDirOf(paths: ConfigPaths): string {
   return `${paths.configDir.replace(/[/\\]+$/, '')}/skills`
+}
+
+/** config.context → 策略运行时 ContextSettings（逐项兜底默认；无配置块 = undefined 走内置）。 */
+function settingsOf(config: StemConfig): import('../context').ContextSettings | undefined {
+  const ctx = config.context
+  if (ctx === undefined) return undefined
+  const d = DEFAULT_CONTEXT_SETTINGS
+  return {
+    window: ctx.window ?? d.window,
+    compact: {
+      enabled: ctx.compact?.enabled ?? d.compact.enabled,
+      threshold: ctx.compact?.threshold ?? d.compact.threshold,
+      keepRecentTurns: ctx.compact?.keepRecentTurns ?? d.compact.keepRecentTurns,
+      replyTimeoutMs: ctx.compact?.replyTimeoutMs ?? d.compact.replyTimeoutMs,
+      ...(ctx.compact?.instruction !== undefined ? { instruction: ctx.compact.instruction } : {}),
+      ...(ctx.compact?.summarizeModel !== undefined ? { summarizeModel: ctx.compact.summarizeModel } : {}),
+    },
+  }
 }

@@ -14,12 +14,11 @@ import type { ModelGateway } from '../gateway'
 import type { ChatMessage, LLMEvent, LLMRequest, ModelRef, ToolCallEvent, UsageEvent } from '../gateway'
 import { isAbortError, isGatewayError } from '../gateway'
 import type { LogSink } from '../logging'
-import type { ToolAccessRules } from '../tools'
 import type { AgentDelivery, ContextManager, Repository } from '../context'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import type { TemplateRegistry } from './TemplateRegistry'
 import type { InstanceManager } from './InstanceManager'
-import type { AgentClass, AgentID, AgentStatus } from './types'
+import type { AgentID, AgentStatus } from './types'
 import { makeAgentID } from './types'
 
 export interface RuntimeDeps {
@@ -42,11 +41,6 @@ export interface RuntimeDeps {
   readonly onStatus?: (agentId: AgentID, from: AgentStatus, to: AgentStatus) => void
   /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: LogSink
-  /**
-   * 解析某 agent 的完整工具访问层（kernel 合成：全局 → 祖先链 → agent 类）。
-   * 供 materialize（工具可见性）与 execute（registry 统一确认）使用。
-   */
-  readonly resolveAccessLayers?: (agentId: AgentID) => readonly ToolAccessRules[]
 }
 
 export interface Runtime {
@@ -107,9 +101,8 @@ export class DefaultRuntime implements Runtime {
     // 当前轮累积（中断时在 for-await 内部抛出，尚未合并进 allText，需保留供 halt 收尾）。
     let roundText: string[] = []
     let roundReasoning: string[] = []
-    // 完整工具访问层（全局 → 祖先链 → agent 类），用于工具可见性与执行确认。
-    const accessLayers = this.deps.resolveAccessLayers?.(instance.id) ?? []
-    const tools = this.enabledTools(template, accessLayers)
+    // 工具物化：registry 经族谱台账查询本 agent 的生效访问（白名单/收敛已物化）。
+    const tools = this.deps.tools ? this.deps.tools.materialize(instance.id) : undefined
     let steps = 0
 
     // 本轮中断控制器：注册进活跃表，供 kernel/宿主 abort（用户/进程中断）。
@@ -189,8 +182,6 @@ export class DefaultRuntime implements Runtime {
         const ctx: ToolContext = {
           agentId: instance.id,
           spaceId: instance.spaceId,
-          // 完整工具访问层（registry 统一确认时使用：全局 → 祖先链 → 类 → session）。
-          accessLayers,
         }
         const results = await Promise.all(
           toolCalls.map(async (call): Promise<ChatMessage> => {
@@ -277,18 +268,6 @@ export class DefaultRuntime implements Runtime {
     await this.deps.instances.updateStatus(instance.id, to)
     this.deps.onLog?.log({ type: 'kernel.status.changed', at: Date.now(), agentId: instance.id, from, to })
     this.deps.onStatus?.(instance.id, from, to)
-  }
-
-  /**
-   * 物化本轮 LLM 工具集：注册表按访问层过滤（访问层已含全局 → 祖先链 → 模板 tools → 实例 toolOverride）。
-   * 模板 tools 的键即白名单（空 Record = 无工具；undefined = 全部）。
-   */
-  private enabledTools(template: AgentClass, layers: readonly ToolAccessRules[]) {
-    if (!this.deps.tools) return undefined
-    const available = this.deps.tools.materialize(layers)
-    // 空 Record 白名单 → 无工具（与 undefined=全部 区分）。
-    if (template.tools !== undefined && Object.keys(template.tools).length === 0) return []
-    return available
   }
 }
 

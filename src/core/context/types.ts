@@ -66,25 +66,12 @@ export interface AssembleResult {
   readonly tools?: readonly ToolDefinition[]
 }
 
-/** 组装策略：把有效记录组装成完整上下文（可替换，classic/coding-hybrid 模式）。 */
+/**
+ * 组装策略：把有效记录组装成完整上下文。
+ * 具体策略实现已迁往 `strategies/` 子目录（classic/none + 注册表分发，
+ * 每个 agent 按开辟上下文空间时确定的策略组装——不再全局单一装配器）。
+ */
 export type ContextAssembler = (input: AssembleInput) => AssembleResult
-
-/** 经典组装（默认）：system + 全部有效消息直接作为上下文。 */
-export function classicAssemble(input: AssembleInput): AssembleResult {
-  const systemIndex = input.messages.findIndex((m) => m.message.role === 'system')
-  const system = systemIndex >= 0 ? contentOf(input.messages[systemIndex]!.message) : ''
-  const rest = input.messages.filter((m) => m.message.role !== 'system')
-  return {
-    system,
-    messages: rest.map((m) => m.message),
-    messageIds: input.messages.map((m) => m.id),
-    tools: input.tools,
-  }
-}
-
-function contentOf(message: ChatMessage): string {
-  return typeof message.content === 'string' ? message.content : ''
-}
 
 /** 送信结果：agent 收到组装后的完整上下文。 */
 export interface AgentDelivery {
