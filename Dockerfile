@@ -33,9 +33,10 @@ COPY shell/ ./shell/
 COPY extension/ ./extension/
 COPY templates/ ./templates/
 
-# 非 root：node 镜像自带 user 'node'；/data 属主交给它（volume 首启初始化）。
+# 非 root：node 镜像自带 user 'node'。/data 必须在切用户**之前**以 root 建好并
+# chown 给 node——root filesystem 下普通用户无权 mkdir（构建期踩点修正）。
+RUN mkdir -p /data && chown node:node /data
 USER node
-RUN mkdir -p /data
 
 # 首次启动 runInit 在 /data/.stem 自举默认配置；SQLite 落 /data/.stem/stem.db。
 VOLUME ["/data"]

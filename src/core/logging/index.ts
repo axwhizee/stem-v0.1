@@ -10,6 +10,7 @@ export type {
   MailboxCountdown,
   MailboxDelivered,
   AgentClassRegistered,
+  AgentClassUpdated,
   AgentInstanceCreated,
   AgentStatusChanged,
   AgentTerminated,
@@ -20,4 +21,4 @@ export type {
 } from './events'
 
 export type { LogSink, LogFilter, Logger } from './Logger'
-export { InMemoryLogger } from './Logger'
+export { InMemoryLogger, eventInvolvesAgent } from './Logger'

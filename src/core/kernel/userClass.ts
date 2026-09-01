@@ -46,6 +46,8 @@ export const DEFAULT_USER_TOOLS: Readonly<Record<string, ToolAccess>> = {
   agent_class_list: 'allow',
   bus_send: 'allow',
   bus_participants: 'allow',
+  // 观察面：运行日志查询（telemetry；纯查询无副作用，可见域=树位置函数）。
+  telemetry_query: 'allow',
   // 上下文面：查看/整理自身与子孙上下文。
   context_overview: 'allow',
   context_export: 'allow',
@@ -53,7 +55,9 @@ export const DEFAULT_USER_TOOLS: Readonly<Record<string, ToolAccess>> = {
   context_edit: 'allow',
   context_apply: 'allow',
   // 高危面：始终经根确认（user0 的 ask 发给自己，由 shell 弹窗/CLI 确认）。
+  // 类书写面（S5.2 进化）：创建/更新均落盘 `.stem/agent/`，根批准才生效。
   agent_class_create: 'ask',
+  agent_class_update: 'ask',
   agent_terminate: 'ask',
 }
 

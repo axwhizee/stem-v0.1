@@ -117,6 +117,7 @@ export async function bootStem(opts: BootOptions): Promise<BootResult> {
   const system = await createStemSystem({
     config: { store: bundle.store, paths: bundle.paths },
     fs: bundle.fs,
+    classFs: bundle.classFs,
     tools: { loadTool: bundle.loadTool },
     gateway,
     defaultModel: model,

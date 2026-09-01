@@ -127,3 +127,86 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
     )
   })
 })
+
+// ---------- S5.1：能力相（台账并入）+ 可见域（统一树谓词） ----------
+
+describe('LineageTree 门面（能力物化：attach/effectiveAccess/replay/detach）', () => {
+  test('attach 两步曲：根整表 → 子清单收敛（继承→取严）', async () => {
+    const { lineage } = await makeTree()
+    lineage.attach({ agentId: 'user0', parentId: null, own: { read: 'allow', bash: 'ask' } })
+    lineage.attach({ agentId: 'a', parentId: 'user0', own: { read: 'deny' } }) // 子封闭：只列 read
+    // 根的显式 ask 锁子孙、子未列键本地封闭（fallback deny 兜底）。
+    assert.equal(lineage.effectiveAccess('a', 'read'), 'deny')
+    assert.equal(lineage.effectiveAccess('a', 'bash'), 'deny', '子清单封闭：未列键兜底 deny')
+    assert.equal(lineage.effectiveAccess('a', 'zzz'), 'deny')
+    // 自身档案可见（fallback = 本地封闭 deny）。
+    const profile = lineage.profileOf('a')
+    assert.equal(profile?.fallback, 'deny')
+    assert.deepEqual(profile?.explicit, { read: 'deny' })
+    // 根：ask 原样物化。
+    assert.equal(lineage.effectiveAccess('user0', 'bash'), 'ask')
+  })
+
+  test('祖先显式 deny 铁律：子显式 allow 也压不回（restrictAccess 取严）', async () => {
+    const { lineage } = await makeTree()
+    lineage.attach({ agentId: 'user0', parentId: null, own: { edit: 'deny' } })
+    lineage.attach({ agentId: 'a', parentId: 'user0', own: { edit: 'allow' } })
+    assert.equal(lineage.effectiveAccess('a', 'edit'), 'deny')
+  })
+
+  test('grant 整表替换：未列一律 deny，祖先显式 deny 仍不可豁免', async () => {
+    const { lineage } = await makeTree()
+    lineage.attach({ agentId: 'user0', parentId: null, own: { read: 'allow', run: 'deny' } })
+    lineage.attach({ agentId: 'w', parentId: 'user0', own: { read: 'allow', run: 'allow' }, mode: 'grant' })
+    assert.equal(lineage.effectiveAccess('w', 'read'), 'allow')
+    assert.equal(lineage.effectiveAccess('w', 'run'), 'deny', 'grant 豁免不了显式 deny 铁律')
+    assert.equal(lineage.effectiveAccess('w', 'other'), 'deny', 'grant 后未列一律 deny（整表替换封闭）')
+    assert.equal(lineage.profileOf('w')?.fallback, 'deny')
+  })
+
+  test('replay 乱序集合 → 拓扑序物化（重启重放等价于逐次 attach）', async () => {
+    const { lineage } = await makeTree()
+    lineage.replay([
+      { agentId: 'g', parentId: 'p', own: { read: 'allow' } }, // 孙（先给出）
+      { agentId: 'user0', parentId: null, own: { read: 'ask', bash: 'allow' } },
+      { agentId: 'p', parentId: 'user0', own: { read: 'allow', bash: 'ask' } },
+    ])
+    // 父 ask 锁孙：乱序输入下 g.read 仍收敛为 ask。
+    assert.equal(lineage.effectiveAccess('g', 'read'), 'ask')
+    assert.equal(lineage.effectiveAccess('p', 'bash'), 'ask')
+    assert.ok(lineage.has('g') && lineage.has('user0') && !lineage.has('nobody'))
+  })
+
+  test('detach 摘除档案（销毁级联：查询回落未绑定）', async () => {
+    const { lineage } = await makeTree()
+    lineage.attach({ agentId: 'user0', parentId: null, own: { read: 'allow' } })
+    assert.ok(lineage.has('user0'))
+    lineage.detach('user0')
+    assert.ok(!lineage.has('user0'))
+    assert.equal(lineage.effectiveAccess('user0', 'read'), undefined)
+    assert.equal(lineage.profileOf('user0'), undefined)
+  })
+})
+
+describe('LineageTree.canReach（可见域：自身 ∪ 祖先代查）', () => {
+  test('矩阵：自身 true；祖先 true；后代 false；兄弟 false；根全视', async () => {
+    const { manager, lineage, spaceId } = await makeTree()
+    const root = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId, agentId: 'R' })
+    const a = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId, agentId: 'A' })
+    const a1 = await manager.instantiate({ className: cls.name, parentId: a.id, userPrompt: 'hi', spaceId, agentId: 'A1' })
+    const b = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId, agentId: 'B' })
+
+    // 自身
+    assert.ok(lineage.canReach(a.id, a.id))
+    // 祖先 → 后代（含隔代）
+    assert.ok(lineage.canReach(root.id, a1.id))
+    assert.ok(lineage.canReach(makeAgentID('user0'), b.id))
+    // 后代 → 祖先：不可见（可见域单向向下）
+    assert.ok(!lineage.canReach(a1.id, root.id))
+    assert.ok(!lineage.canReach(a.id, makeAgentID('user0')))
+    // 兄弟互不可见
+    assert.ok(!lineage.canReach(a.id, b.id))
+    // 根天然全视
+    for (const id of [root.id, a.id, a1.id, b.id]) assert.ok(lineage.canReach(makeAgentID('user0'), id))
+  })
+})

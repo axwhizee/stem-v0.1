@@ -111,9 +111,9 @@ describe('createStemSystem（系统装配组合根）', () => {
     assert.match(systemLine, /你是根。/)
     assert.ok(!systemLine.includes('<stem_context>'), '面板绑定 none 策略——不注入 classic note')
     // user.tools 整表替换：声明生效、默认表（含 access_reply）被替换——用户自担根义务配置。
-    assert.equal(system.kernel.accessLedger.effectiveAccess(USER_ID, 'read'), 'allow')
-    assert.equal(system.kernel.accessLedger.effectiveAccess(USER_ID, 'agent_terminate'), 'deny')
-    assert.equal(system.kernel.accessLedger.effectiveAccess(USER_ID, 'agent_instantiate'), 'deny', '未列出 = 白名单封闭')
+    assert.equal(system.kernel.lineage.effectiveAccess(USER_ID, 'read'), 'allow')
+    assert.equal(system.kernel.lineage.effectiveAccess(USER_ID, 'agent_terminate'), 'deny')
+    assert.equal(system.kernel.lineage.effectiveAccess(USER_ID, 'agent_instantiate'), 'deny', '未列出 = 白名单封闭')
     // config.context 已映射（缺省参数兜底不炸；compact 动作可执行）。
     const result = await system.kernel.contextManager.runStrategyAction(
       await system.kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj'),

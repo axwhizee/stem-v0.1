@@ -6,6 +6,7 @@ export {
   resolveConfigPaths,
   createNodeConfigStore,
   createNodeInitFs,
+  createNodeClassFs,
   nodeToolLoader,
   createNodeConfigBundle,
   FALLBACK_MODEL,

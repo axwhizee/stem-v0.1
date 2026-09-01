@@ -30,6 +30,15 @@ export interface InitToolLoader {
   readonly loadTool: (file: string) => Promise<{ readonly default?: unknown }>
 }
 
+/**
+ * 类回写文件端口（S5.2 进化书写面；宿主注入，InitFs 只有读能力故单列）。
+ * createStemSystem 装成 Kernel 的 ClassStore：serialize → ensureDir → writeText。
+ */
+export interface ClassFs {
+  readonly ensureDir: (dir: string) => Promise<void>
+  readonly writeText: (file: string, content: string) => Promise<void>
+}
+
 /** 初始化管线依赖（组合根装配）。 */
 export interface InitDeps {
   readonly config: {

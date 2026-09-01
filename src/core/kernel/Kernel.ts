@@ -1,12 +1,13 @@
 // ============================================================
 // core/kernel/Kernel.ts —— Kernel 组合根（core 内部装配）
 //
-// 装配：模板注册表 / 实例管理 / 空间 / 族谱树（关系 + 权限台账）
+// 装配：模板注册表 / 实例管理 / 空间 / 族谱树（拓扑 + 能力 + 可见域门面）
 //      / 上下文仓库+管理员+快递员 / 运行时 / ask 总线 / 工具注册表。
 //
 // 权限模型（查询反转）：生效权限 = 族谱位置的函数——实例注册（创建/恢复）
-// 时在 lineage/AccessLedger 台账物化（继承→收敛两步），tools registry /
-// ask 总线经 AccessResolver 端口查询，kernel 只做接线，不再逐层拼装。
+// 时经 lineage.attach/replay 在族谱树内物化（继承→收敛两步，S5.1 起台账
+// 并入树门面），tools registry / ask 总线经 AccessResolver 端口查询，
+// kernel 只做接线，不再逐层拼装。
 //
 // 通信模型（重建邮局，无总线）：
 //   - sendMessage(from, to, payload) → 管理员 deposit（打戳 + 入库 + 触发处理）；
@@ -51,8 +52,6 @@ import { DefaultRuntime } from './Runtime'
 import type { Runtime } from './Runtime'
 import { DefaultLineageTree } from '../lineage'
 import type { LineageTree } from '../lineage'
-import { DefaultAccessLedger } from '../lineage'
-import type { AccessLedger } from '../lineage'
 import { createSystemTools } from './systemTools'
 import { createUserClass, USER_CLASS_ID } from './userClass'
 import type { UserClassConfig } from './userClass'
@@ -104,13 +103,24 @@ export interface KernelOptions {
    * 缺省纯内存（测试 harness 不受影响）。
    */
   readonly stateStore?: { readonly messages: MessageStore; readonly instances: InstanceStore }
+  /**
+   * 类回写端口（S5.2 进化书写面，宿主注入：serialize → `.stem/agent/*.md`）。
+   * agent_class_create/update 的 persist 请求经此落盘（目录即真相：重启由
+   * runInit 扫描装载，进化跨重启生效）；缺省 = 仅内存注册（试验田语义）。
+   */
+  readonly classStore?: ClassStore
+}
+
+/** 类回写端口（写侧序列化在 core，文件 IO 由宿主实现——零平台依赖不破）。 */
+export interface ClassStore {
+  readonly save: (cls: AgentClass) => Promise<void>
 }
 
 export class Kernel {
   readonly templates: TemplateRegistry
   readonly instances: InstanceManager
   readonly spaces: SpaceManager
-  /** 族谱树（无状态关系查询视图，依赖 instances 实时推导）。 */
+  /** 族谱树门面（拓扑实时推导 + 能力物化 + 可见域；S5.1 起台账并入）。 */
   readonly lineage: LineageTree
   /** 上下文仓库（上下文本体的唯一存储）。 */
   readonly repository: Repository
@@ -120,14 +130,14 @@ export class Kernel {
   readonly courier: Courier
   readonly runtime: Runtime
   readonly tools?: ToolCapabilityRegistry
-  /** 族谱权限台账（生效权限 = 族谱位置的函数；注册期物化，运行期只读查询）。 */
-  readonly accessLedger: AccessLedger
   /** 访问确认（ask 消息化：投递申请到根信箱 + access_reply 解析）。 */
   readonly access: AccessAskBus
   /** 统一事件流（PilotEvent：stream/letter/status/notice；多订阅者）。 */
   readonly events: EventHub
   /** 日志记录器。 */
   readonly logger: Logger
+  /** 类回写端口（S5.2 进化书写面；undefined = 仅内存注册，无落盘通道）。 */
+  private readonly classStore?: ClassStore
   /** 启动期从持久化端口恢复出的实例（构造末尾接线上下文用；空 = 首启/纯内存）。 */
   private readonly restoredInstances: readonly AgentInstance[]
 
@@ -162,21 +172,21 @@ export class Kernel {
     }
     this.tools = options.tools
     this.logger = options.logger ?? new InMemoryLogger()
+    this.classStore = options.classStore
 
     // 统一事件流（多订阅者）：外部（shell/GUI）经 onEvent 订阅 stream/letter/status/notice。
     this.events = new DefaultEventHub()
     if (options.onEvent) this.events.subscribe(options.onEvent)
 
-    // 族谱树（无状态视图）：实时基于 instances 推导 parent/children/ancestors。
+    // 族谱树门面（拓扑实时推导 + 能力台账物化 + 可见域，S5.1 合一）。
     this.lineage = new DefaultLineageTree({
       getInstance: (id) => this.instances.getSync(id),
       getAllInstances: () => this.instances.listAllSync(),
     })
 
-    // 族谱权限台账 + 查询端口（tools registry / ask 总线统一消费，kernel 只接线）。
-    this.accessLedger = new DefaultAccessLedger()
+    // 权限查询端口（tools registry / ask 总线统一消费树门面，kernel 只接线）。
     const accessResolver: AccessResolver = {
-      accessOf: (agentId, key) => this.accessLedger.effectiveAccess(agentId, key),
+      accessOf: (agentId, key) => this.lineage.effectiveAccess(agentId, key),
     }
 
     // 工具访问确认（ask 消息化）：投递申请到申请者的族谱根信箱；根经 access_reply 回复。
@@ -272,8 +282,8 @@ export class Kernel {
    * 根（parentId=null，即 user0）沿用 registerRootAgent 的面板接线（assemble:false + letter 事件）。
    */
   private wireRestoredInstances(): void {
-    // 权限台账重放（族谱拓扑序，纯派生态不入库）。
-    this.accessLedger.rebind(
+    // 能力相重放（族谱拓扑序，纯派生态不入库）。
+    this.lineage.replay(
       this.restoredInstances.map((instance) => ({
         agentId: instance.id as string,
         parentId: instance.parentId as string | null,
@@ -323,8 +333,8 @@ export class Kernel {
       spaceId: rootSpace.id,
       agentId: USER_ID,
     })
-    // 权限台账绑定（根：自身清单 = user 类 tools 整表，物化生效权限）。
-    this.accessLedger.bind({ agentId: USER_ID, parentId: null, own: this.ownAccessOf(makeAgentID(USER_ID)) })
+    // 能力绑定（根：自身清单 = user 类 tools 整表，物化生效权限）。
+    this.lineage.attach({ agentId: USER_ID, parentId: null, own: this.ownAccessOf(makeAgentID(USER_ID)) })
     this.emitLog({
       type: 'kernel.instance.created',
       at: Date.now(),
@@ -378,8 +388,8 @@ export class Kernel {
   /** 实例化（指定空间，供系统工具 agent_instantiate / 策略 spawn 使用）。 */
   async instantiateInSpace(opts: Omit<InstantiateOptions, 'spaceId'>, spaceId: AgentSpaceID | string): Promise<AgentID> {
     const instance = await this.instances.instantiate({ ...opts, spaceId: spaceId as AgentSpaceID })
-    // 权限台账绑定（注册两步曲：继承父档案 → 自身清单收敛；grant = 系统通道加法整表）。
-    this.accessLedger.bind({
+    // 能力绑定（注册两步曲：继承父档案 → 自身清单收敛；grant = 系统通道加法整表）。
+    this.lineage.attach({
       agentId: instance.id as string,
       parentId: instance.parentId as string | null,
       own: this.ownAccessOf(instance.id),
@@ -496,7 +506,7 @@ export class Kernel {
     })
     for (const id of subtree) {
       await this.contextManager.unregister(id)
-      this.accessLedger.unbind(id)
+      this.lineage.detach(id as string)
     }
     this.emitLog({ type: 'kernel.instance.terminated', at: Date.now(), agentId })
   }
@@ -508,7 +518,8 @@ export class Kernel {
   async interruptAgent(agentId: string, opts?: { by?: string }): Promise<void> {
     const by = makeAgentID(opts?.by ?? USER_ID)
     const target = makeAgentID(agentId)
-    if (by !== target && !this.lineage.isAncestorOf(by, target)) {
+    // 中断权 = 可见域（自身或祖先，S5.1 统一树谓词）。
+    if (!this.lineage.canReach(by, target)) {
       throw { kind: 'agent_terminate_denied', agentId: target, by: by as string }
     }
     this.runtime.abort(target)
@@ -583,10 +594,57 @@ export class Kernel {
     }
   }
 
-  /** 注册新 agent 类（供系统工具 agent_class_create 使用，含日志）。 */
-  async registerAgentClass(cls: AgentClass): Promise<void> {
+  /** 注册新 agent 类（供系统工具 agent_class_create 使用，含日志与可选落盘；by = 发起者审计归属）。 */
+  async registerAgentClass(
+    cls: AgentClass,
+    opts?: { persist?: boolean; by?: string },
+  ): Promise<{ persisted: boolean }> {
     await this.templates.register(cls)
-    this.emitLog({ type: 'kernel.class.registered', at: Date.now(), classId: cls.name })
+    const persisted = await this.persistClass(cls, opts)
+    this.emitLog({
+      type: 'kernel.class.registered',
+      at: Date.now(),
+      classId: cls.name,
+      persisted,
+      ...(opts?.by !== undefined ? { agentId: opts.by } : {}),
+    })
+    return { persisted }
+  }
+
+  /**
+   * 更新 agent 类（S5.2 进化书写面；供 agent_class_update 使用）。
+   * 收敛校验在工具层（checkToolsConvergence）；此处只管合并/落盘/审计。
+   * 边界（方案 §4.2）：更新只影响**后续实例**——已绑定实例的能力已物化于族谱树。
+   */
+  async updateAgentClass(
+    name: AgentClassID,
+    patch: Partial<AgentClass>,
+    opts?: { persist?: boolean; by?: string },
+  ): Promise<{ persisted: boolean; cls: AgentClass }> {
+    await this.templates.update(name, patch)
+    const merged = await this.templates.get(name)
+    const persisted = await this.persistClass(merged, opts)
+    this.emitLog({
+      type: 'kernel.class.updated',
+      at: Date.now(),
+      classId: merged.name,
+      patch: Object.keys(patch).join(','),
+      persisted,
+      ...(opts?.by !== undefined ? { agentId: opts.by } : {}),
+    })
+    return { persisted, cls: merged }
+  }
+
+  /** 是否具备类落盘通道（工具文案区分"已落盘 / 仅内存试验田"）。 */
+  hasClassStore(): boolean {
+    return this.classStore !== undefined
+  }
+
+  /** 落盘一次类（persist 未请求 / 无端口 → false；序列化异常（panel 红线等）向上抛为工具失败）。 */
+  private async persistClass(cls: AgentClass, opts?: { persist?: boolean }): Promise<boolean> {
+    if (opts?.persist !== true || this.classStore === undefined) return false
+    await this.classStore.save(cls)
+    return true
   }
 
   /** 发送日志事件（直接写入日志记录器，无总线中转）。 */

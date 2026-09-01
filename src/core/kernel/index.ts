@@ -36,7 +36,7 @@ export type { RuntimeDeps, Runtime } from './Runtime'
 export { DefaultRuntime } from './Runtime'
 
 // Kernel 容器
-export type { KernelOptions } from './Kernel'
+export type { KernelOptions, ClassStore } from './Kernel'
 export { Kernel, BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 
 // 内置 user 类（根模板，user0 采用）

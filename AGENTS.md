@@ -15,12 +15,14 @@
    AccessManager / META 特判即自然消失）。ask 审批是**消息交换**（`access_request` →
    根信箱 → `access_reply`），不是系统耦合通道；上下文删除 = `markInvalid` + 组装时 `legalize`。
 3. **权限收敛走族谱**：族谱树兼顾权限清单——生效权限 = **族谱位置的函数**，
-   由 `lineage/AccessLedger` 注册期物化（继承→收敛两步，标准形 {explicit, fallback}）；
+   由族谱树能力面注册期物化（attach/replay，内部 = AccessLedger 算法，S5.1 门面合一；
+   继承→收敛两步，标准形 {explicit, fallback}）；跨 agent 操作统一走树谓词 canReach（自身∨祖先代查）；
    tools 经 `AccessResolver` 端口查询（不随身传层、kernel 无编排）。**键即白名单=自我限定**
    （未列=本地 deny，祖先匿名封闭不下传；祖先**显式** deny/ask 锁子孙，`deny≺ask≺allow/ignore`
    不可撤销）；`grant` 加法 = 系统机制特权（整表替换+未列一律 deny+显式 deny 铁律鉴权，
    模型工具路径不可达）；session always = **ask 免询问备忘**（非权限层）。config.user.tools
-   = user0 根类清单（缺省 DEFAULT_USER_TOOLS 含 access_reply 根义务 + bash 对外操作面）。
+   = user0 根类清单（缺省 DEFAULT_USER_TOOLS 含 access_reply 根义务 + bash 对外操作面 +
+   telemetry_query 观测 allow + agent_class_create/update 书写 ask）。
 4. **模块自治**：初始化/装配在 core（平台能力经接口注入，core 零平台依赖、可独立运行）；
    shell 只做平台适配 + UI；外部与 core 的一切交互经模块接口（pilot 为 user0 扮演接口）。
 5. **少即是多**：工具生命周期（`init`）扩展优先于新建子系统；internal 工具列表不固化、随开发增长。
@@ -64,17 +66,18 @@ src/core/                  # 纯 TS 领域逻辑，零平台依赖（D11 硬规�
   ├── init/                # 系统初始化与装配：createStemSystem（组合根）+ runInit 扫描管线
   │                        #   （.stem/tools + .stem/agent + .stem/context → 注册进 core；
   │                        #     目录即真相，config 只在首次自举默认模板、永不回写）
+  │                        #   + agentParse/agentSerialize（类文件双向：解析 + S5.2 落盘序列化）
   ├── kernel/              # Kernel + TemplateRegistry/InstanceManager/SpaceManager/
   │                        #   Runtime + userClass（内置 user 类 + DEFAULT_USER_TOOLS，user0 采用）
   │                        #   + store.ts（InstanceStore 端口）+ persisted.ts（实例/空间写穿装饰器）
-  ├── lineage/             # 族谱树（纯关系视图：parent/children/ancestors/descendants/getRoot/
-  │                        #   isAncestorOf）+ AccessLedger（权限台账：converge/grant 物化，
-  │                        #   生效权限=族谱位置的函数；重启拓扑重放）
+  ├── lineage/             # 族谱树门面 LineageTree（S5.1 三相合一：拓扑实时推导 + 能力物化
+  │                        #   attach/detach/replay + effectiveAccess/profileOf + 可见域 canReach）；
+  │                        #   AccessLedger 降为内部实现（算法/语义矩阵不变，不入库纯派生）
   ├── logging/             # LogEvent 判别联合 + Logger（经注入 LogSink，无总线）
   ├── pilot/               # Pilot：user0 扮演接口（驾驶舱；sendMessage/instantiate/
   │                        #   replyAccess/runContextAction/订阅事件流）
   ├── tools/               # ToolCapabilityRegistry（含 init 生命周期；materialize/execute 经
-  │                        #   AccessResolver 端口查询台账）+ access.ts（四态纯代数 restrict）
+  │                        #   AccessResolver 端口查询族谱树）+ access.ts（四态纯代数 restrict）
   │                        #   + accessRequest.ts（ask 消息化：投递根信箱 + access_reply +
   │                        #     per-agent ask 豁免备忘）+ bash.ts（bash 工具 + ShellRunner 端口：
   │                        #     最小系统唯一对外操作面，无 ask 无黑名单，超时/截断限事故半径）
@@ -88,10 +91,17 @@ shell/                     # 宿主层（node/CLI + Web），实现 core 注入�
                            #   composer/ask 弹窗/compact/销毁；/api/health）
 extension/                 # 可选功能扩展（tool_set 包落位；config.extensions 选择、宿主解析注入）
 templates/                 # 内置 AgentClass 模板（JSON，name 即 id，tools 为 Record）
-test-support/              # 测试支撑：kernelHarness.ts（内存 + FakeGateway + 手动计时器）
+test-support/              # 测试支撑：kernelHarness.ts（内存 + FakeGateway + 手动计时器）+
+                           #   mockSse 兼容再导出（正身 shell/cli/mockSse.ts = 无 key 产品回落，
+                           #   Docker 实跑后归位——镜像只 COPY src/shell/extension/templates）
 tmp/                       # 测试项目空间（.stem/ 配置 + 用户 tools/agent 示例）
 docs/                      # 设计文档：architecture.md（实际架构，以此为准）/ log.md（开发日志）/
-                           #   code-style.md / scenarios.md / prompts.md（需求记录，不纳入提交）
+                           #   evolution-plan.md（S5 方案冻结；S5.1 族谱树/S5.2 观测书写已落地，
+                           #   S5.3 调度与 S5.4 dreaming 待实施；进度以 log.md 为准）/
+                           #   s6-plan.md（S6 定稿：零兜底网关/模型族谱/space 分级持久化/
+                           #   第一视角 WebUI；R1-R14 裁决记录——实施批 1~2 按此执行）/
+                           #   code-style.md / scenarios.md（目标场景清单，6 条+自检）/
+                           #   prompts.md（需求记录，不纳入提交）
 ```
 
 ## 核心架构要点
@@ -108,10 +118,11 @@ docs/                      # 设计文档：architecture.md（实际架构，以
 - **AgentClass（模板）**：`name` 即 id（注册查重）；`description`；`systemPrompt`；`tools`（`Record<访问键, ask|deny|allow|ignore>`，**键即白名单=自我限定**，空 Record=无工具、undefined=完整继承父档案）；`contextStrategy`（默认 classic，开辟上下文空间时确定）；`model`；`sendCountdown`；`panel`（模块扮演面板：不组装不跑 LLM，如 user0/策略 role）；`custom`（自由扩展位）。
 - **AgentInstance**：`id` / `classRef`（模板名）/ `parentId`（= 创建者，user0 为 null 即根）/ `displayName` / `spaceId` / `status` / `turnCount` / `totalCost` / `userPrompt` / `toolOverride`。**creatorId 已合并进 parentId**（谁创建谁就是父），运行时属性多于工具调用参数。
 - **状态机**：`idle → thinking → holding`；`interrupted`（当前轮被中断，仅暂停、消息闭合、可恢复）。
-- **族谱树（LineageTree）**：无状态关系查询视图——parentId 挂实例上，实时推导 parent/children/ancestors/descendants/getRoot；销毁/中断权（**自身或祖先**；有活跃子默认拒，recursive 级联）；同目录 **AccessLedger 权限台账**承载族谱权限收敛（见原则 3）。
+- **族谱树（LineageTree，S5.1 门面）**：实例层派生事实唯一面——拓扑（parentId 挂实例实时推导）+ 能力（台账物化，见原则 3）+ 可见域 `canReach`（销毁/中断/上下文/telemetry 统一谓词；有活跃子默认拒销毁，recursive 级联）；红线：纯派生不入库、零运行时状态、零类层依赖。
 - **重建邮局（无总线）**：仓库（存储）→ 管理员（打戳/策略 process/组装/context_wait 填充/信箱配对）→ 快递员（倒计时送信，**只发不组装**——送信快照经管理员按策略委托构造）；agent 通信经 `kernel.sendMessage` 直接投递；log/access_reply 走注入接口。
 - **上下文策略（context/strategies/）**：每种策略 = 独立子模块（契约 `ContextStrategyModule`：note/role/assemble/process/actions）；触发点 = user_prompt 信件抵达，终点 = 就绪后唤醒快递员（process 异步许可、assemble 纯函数，重入合并、失败兜底不卡死）；classic = 全量直出 + opencode 式 compact（轮边界、摘要 worker 邮局正规往返、markInvalid 归档可逆）；策略需要造 agent 时用**模块扮演 agent**（role 挂宿主下、panel 态、worker 用完 terminate 归档，回信经 waitForReply 配对）；用户策略 `.stem/context/*.ts` 可覆盖内置。
-- **个体层持久化（SQLite write-through）**：core 端口 `MessageStore`/`InstanceStore`（+内存默认实现）+ 装饰器（PersistedRepository/InstanceManager/SpaceManager，内存为准同步落行）；宿主注入 node:sqlite 实现（`shell/cli/storage/`，默认 `.stem/stem.db`）。**terminate 归档消息保留语料**；重启恢复 = 装载 + 状态归一化（thinking/holding→interrupted）+ 计数器续接 + 权限台账拓扑重放 + 快递员 lastSentIds 预置（零重放）；类层持久仍走文件，不进 DB。
+- **个体层持久化（SQLite write-through）**：core 端口 `MessageStore`/`InstanceStore`（+内存默认实现）+ 装饰器（PersistedRepository/InstanceManager/SpaceManager，内存为准同步落行）；宿主注入 node:sqlite 实现（`shell/cli/storage/`，默认 `.stem/stem.db`）。**terminate 归档消息保留语料**；重启恢复 = 装载 + 状态归一化（thinking/holding→interrupted）+ 计数器续接 + 族谱树能力相 replay 重放 + 快递员 lastSentIds 预置（零重放）；类层持久仍走文件，不进 DB。
+- **进化书写与观测（S5.2，1.0 人启动闭环）**：`agent_class_create`（新名 = 变体并存）/ `agent_class_update`（同名覆盖；tools 增量 patch、逐键只许收敛 `checkToolsConvergence`；panel/user 根类拒绝；**只影响后续实例**——已物化档案不追改）经 `ClassStore` 端口落盘 `.stem/agent/`（core `agentSerialize` 往返律 + 宿主 `ClassFs` IO，panel 永不回写红线）——目录即真相，进化跨重启生效；`telemetry_query`（internal 缺省 ignore、user0 默认 allow）按树可见域（自身 + 后代）查全部运行日志，行式压缩；审计事件 `kernel.class.registered/updated`（persisted + 发起者归属）。
 - **事件流（PilotEvent）**：`stream`（LLM 流式）/ `letter`（信箱来信，含 access_request）/ `status` / `notice`，经 EventHub 多订阅者发布，外部（shell/webui）统一订阅。
 
 ### 工具体系与访问
@@ -162,7 +173,7 @@ docs/                      # 设计文档：architecture.md（实际架构，以
 - 改动 `ToolKind` / 工具 shape / `AgentClass.tools` 时，同时检查 `shell/cli/tools/` 与 `src/core/tools/`。
 - `AgentClass`：name 即模板键；`tools` 为 `Record`（键即白名单=自我限定，空 Record=全部本地 deny、undefined=完整继承父档案），不再是数组 + 独立 toolAccess。
 - `AgentInstance`：无 creatorId；族谱关系用 parentId。
-- **权限一律走台账**：`lineage/AccessLedger` 是唯一权限变更/查询面（bind/rebind/unbind + effectiveAccess/profileOf）；tools/inspect 只经 `AccessResolver` 查询——**禁止**再拼 accessLayers（`ToolContext` 已无该字段，旧"分层取严"代码是回归源头）。
+- **权限一律走族谱树门面**：`lineage/LineageTree` 是唯一权限变更/查询面（attach/detach/replay + effectiveAccess/profileOf；AccessLedger 是其内部实现，禁止 kernel 再直连台账）；跨 agent 操作一律 `canReach`；tools/inspect 只经 `AccessResolver` 查询——**禁止**再拼 accessLayers（`ToolContext` 已无该字段）。类书写（agent_class_create/update）与观测（telemetry_query）也同一等公民：ask 门 + 树可见域，无特权通道。
 - **grant 是系统特权通道**（策略 spawn / pilot 初始化；`InstantiateOptions.accessMode` 不得出现在 `agent_instantiate` 工具参数里——模型永远只能收敛）。
 - `config.user.tools` 给出 = **整表替换**默认表：误删 `access_reply` 会锁死 ask 消息化（根答复义务）。
 - bash 无 ask 无黑名单：治理 = 超时/截断/默认 cwd 机制 + 提示词 + 白名单不列键；容器发布形态下**挂载 volume = 爆炸半径**，不建议裸机对外暴露 webui。

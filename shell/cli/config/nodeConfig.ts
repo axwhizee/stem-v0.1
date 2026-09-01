@@ -13,7 +13,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { ConfigLoadResult, ConfigPaths, ConfigStore, StemConfig } from '../../../src/core/config'
 import { parseConfigText } from '../../../src/core/config'
-import type { InitFs, InitToolLoader } from '../../../src/core/init'
+import type { ClassFs, InitFs, InitToolLoader } from '../../../src/core/init'
 
 /** 解析 `.stem/` 目录结构（先看 stem.jsonc，再看 stem.json）。 */
 export function resolveConfigPaths(projectRoot: string): ConfigPaths {
@@ -75,6 +75,21 @@ export function createNodeInitFs(): InitFs {
   }
 }
 
+/**
+ * node fs 版类回写端口（S5.2 进化书写面）：`.stem/agent/` 目录确保 + 写文件。
+ * 序列化在 core（agentSerialize），这里只提供 IO 原语。
+ */
+export function createNodeClassFs(): ClassFs {
+  return {
+    async ensureDir(dir: string): Promise<void> {
+      await mkdir(dir, { recursive: true })
+    },
+    async writeText(file: string, content: string): Promise<void> {
+      await writeFile(file, content, 'utf8')
+    },
+  }
+}
+
 /** node 动态 import 用户工具（tsx 环境下可加载 .ts）。 */
 export const nodeToolLoader: InitToolLoader = {
   async loadTool(file: string): Promise<{ readonly default?: unknown }> {
@@ -89,6 +104,7 @@ export function createNodeConfigBundle(projectRoot: string): {
   readonly paths: ConfigPaths
   readonly store: ConfigStore
   readonly fs: InitFs
+  readonly classFs: ClassFs
   readonly loadTool: (file: string) => Promise<{ readonly default?: unknown }>
 } {
   const paths = resolveConfigPaths(projectRoot)
@@ -96,6 +112,7 @@ export function createNodeConfigBundle(projectRoot: string): {
     paths,
     store: createNodeConfigStore(paths),
     fs: createNodeInitFs(),
+    classFs: createNodeClassFs(),
     loadTool: nodeToolLoader.loadTool.bind(nodeToolLoader),
   }
 }

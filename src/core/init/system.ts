@@ -20,6 +20,7 @@ import type { Logger } from '../logging'
 import type { MessageStore, TimerFactory } from '../context'
 import { DEFAULT_CONTEXT_SETTINGS } from '../context'
 import type { InstanceStore } from '../kernel'
+import type { ClassStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
 import { createBashTool, DefaultSkillRegistry, DefaultToolCapabilityRegistry, createSkillTool } from '../tools'
 import type { ShellRunner } from '../tools'
@@ -28,7 +29,8 @@ import type { Pilot } from '../pilot'
 import { createPilot } from '../pilot'
 import type { PilotEvent } from '../events'
 import { runInit } from './init'
-import type { InitDeps, InitReport } from './types'
+import type { InitDeps, InitReport, ClassFs } from './types'
+import { agentFileOf, serializeAgentClass } from './agentSerialize'
 
 /** 系统上下文（用户注入钩子入参）。 */
 export interface StemSystem {
@@ -63,6 +65,12 @@ export interface StemSystemDeps {
    * 提供后装配 bash 工具（internal · 最小系统对外操作面，config.bash 供参数）。
    */
   readonly shellRunner?: ShellRunner
+  /**
+   * 类回写文件端口（S5.2 进化书写面，宿主注入 node fs 实现）。
+   * 提供后 agent_class_create/update 序列化落盘 `.stem/agent/<name>.md`
+   * （目录即真相：重启由 runInit 扫描装载，进化跨重启生效）；缺省 = 仅内存。
+   */
+  readonly classFs?: ClassFs
   /** 用户注入钩子（init 末尾调用）。 */
   readonly userHooks?: readonly UserInitHook[]
   /** 事件流回调（PilotEvent；pilot 创建后订阅）。 */
@@ -83,6 +91,17 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   const tools = new DefaultToolCapabilityRegistry()
   const skills = new DefaultSkillRegistry()
   const settings = settingsOf(config)
+  // 类回写端口装配（S5.2）：注入 classFs 才建 store；序列化在 core、文件 IO 在宿主。
+  const classStore: ClassStore | undefined =
+    deps.classFs === undefined
+      ? undefined
+      : {
+          save: async (cls) => {
+            const file = agentFileOf(deps.config.paths.agentDir, cls.name as string)
+            await deps.classFs!.ensureDir(deps.config.paths.agentDir)
+            await deps.classFs!.writeText(file, serializeAgentClass(cls))
+          },
+        }
   const kernel = new Kernel({
     gateway: deps.gateway,
     defaultModel: deps.defaultModel,
@@ -97,6 +116,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     logger: deps.logger,
     ...(settings !== undefined ? { contextSettings: settings } : {}),
     ...(deps.stateStore !== undefined ? { stateStore: deps.stateStore } : {}),
+    ...(classStore !== undefined ? { classStore } : {}),
   })
 
   // 系统工具（agent_*/bus_*/context_* + access_reply）。

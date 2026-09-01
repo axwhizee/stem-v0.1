@@ -64,13 +64,14 @@
 
 工具按来源分三类（`ToolKind = internal | shell | user`），全生态现状如下。**内部工具默认 `ignore`（对模型隐藏），类清单显式声明才暴露**。
 
-### ① core 系统工具（`kind=internal`，17 个，`src/core/kernel/systemTools.ts`）
+### ① core 系统工具（`kind=internal`，19 个，`src/core/kernel/systemTools.ts`）
 
 系统自我管理与邮局机制的模型侧能力面；"user0 默认"列 = `DEFAULT_USER_TOOLS`（`config.user.tools` 给出则整表替换）。
 
 | 分组 | 工具 | 说明 | user0 默认 |
 |---|---|---|---|
-| agents 生态 | `agent_class_create` | 创建 agent 类（只承载类属性；tools 键即白名单）——自我进化入口 | `ask` |
+| agents 生态 | `agent_class_create` | 创建 agent 类并**落盘 `.stem/agent/`**（新名 = 变体并存可 A/B；tools 键即白名单）——自我进化书写面 | `ask` |
+| | `agent_class_update` | 同名覆盖更新 + 落盘（tools 增量 patch、逐键**只许收敛**；panel/user 根类拒绝；**只影响后续实例**） | `ask` |
 | | `agent_class_list` | 列出全部类与关键属性 | allow |
 | | `agent_instantiate` | 实例化类（parentId=调用者；可继承父上下文；模型路径只能收敛） | allow |
 | | `agent_list` | 列出空间内实例 | allow |
@@ -80,6 +81,7 @@
 | | `agent_terminate` | 销毁实例（自身或祖先；recursive 级联子树） | `ask` |
 | 多 agent 协作 | `bus_send` | 向指定参与者送信（自动 from 戳） | allow |
 | | `bus_participants` | 总线参与者清单 | allow |
+| 观测 | `telemetry_query` | 运行日志查询（工具/模型/信箱/权限/上下文/类书写审计；可见域 = **自身 + 族谱后代**，行式压缩）——进化闭环观测面 | allow |
 | 上下文管理 | `context_overview` | 上下文概览（role/turn/tag/token 占比）——自省 | allow |
 | | `context_export` | 导出完整上下文为 jsonl（只读） | allow |
 | | `context_remove` | `markInvalid` 删消息/整轮（归档可逆；仅自身或祖先） | allow |

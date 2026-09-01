@@ -77,11 +77,24 @@ export interface MailboxDelivered {
   readonly messageCount: number
 }
 
-/** 类注册记录。 */
+/** 类注册记录（S5.2：persisted = 是否已回写 `.stem/agent/` 跨重启生效；agentId = 发起者审计归属）。 */
 export interface AgentClassRegistered {
   readonly type: 'kernel.class.registered'
   readonly at: number
   readonly classId: string
+  readonly persisted?: boolean
+  readonly agentId?: string
+}
+
+/** 类更新记录（S5.2 进化书写面审计：patch 键清单 + 落盘状态；只影响后续实例）。 */
+export interface AgentClassUpdated {
+  readonly type: 'kernel.class.updated'
+  readonly at: number
+  readonly classId: string
+  /** 被更新的字段名（逗号连接，值不落日志——正文可能巨大）。 */
+  readonly patch: string
+  readonly persisted: boolean
+  readonly agentId?: string
 }
 
 /** 实例创建记录。 */
@@ -186,6 +199,7 @@ export type LogEvent =
   | MailboxCountdown
   | MailboxDelivered
   | AgentClassRegistered
+  | AgentClassUpdated
   | AgentInstanceCreated
   | AgentStatusChanged
   | AgentTerminated

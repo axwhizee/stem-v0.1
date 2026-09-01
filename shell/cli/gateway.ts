@@ -3,7 +3,7 @@
 // ============================================================
 
 import { createOpencodeGateway, type ModelGateway } from '../../src/core/gateway'
-import { startMockSse, defaultScript, type MockResponse } from '../../test-support/mockSse'
+import { startMockSse, defaultScript, type MockResponse } from './mockSse'
 
 const DEFAULT_MODEL = 'deepseek-v4-flash'
 

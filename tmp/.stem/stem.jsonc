@@ -1,12 +1,28 @@
 {
   // stem 唯一配置文件（全局配置）。用户工具/agent/策略**目录即真相**：
   // 放进 .stem/tools/、.stem/agent/、.stem/context/ 即自动注册（无镜像字段）。
-  "model": "opencode-go/deepseek-v4-flash",
+  // providers：模型提供商注册表（docs/s6-plan.md R13）。密钥只经环境变量注入——
+  //   key_env 存**变量名**（可缺省 = 匿名/本地端点），config 永不承载明文密钥；
+  //   base_url 必填（OpenAI 兼容语义：POST base_url/chat/completions，model 发裸 id）；
+  //   models 为启用白名单（空数组 = 全启用）。复制本块即可接入任意兼容端点。
+  "providers": {  // provider对象
+    "alibaba": {  // 提供商名
+      "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1",  // 实测可用端点
+      "key_env": "ALIBABA_API_KEY",  // 真实密钥在 $ALIBABA_API_KEY（-e / export 注入，勿入库）
+      "models": ["qwen3.8-max", "qwen3.8-flash", "qwen3.7-plus"]   // 启用的模型，若为空则全启用
+    },
+    "deepseek": {
+      "base_url": "https://api.deepseek.com/v1",  // 官方端点（未实测）
+      "key_env": "DEEPSEEK_API_KEY",
+      "models": ["deepseek-v4-pro", "deepseek-v4-flash"]
+    }
+  },
   "autoApprove": false,
   "maxSteps": 8,
   // user0 内嵌 agent 类（元 agent 完整可配；tools 给出则整表替换默认——
   // 键即白名单锁 user0 自己；对子孙只供显式判定，缺席 ≠ 否决，显式 deny = 铁律）。
   "user": {
+    "model": "alibaba/qwen3.8-flash",   // 可指定user0使用的模型，一般来说实例创建时会默认继承父实例使用的模型
     "tools": {
       "access_reply": "allow",
       "agent_instantiate": "allow",
@@ -22,7 +38,9 @@
       "context_remove": "allow",
       "context_edit": "allow",
       "context_apply": "allow",
+      "telemetry_query": "allow",
       "agent_class_create": "ask",
+      "agent_class_update": "ask",
       "agent_terminate": "ask",
       "bash": "allow",
       "read": "allow",

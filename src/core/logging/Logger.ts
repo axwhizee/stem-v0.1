@@ -46,7 +46,7 @@ export class InMemoryLogger implements Logger {
   query(filter: LogFilter = {}): readonly LogEvent[] {
     return this.events.filter(
       (event) =>
-        (filter.agentId === undefined || event.at === undefined || eventMatchesAgent(event, filter.agentId)) &&
+        (filter.agentId === undefined || event.at === undefined || eventInvolvesAgent(event, filter.agentId)) &&
         (filter.type === undefined || event.type === filter.type),
     )
   }
@@ -60,7 +60,12 @@ export class InMemoryLogger implements Logger {
   }
 }
 
-function eventMatchesAgent(event: LogEvent, agentId: string): boolean {
+/**
+ * 事件是否牵涉某 agent（agentId 归属判定的唯一实现）。
+ * S5.2 起对外导出：telemetry_query 的可见域过滤与 query() 共用同一映射，
+ * 避免"哪些事件算某 agent 的"出现第二套口径。
+ */
+export function eventInvolvesAgent(event: LogEvent, agentId: string): boolean {
   switch (event.type) {
     case 'tool.invoked':
     case 'gateway.apiRequest':
@@ -73,6 +78,9 @@ function eventMatchesAgent(event: LogEvent, agentId: string): boolean {
     case 'kernel.instance.interrupted':
     case 'access.asked':
     case 'access.replied':
+    case 'context.compacted':
+    case 'kernel.class.registered':
+    case 'kernel.class.updated':
       return event.agentId === agentId
     case 'kernel.message.sent':
       return event.from === agentId || event.to === agentId

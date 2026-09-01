@@ -111,7 +111,9 @@ async function main(): Promise<void> {
       }
       return sendJson(res, { error: 'not found' }, 404)
     } catch (error) {
-      return sendJson(res, { error: error instanceof Error ? error.message : String(error) }, 500)
+      // core 错误是判别联合对象（非 Error 实例）——String() 会变 [object Object]，序列化保真。
+      const message = error instanceof Error ? error.message : JSON.stringify(error)
+      return sendJson(res, { error: message }, 500)
     }
   })
 

@@ -20,7 +20,7 @@
 │   kernel/   Kernel · TemplateRegistry · InstanceManager · SpaceManager │
 │             Runtime（被动驱动）· userClass（内置 user 类）               │
 │   pilot/    Pilot（user0 扮演接口）· events/（PilotEvent + EventHub）    │
-│   lineage/  LineageTree（族谱纯关系视图）· context/（重建邮局 + legalize）│
+│   lineage/  LineageTree（族谱树：拓扑+能力+可见域）· context/（重建邮局）│
 │   tools/    ToolCapabilityRegistry（init 生命周期）· access · accessRequest│
 │             · bash 工具（ShellRunner 端口）· SkillRegistry · skill       │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -42,13 +42,13 @@
 - **user0 = `user` 类的普通实例**：内置根模板 `core/kernel/userClass.ts`，类配置 = **`config.user` 完整对象**（description/systemPrompt/tools/contextStrategy/model/sendCountdown 全可配——元 agent 人格进配置文件；tools 缺省走内置 `DEFAULT_USER_TOOLS`，含 access_reply 根义务 + bash 对外操作面）。在 **pilot 初始化流程内**实例化（`createPilot → kernel.registerRootAgent`），与其它 agent 走完全相同的 `instantiate` 路径，无任何权限/流程特判。
 - **AgentClass（模板）**：`name（即 id）/ description / systemPrompt / tools（Record<访问键, ask|deny|allow|ignore>，键即白名单=自我限定）/ contextStrategy / model / sendCountdown / panel（模块扮演面板：不组装不跑 LLM）/ custom（自由扩展位）`。
 - **AgentInstance**：`id / classRef / parentId / displayName / spaceId / status / turnCount / totalCost / userPrompt / toolOverride`；`parentId` 即族谱父（= 创建者，user0 为 null 即根），创建时确定、不可变（`creatorId` 已合并）。
-- **LineageTree**（`core/lineage/`，**无状态关系查询视图**）：`getParent / getChildren / getAncestors / getDescendants / getRoot / isAncestorOf`，全部基于 InstanceManager 实时推导（parentId 单一事实源）；同目录 **AccessLedger（权限台账）**承载族谱权限收敛（见 2.2），关系与权限物化分离于同一模块。
+- **LineageTree 族谱树门面**（`core/lineage/`，实例层派生事实唯一面，S5.1）：三相——**拓扑**（getParent/getChildren/getAncestors/getDescendants/getRoot/isAncestorOf，基于 InstanceManager 实时推导，parentId 单一事实源）、**能力**（attach/detach/replay + effectiveAccess/profileOf，原 AccessLedger 降为树内部实现、算法不变，见 2.2）、**可见域**（canReach = 自身∨祖先代查，跨 agent 操作统一谓词）。红线：纯派生不入库、零运行时状态、零类层依赖（自身清单由 kernel 算好传入）。
 - **销毁权（fail-closed）**：仅目标 agent 的**祖先**可销毁（`isAncestorOf`；根 `parentId=null` 无祖先 → 天然不可销毁）；有活跃子默认拒，`recursive: true` 级联整棵子树。
 - **父子 = 所有权/责任关系，能力无关**：消息互通无方向限制、各自独立上下文与类。
 
 ### 2.2 工具访问（ToolAccess）：四态 + 族谱权限台账 + ask 消息化
 
-**一句话**：四态 `allow/ask/deny/ignore`；生效权限是**族谱位置的函数**，由 `lineage/AccessLedger` 在实例注册期物化，其它模块经统一端口查询；ask 审批是**消息交换**。
+**一句话**：四态 `allow/ask/deny/ignore`；生效权限是**族谱位置的函数**，由族谱树能力面（`attach`/`replay`，内部 = AccessLedger 算法，S5.1 并入）在实例注册期物化，其它模块经统一端口查询；ask 审批是**消息交换**。
 
 - **四态**（`core/tools/types.ts`）：
 
@@ -60,11 +60,12 @@
 | `ignore` | ❌ 默认隐藏 | ✅ 等同 allow（显式 allow 后暴露） |
 
 - **`ignore`（internal 默认隐藏）**：`kind=internal` 的 core 系统工具与 skill 默认 `ignore`，除非清单显式声明；隐藏是可见性控制，越权由 `deny` 负责。
-- **权限台账（`lineage/AccessLedger.ts`，S2′）**：生效权限 = 族谱位置的函数，注册两步物化为标准形 `{explicit, fallback}`：
+- **能力物化（算法 = `lineage/AccessLedger.ts`（树内部实现），S2′）**：生效权限 = 族谱位置的函数，注册两步物化为标准形 `{explicit, fallback}`：
   - **减法（converge，默认）**：自身清单（类 tools + 实例 toolOverride）逐键与父档案显式判定取严（`restrictAccess`，`deny≺ask≺{allow,ignore}`，同级自身值优先）；清单已定义则 `fallback:'deny'`（**键即白名单**：自我限定，未列 = 本地 deny）；清单 undefined = 完整继承父档案（含父封闭）。**祖先匿名封闭不下传**（父 `{read}` 不锁死子新申请 `{write}`），但**祖先显式 deny/ask 锁死全体后代**（缺席≠否决，显式判定才生效）。
   - **加法（grant，系统通道专用）**：整表替换（免除逐个填 deny），未列一律 deny；指定键仍受祖先链**显式 deny 铁律**鉴权（deny 不可被 grant 豁免）。仅策略 spawn / pilot 初始化可达，`agent_instantiate` 工具路径不可设——模型永远只能收敛。
-  - 查询 `effectiveAccess(agentId,key) = explicit[key] ?? fallback ?? undefined`（undefined → tools 落默认：internal ignore / 其余 ask）。重启按族谱拓扑序 rebind 重放，不入库（纯派生态）。
+  - 查询 `effectiveAccess(agentId,key) = explicit[key] ?? fallback ?? undefined`（undefined → tools 落默认：internal ignore / 其余 ask）。注册 attach / 销毁 detach / 重启按族谱拓扑序 replay 重放，不入库（纯派生态）。
 - **查询反转（解耦）**：`tools` 侧只认注入端口 `AccessResolver`（`materialize`/`execute` 经它向台账查询，**不再随身传 accessLayers**，`ToolContext` 瘦身为 `{agentId,spaceId}`）；`lineage→tools` 仅共享四态纯代数 `restrictAccess`（type-only + 无状态，tools 绝不 import lineage）。`config.user.tools` = user0 根类清单（族谱首层）。
+- **可见域（S5.1）**：`canReach(viewer, target)` = 自身 ∨ viewer 是 target 祖先（根天然全视）——`context_*`、`telemetry_query`、中断/销毁权的跨 agent 操作面统一收敛到这一个树谓词；kernel 不再持独立台账字段（编排下沉树，kernel 只接线）。
 - **ask 消息化（扁平化）**：命中 ask 时 `core/tools/accessRequest.ts`（`AccessAskBus`）把申请投递到**申请者族谱根信箱**（`<access_request>` 消息，机制同向模型发消息）并挂起；根经 `access_reply` 回复（once/always/reject+feedback）。**无 agent 特判**——user0 的 ask 发给自己，由扮演它的 shell 经 pilot 确认。
 - **session 豁免备忘（S2′ 修正语义）**：`always` 批准 = 该 `(agentId,accessKey)` 后续 **ask 免询问**（静默放行），仅当前实例生效、不传播后代；它是 ask 环节的备忘，**不是权限层**（不参与单调收敛，绝不豁免 deny/ignore）。旧实现把 allow 规则混进分层取严 → always 压不住重复弹窗，且跨 agent 泄漏。
 
@@ -102,7 +103,7 @@
 - **tag**（`StoredMessage.tag?: string`）：可选，标记合成消息（summary/impression/meta）；**strategy 是上下文属性**（实例化时确定），组装器按 agent 策略解释 tag。
 - **双索引**：`turn`（轮序号，user 消息开启新轮，system 为第 0 轮）+ `indexInTurn`（轮内 0-based 顺序）；Repository 自动维护。
 - **legalize**（`core/context/legalize.ts` 纯函数）：组装 delivery 时统一过——悬空 tool_calls 裁剪 / 孤儿 tool 剔除 / tool→user 相邻插边界。保证删除/修改（`context_remove`/`context_edit` = markInvalid/updateMessage）后的上下文仍可经 gateway 发送。
-- **导出/概览**（context 模块，纯数据转换，无权限概念）：`exportJsonl` / `overview`；Kernel 做权限编排，系统工具 `context_export`/`context_overview`（agent 只能看自己的或祖先的）。
+- **导出/概览**（context 模块，纯数据转换，无权限概念）：`exportJsonl` / `overview`；Kernel 做权限编排，系统工具 `context_export`/`context_overview`（可见域 = canReach：自身或后代，祖先可代查）。
 
 ## 三、通信模型：仓库 · 管理员 · 快递员（重建邮局）
 
@@ -146,10 +147,10 @@
 - 实例化必填：`className` + `userPrompt`（字符串，根可为空串）+ `parentId`（根为 null）；父必须已存在（根除外）；`agentId` 可选（默认随机 4 位，冲突报错）。
 - `parentId` 即创建者；根（parentId=null）无祖先 → 天然不可销毁。
 
-### 4.4 LineageTree（`core/lineage/`，族谱纯关系视图）
+### 4.4 LineageTree（`core/lineage/`，族谱树：拓扑 + 能力物化 + 可见域门面）
 
 - 事实源（manager 持有 parentId）+ 查询视图（实时推导）；`getInstance`/`getAllInstances` 由组合根注入。
-- 销毁权判定 `isAncestorOf`；**权限收敛（S2′）由同目录 `AccessLedger` 承载**——族谱树兼顾权限清单：`bind/rebind/unbind + effectiveAccess/profileOf` 是唯一权限变更/查询面（语义见 2.2；`lineage→tools` 仅共享 `restrictAccess` 纯代数）。
+- **唯一权限变更/查询面**（S5.1 门面合一）：`attach/detach/replay + effectiveAccess/profileOf`（语义见 2.2，`AccessLedger.ts` 降为内部实现、算法与语义矩阵测试随迁零改动）；销毁/中断权与上下文/观测面操作权统一为 `canReach` 谓词；`lineage→tools` 仅共享 `restrictAccess` 纯代数。
 
 ### 4.5 ToolCapabilityRegistry（`core/tools/`）
 
@@ -163,11 +164,12 @@
 - **治理 = 机制 + 分担，非询问**（对齐 pi）：**无 ask、无黑名单**（高频工具询问打断模型循环得不偿失）；事故半径三机制（硬超时缺省 120s / stdout·stderr 各 50k 截断 / cwd 缺省项目根，`config.bash` 可配 `path/defaultTimeoutMs/maxOutputChars/cwd`）；行为规范靠工具描述提示词（非交互式、有专职工具优先）；不想给某 agent shell → 模板白名单不列 `bash` 键（键即自我限定）。非零退出码不是工具失败（输出 + exit code 照常返回，模型自判）。
 - `DEFAULT_USER_TOOLS` 内置 `bash:'allow'`（`config.user.tools` 整表替换者自担）；宿主未注入 `shellRunner` 则不装配（`bootStem` 缺省注入，`shellRunner:false` 可关）。
 
-### 4.6 系统工具（`core/kernel/systemTools.ts`，kind=internal，17 个）
+### 4.6 系统工具（`core/kernel/systemTools.ts`，kind=internal，19 个）
 
 | 工具 | 作用 |
 |---|---|
-| `agent_class_create` / `agent_class_list` | 创建/列出 agent 类（name 即 id + tools 清单） |
+| `agent_class_create` / `agent_class_update` / `agent_class_list` | 创建（新名 = 变体并存）/ 更新（同名覆盖；tools 增量、只许收敛；panel·user 根类拒绝；**只影响后续实例**）/ 列出——S5.2 均回写 `.stem/agent/`（ClassStore 注入时） |
+| `telemetry_query` | 运行日志观测（进化闭环"观测"翼）：可见域 = 自身 + 族谱后代（canReach）；行式压缩 + 类型前缀通配 + 时间窗 + limit 截尾 |
 | `agent_instantiate` / `agent_list` / `agent_inspect` | 创建实例（父=调用者）/ 列出 / 详情 |
 | `agent_ancestry` / `agent_descendants` / `agent_terminate` | 祖先链 / 后代 / 终止（销毁权 + recursive） |
 | `bus_send` / `bus_participants` | 发消息 / 参与者列表 |
@@ -176,7 +178,7 @@
 | `context_apply` | 执行上下文策略专有动作（如 classic compact；仅自身或祖先） |
 | `access_reply` | 批准/拒绝访问申请（once/always/reject；授权权=申请者的族谱根） |
 
-> 系统工具 `kind=internal` → 默认 `ignore`，示例模板在 `tools` 显式 `allow`。
+> 系统工具 `kind=internal` → 默认 `ignore`，示例模板在 `tools` 显式 `allow`。`DEFAULT_USER_TOOLS`（S5.2 起）含 `telemetry_query:'allow'`（观测）与 `agent_class_update:'ask'`（书写，与 create 同高危列）。
 
 ### 4.7 extension tool_set：fs 五件套（`shell/cli/tools/`，kind=shell）
 
@@ -218,9 +220,9 @@
 
 - 配置项：`model`（`提供商/模型`）、`autoApprove`、**`user`（user0 内嵌 agent 类完整对象：description/systemPrompt/tools/contextStrategy/model/sendCountdown）**、`maxSteps`、**`context`（window/compact：threshold/keepRecentTurns/summarizeModel/instruction/replyTimeoutMs）**、**`bash`（path/defaultTimeoutMs/maxOutputChars/cwd）**、**`extensions`（tool_set id 数组，缺省 `["fs"]`）**、`sendCountdown`。**S4.2 起无 `tools`/`agents`/`strategies` 镜像字段——目录即真相**（旧键出现被解析丢弃）。
 - **系统装配**（`core/init/system.ts`，`createStemSystem(deps)` 组合根）：
-  0. （可选 `stateStore` 注入）Kernel 构造内：内存核建好后先从 store 恢复（实例/消息/空间 + 状态归一化 + id 计数器续接 + 权限台账拓扑重放），再套 write-through 装饰器，恢复出的实例在构造末尾统一接线上下文——装配顺序不变，恢复收敛在 Kernel 内；
+  0. （可选 `stateStore` 注入）Kernel 构造内：内存核建好后先从 store 恢复（实例/消息/空间 + 状态归一化 + id 计数器续接 + 族谱树能力相 replay 重放），再套 write-through 装饰器，恢复出的实例在构造末尾统一接线上下文——装配顺序不变，恢复收敛在 Kernel 内；
   1. 读取配置 → 工具注册表 + Kernel（user 类 = config.user 对象，`contextSettings`/`maxSteps`/`skills` 注入；策略注册表内置 classic/none）；
-  2. 系统工具（agent_*/bus_*/context_* + context_apply + access_reply）→ bash 工具（注入 `shellRunner` 才装配）→ 宿主工具（bootStem 按 `config.extensions` 解析 tool_set 注入）→ skill 工具；
+  2. 系统工具（agent_*/bus_*/context_* + telemetry_query + context_apply + access_reply）→ bash 工具（注入 `shellRunner` 才装配）→ 类回写通道（注入 `classFs` 才建 `ClassStore`：create/update 授权后 serialize → `.stem/agent/<name>.md`，S5.2）→ 宿主工具（bootStem 按 `config.extensions` 解析 tool_set 注入）→ skill 工具；
   3. `runInit` 管线：扫描 `.stem/tools/*.ts`（默认导出 ToolCapability）+ `.stem/agent/*.md`（自由式 YAML 头 + 正文，未知键透传 custom）+ `.stem/context/*.ts`（默认导出 ContextStrategyModule，可覆盖内置）→ 注册进 registry。**目录即真相：仅配置文件不存在时写默认模板，管线此后纯只读、永不回写**（镜像同步/orphan 检测已整体移除）。
   4. `createPilot`（pilot 初始化内实例化 user0）→ 订阅事件流；
   5. `tools.initAll`（skill 扫描 `.stem/skills/*.md`）→ 用户注入钩子（`userHooks`，init 末尾，深度扩展）。
@@ -239,7 +241,7 @@
 
 ### 4.15 持久化（个体层 SQLite，write-through）
 
-**分层边界**：类层持久 = 文件（`.stem/agent/*.md`，目录即真相，用户主权可审）；**个体层持久 = SQLite**（实例/消息/空间）。核心思想：**内存为准 + write-through（DB 为影）**——同步读接口（list/listValid/getState）零破坏，写操作内存生效后同步落行（单进程 + DatabaseSync，崩溃窗口为零）。
+**分层边界**：类层持久 = 文件（`.stem/agent/*.md`，目录即真相，用户主权可审；**S5.2 兑现回写侧**：agent_class_create/update 经 `ClassStore` 端口落盘——core 序列化 `agentSerialize`（往返律，panel 机制类永不回写红线）+ 宿主 `ClassFs` IO，进化跨重启唯一通道）；**个体层持久 = SQLite**（实例/消息/空间）。核心思想：**内存为准 + write-through（DB 为影）**——同步读接口（list/listValid/getState）零破坏，写操作内存生效后同步落行（单进程 + DatabaseSync，崩溃窗口为零）。
 
 - **端口（core，零平台依赖）**：`context/store.ts` `MessageStore`（upsert/archiveAgent/loadBoxes/maxMessageSeq）；`kernel/store.ts` `InstanceStore`（实例 upsert/delete/loadAll + 空间 upsertSpace/deleteSpace/loadSpaces）。接口与默认内存实现同文件（`MemoryMessageStore`/`MemoryInstanceStore`，测试即用它观测持久化）。
 - **装饰器（core）**：`context/persisted.ts` `PersistedRepository`；`kernel/persisted.ts` `PersistedInstanceManager` / `PersistedSpaceManager`——全部委托内层内存实现 + 写穿。**terminate = 个体消亡**：实例/空间行删除，**消息行归档**（archived 标记，进化语料保留，恢复不加载、id 计数器避开历史序号）。

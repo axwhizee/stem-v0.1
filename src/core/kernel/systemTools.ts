@@ -11,6 +11,8 @@ import type { ToolCapability } from '../tools'
 import type { ToolAccess } from '../tools'
 import type { AccessReply } from '../tools'
 import type { AccessProfile } from '../lineage'
+import type { LogEvent } from '../logging'
+import { eventInvolvesAgent } from '../logging'
 import type { Kernel } from './Kernel'
 import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentID } from './types'
@@ -19,6 +21,7 @@ import { makeAgentClassID, makeAgentID } from './types'
 export function createSystemTools(kernel: Kernel): ToolCapability[] {
   return [
     agentClassCreate(kernel),
+    agentClassUpdate(kernel),
     agentClassList(kernel),
     agentInstantiate(kernel),
     agentList(kernel),
@@ -28,6 +31,7 @@ export function createSystemTools(kernel: Kernel): ToolCapability[] {
     agentTerminate(kernel),
     busSend(kernel),
     busParticipants(kernel),
+    telemetryQuery(kernel),
     contextWait(kernel),
     contextExport(kernel),
     contextOverview(kernel),
@@ -43,7 +47,7 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
   return {
     id: 'agent_class_create',
     description:
-      '创建新的 agent 类（模板）。类定义角色设定（systemPrompt / tools 工具清单 / contextStrategy / model / sendCountdown），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。tools 为工具访问键到 ask/deny 的映射（键即白名单，未列出的工具不可用；对全局表只能收敛）。',
+      '创建新的 agent 类（模板）并回写 `.stem/agent/<name>.md`（目录即真相，重启后仍生效——进化书写面）。新名 = 变体并存（供谱系对照与回滚）；同名会被拒绝（覆盖现役请用 agent_class_update）。类定义角色设定（systemPrompt / tools 工具清单 / contextStrategy / model / sendCountdown），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。tools 为工具访问键到访问动作的映射（键即白名单，未列出的工具不可用；对继承面只能收敛）。',
     accessKey: 'agent_class_create',
     kind: 'internal',
     category: 'system',
@@ -53,14 +57,14 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
         name: { type: 'string', description: '类名（唯一，即类 id，kebab-case）' },
         description: { type: 'string', description: '类用途描述' },
         systemPrompt: { type: 'string', description: '该类的专属系统提示词' },
-        tools: { type: 'object', description: '工具清单：访问键 → ask/deny（键即白名单，对全局表收敛）' },
+        tools: { type: 'object', description: '工具清单：访问键 → allow|ask|deny|ignore（键即白名单，对继承面收敛）' },
         contextStrategy: { type: 'string', description: '上下文管理策略（默认 classic）' },
         model: { type: 'string', description: '模型 id（可选，缺省用系统默认模型）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒（可选，缺省 1000）' },
       },
       required: ['name', 'description'],
     },
-    execute: async (input) => {
+    execute: async (input, ctx) => {
       const args = input as {
         name: string
         description: string
@@ -76,13 +80,123 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
         systemPrompt: args.systemPrompt ?? '',
         tools: args.tools ?? {},
         ...(args.contextStrategy !== undefined ? { contextStrategy: args.contextStrategy } : {}),
-        ...(args.model !== undefined ? { model: { provider: 'opencode', id: args.model } } : {}),
+        ...(args.model !== undefined ? { model: parseModelArg(args.model) } : {}),
         ...(args.sendCountdown !== undefined ? { sendCountdown: args.sendCountdown } : {}),
       }
-      await kernel.registerAgentClass(cls)
-      return { text: `已创建 agent 类 ${args.name}（tools=${Object.keys(cls.tools).length} 条规则）` }
+      await kernel.registerAgentClass(cls, { persist: true, by: ctx.agentId })
+      return {
+        text: `已创建 agent 类 ${args.name}（tools=${Object.keys(cls.tools).length} 条规则，${kernel.hasClassStore() ? '已落盘 .stem/agent/，重启后仍生效' : '仅内存注册——宿主未启用类回写通道'}）`,
+      }
     },
   }
+}
+
+/**
+ * 更新现役 agent 类（S5.2 进化书写面：同名覆盖 + 落盘，方案 §4.2）。
+ * 边界（设计内）：①只影响**后续实例**（已绑定能力物化于族谱树，防"改类即远程改现役"）；
+ * ②工具路径**只许收敛**（checkToolsConvergence——deny 不可撤销、ask 不许变执行免询问）；
+ * ③panel 机制类与 user 根类不可改（红线：系统机制与用户基因分界；根人格归 config.user）。
+ */
+function agentClassUpdate(kernel: Kernel): ToolCapability {
+  return {
+    id: 'agent_class_update',
+    description:
+      '更新现役 agent 类并回写 `.stem/agent/<name>.md`（同名覆盖；进化书写面）。缺省目标 = 你所属的类（显式 name 可指向其它类，经 ask 授权）。tools 只能收敛（deny 不可撤销，ask 不得升为 allow/ignore）；systemPrompt/description/model/contextStrategy/sendCountdown 可改。**只影响后续实例**（你的既有权限面不变）。',
+    accessKey: 'agent_class_update',
+    kind: 'internal',
+    category: 'system',
+    parameters: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: '目标类名（缺省 = 调用者所属类）' },
+        description: { type: 'string', description: '新类描述' },
+        systemPrompt: { type: 'string', description: '新系统提示词' },
+        tools: { type: 'object', description: '工具清单增量更新（未提及键保留原值；提及键逐键只能收敛，不可扩张）' },
+        contextStrategy: { type: 'string', description: '上下文策略名' },
+        model: { type: 'string', description: '模型 id（提供商/模型 或裸模型名）' },
+        sendCountdown: { type: 'number', description: '送信倒计时毫秒' },
+      },
+    },
+    execute: async (input, ctx) => {
+      const args = input as {
+        name?: string
+        description?: string
+        systemPrompt?: string
+        tools?: Readonly<Record<string, ToolAccess>>
+        contextStrategy?: string
+        model?: string
+        sendCountdown?: number
+      }
+      // 缺省目标 = 调用者所属类（自我进化主路径）。
+      const selfClass = kernel.instances.getSync(makeAgentID(ctx.agentId))?.classRef
+      const target = args.name !== undefined ? makeAgentClassID(args.name) : selfClass
+      if (target === undefined) return { text: '无法确定目标类（请显式给出 name）' }
+      if ((target as string) === 'user') {
+        return { text: 'user 根类的基因由 config.user（stem.jsonc）承载，不经本通道改写' }
+      }
+      const current = kernel.templates.getSync(target)
+      if (!current) return { text: `类不存在: ${target}（新建请用 agent_class_create）` }
+      if (current.panel === true) {
+        return { text: `panel 类 ${target} 为系统机制承载（策略 role 等），不可修改/回写（红线）` }
+      }
+      if (args.tools !== undefined) {
+        const violations = checkToolsConvergence(current.tools, args.tools)
+        if (violations.length > 0) {
+          return { text: `工具清单只能收敛，以下违规：\n${violations.map((v) => `  - ${v}`).join('\n')}` }
+        }
+      }
+      // tools patch = 增量合并（未提及键保留原值——整表替换会静默丢键，属意外收缩陷阱）。
+      const mergedTools = args.tools !== undefined ? { ...current.tools, ...args.tools } : undefined
+      const model = args.model !== undefined ? parseModelArg(args.model) : undefined
+      const patch: Partial<AgentClass> = {
+        ...(args.description !== undefined ? { description: args.description } : {}),
+        ...(args.systemPrompt !== undefined ? { systemPrompt: args.systemPrompt } : {}),
+        ...(args.contextStrategy !== undefined ? { contextStrategy: args.contextStrategy } : {}),
+        ...(args.sendCountdown !== undefined ? { sendCountdown: args.sendCountdown } : {}),
+        ...(model !== undefined ? { model } : {}),
+        ...(mergedTools !== undefined ? { tools: mergedTools } : {}),
+      }
+      const patchKeys = Object.keys(patch).filter((k) => k !== 'name')
+      if (patchKeys.length === 0) return { text: '无可更新字段（description/systemPrompt/tools/model/contextStrategy/sendCountdown 至少给一项）' }
+      const { persisted } = await kernel.updateAgentClass(target, patch, { persist: true, by: ctx.agentId })
+      return {
+        text: `已更新类 ${target}（${patchKeys.join(', ')}；${persisted ? '已落盘 .stem/agent/' : '仅内存更新——宿主未启用类回写通道'}；对后续实例生效）`,
+      }
+    },
+  }
+}
+
+/** 访问动作强弱序（deny ≺ ask ≺ allow/ignore 同级——与台账 restrictAccess 同一语义骨架）。 */
+function accessRank(action: ToolAccess): number {
+  return action === 'deny' ? 0 : action === 'ask' ? 1 : 2
+}
+
+/** 模型参数解析：`提供商/模型` 严格式，裸模型名回落 opencode（与 create 工具一致）。 */
+function parseModelArg(value: string): { provider: string; id: string } {
+  const slash = value.indexOf('/')
+  return slash > 0 ? { provider: value.slice(0, slash), id: value.slice(slash + 1) } : { provider: 'opencode', id: value }
+}
+
+/**
+ * 类清单收敛校验（S5.2，方案 D6"工具路径只允许收敛"）：
+ * 逐键要求**序不升**（deny≺ask≺allow/ignore；同级互转放行 = 可见性自决，
+ * 与台账"同级取自身值"同构——deny 不可撤销、ask 不得升为执行免询问均由
+ * 本序自然覆盖，无需特判）；
+ * 新键放行（键即白名单 = 自我限定，实际能力仍由族谱台账收敛兜底，扩张不可达）。
+ */
+export function checkToolsConvergence(
+  current: Readonly<Record<string, ToolAccess>>,
+  patch: Readonly<Record<string, ToolAccess>>,
+): string[] {
+  const violations: string[] = []
+  for (const [key, next] of Object.entries(patch)) {
+    const prev = current[key]
+    if (prev === undefined || next === prev) continue
+    if (accessRank(next) > accessRank(prev)) {
+      violations.push(`${key}: ${prev} → ${next}（扩张被拒）`)
+    }
+  }
+  return violations
 }
 
 /** 列出 agent 类。 */
@@ -194,7 +308,7 @@ function agentInspect(kernel: Kernel): ToolCapability {
         `  children: ${children.length > 0 ? children.join(', ') : '-'}`,
         `  ancestry: ${ancestors.length > 0 ? ancestors.join(' → ') : '（user0 根）'}`,
         `  status: ${instance.status}  turns: ${instance.turnCount}  cost: ${instance.totalCost}`,
-        `  access: ${formatEffectiveAccess(kernel.accessLedger.profileOf(agentId))}`,
+        `  access: ${formatEffectiveAccess(kernel.lineage.profileOf(agentId))}`,
       ]
       return { text: lines.join('\n') }
     },
@@ -352,7 +466,7 @@ function contextExport(kernel: Kernel): ToolCapability {
     execute: async (input, ctx) => {
       const agentId = (input as { agentId?: string }).agentId ?? ctx.agentId
       // 权限：agent 只能导出自己的上下文（或祖先）。
-      if (agentId !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(agentId))) {
+      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), makeAgentID(agentId))) {
         return { text: '无权导出该 agent 的上下文' }
       }
       const jsonl = await kernel.exportContext(agentId)
@@ -378,7 +492,7 @@ function contextOverview(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const agentId = (input as { agentId?: string }).agentId ?? ctx.agentId
-      if (agentId !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(agentId))) {
+      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), makeAgentID(agentId))) {
         return { text: '无权查看该 agent 的上下文' }
       }
       return { text: await kernel.contextOverview(agentId) }
@@ -406,7 +520,7 @@ function contextRemove(kernel: Kernel): ToolCapability {
     execute: async (input, ctx) => {
       const args = input as { agentId?: string; messageIds?: string[]; turn?: number }
       const target = args.agentId ?? ctx.agentId
-      if (target !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(target))) {
+      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), makeAgentID(target))) {
         return { text: '无权删除该 agent 的上下文' }
       }
       const state = await kernel.contextManager.getState(target)
@@ -441,7 +555,7 @@ function contextEdit(kernel: Kernel): ToolCapability {
     execute: async (input, ctx) => {
       const args = input as { agentId?: string; messageId: string; content: string }
       const target = args.agentId ?? ctx.agentId
-      if (target !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(target))) {
+      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), makeAgentID(target))) {
         return { text: '无权修改该 agent 的上下文' }
       }
       const state = await kernel.contextManager.getState(target)
@@ -475,7 +589,7 @@ function contextApply(kernel: Kernel): ToolCapability {
     execute: async (input, ctx) => {
       const args = input as { agentId?: string; action: string; args?: string }
       const target = args.agentId ?? ctx.agentId
-      if (target !== ctx.agentId && !kernel.lineage.isAncestorOf(makeAgentID(ctx.agentId), makeAgentID(target))) {
+      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), makeAgentID(target))) {
         return { text: '无权操作该 agent 的上下文策略' }
       }
       const result = await kernel.contextManager.runStrategyAction(target, args.action, args.args ?? '')
@@ -514,6 +628,103 @@ function accessReply(kernel: Kernel): ToolCapability {
       )
       return { text: `已回复访问申请 ${args.requestId}: ${args.reply}` }
     },
+  }
+}
+
+/**
+ * 运行日志观测（S5.2 进化观测面，方案 §4.1）：telemetry 类目 internal 工具，
+ * 缺省 ignore（隐藏但可用——评估者类显式声明才可见）。可见域 = **树位置函数**：
+ * 自身 ∪ 祖先代查（后代可查、兄弟不可见、根天然全视），与 context_* 工具同一
+ * canReach 谓词。行式压缩输出（控制 token 面）。
+ */
+function telemetryQuery(kernel: Kernel): ToolCapability {
+  return {
+    id: 'telemetry_query',
+    description:
+      '查询系统运行日志（telemetry 观测面）：工具调用/模型请求/信箱活动/权限交互/上下文动作/类注册与书写审计。可查自身或族谱后代（你是其祖先）；行式压缩输出。进化回路的"观测"支柱。',
+    accessKey: 'telemetry_query',
+    kind: 'internal',
+    category: 'telemetry',
+    parameters: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: '目标 agent id（缺省 = 调用者自身；后代可查）' },
+        types: { type: 'array', items: { type: 'string' }, description: "事件类型过滤（如 'tool.invoked'；支持 'gateway.*' 前缀通配）" },
+        since: { type: 'number', description: '起始时间戳（毫秒，含）' },
+        until: { type: 'number', description: '截止时间戳（毫秒，含）' },
+        limit: { type: 'number', description: '返回条数上限（缺省 50，硬顶 200；取最近 N 条）' },
+      },
+    },
+    execute: async (input, ctx) => {
+      const args = input as { agentId?: string; types?: string[]; since?: number; until?: number; limit?: number }
+      const target = args.agentId ?? ctx.agentId
+      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), makeAgentID(target))) {
+        return { text: `无权查看该 agent 的运行日志（可见域 = 自身 + 族谱后代）: ${target}` }
+      }
+      const limit = Math.min(Math.max(args.limit ?? 50, 1), 200)
+      const patterns = args.types ?? []
+      const matches = (event: LogEvent): boolean => {
+        if (!eventInvolvesAgent(event, target)) return false
+        if (patterns.length > 0 && !patterns.some((p) => (p.endsWith('*') ? event.type.startsWith(p.slice(0, -1)) : event.type === p))) {
+          return false
+        }
+        if (args.since !== undefined && event.at < args.since) return false
+        if (args.until !== undefined && event.at > args.until) return false
+        return true
+      }
+      const events = kernel.logger.all().filter(matches)
+      if (events.length === 0) return { text: '(no events)' }
+      const shown = events.slice(-limit)
+      const header = `${target} | ${shown.length} 条${events.length > shown.length ? `（最近 ${shown.length} 条，共匹配 ${events.length}）` : ''}`
+      return { text: `${header}\n${shown.map(formatTelemetryRow).join('\n')}` }
+    },
+  }
+}
+
+/** 单事件 → 行式压缩（`时刻 | 类型 | 摘要`；摘要按类型取关键字段，不 dump 大负载）。 */
+export function formatTelemetryRow(event: LogEvent): string {
+  const time = new Date(event.at).toISOString().slice(11, 23)
+  return `${time} | ${event.type} | ${telemetryBrief(event)}`
+}
+
+function telemetryBrief(event: LogEvent): string {
+  switch (event.type) {
+    case 'tool.invoked':
+      return `${event.tool} ${event.phase}${event.durationMs !== undefined ? ` ${event.durationMs}ms` : ''}${event.errorKind !== undefined ? ` [${event.errorKind}]` : ''}`
+    case 'gateway.apiRequest':
+      return `${event.provider}/${event.model} tok=${event.promptTokens ?? '-'}/${event.completionTokens ?? '-'} cost=${event.cost.toFixed(4)} ${event.latencyMs}ms`
+    case 'context.assembled':
+      return `assemble=${event.assemble} n=${event.messageCount}`
+    case 'context.compacted':
+      return `${event.outcome} n=${event.compactedCount}`
+    case 'mailbox.countdown':
+      return event.action
+    case 'mailbox.delivered':
+      return `${event.kind} n=${event.messageCount}`
+    case 'kernel.class.registered':
+      return `class=${event.classId}${event.persisted === undefined ? '' : event.persisted ? ' persisted' : ' in-memory'}`
+    case 'kernel.class.updated':
+      return `class=${event.classId} patch=${event.patch} ${event.persisted ? 'persisted' : 'in-memory'}`
+    case 'kernel.instance.created':
+      return `class=${event.classId} parent=${event.parentId === '' ? 'root' : event.parentId}`
+    case 'kernel.status.changed':
+      return `${event.from}→${event.to}`
+    case 'kernel.instance.terminated':
+      return 'terminated'
+    case 'kernel.instance.interrupted':
+      return `${event.aborted ? 'abort' : 'error'} ${event.message}`
+    case 'kernel.message.sent':
+      return `${event.from}→${event.to} ${event.kind} ${event.payloadSize}B`
+    case 'access.asked':
+      return `${event.accessKey} ${event.action}`
+    case 'access.replied':
+      return `${event.accessKey} ${event.reply}`
+    case 'init.tool.registered':
+      return `tool=${event.tool} file=${event.file}`
+    case 'init.agent.registered':
+      return `class=${event.classId} file=${event.file}`
+    default:
+      return JSON.stringify(event).slice(0, 160)
   }
 }
 

@@ -78,6 +78,8 @@ export async function createKernelHarness(
     contextSettings?: ContextSettings
     /** 策略注册表（缺省内置 classic/none；测试可注入自定义策略）。 */
     strategies?: StrategyRegistry
+    /** 类回写端口（S5.2 测试注入；缺省 = 仅内存注册无落盘）。 */
+    classStore?: ConstructorParameters<typeof Kernel>[0]['classStore']
   } = {},
 ): Promise<Harness> {
   const timers = manualTimers()
@@ -94,6 +96,7 @@ export async function createKernelHarness(
     timer: timers.timer,
     ...(opts.contextSettings !== undefined ? { contextSettings: opts.contextSettings } : {}),
     ...(opts.strategies !== undefined ? { strategies: opts.strategies } : {}),
+    ...(opts.classStore !== undefined ? { classStore: opts.classStore } : {}),
     // 统一事件流：letter 事件 → 收信队列（UserDelivery 形状兼容）。
     onEvent: (e) => {
       if (e.type === 'letter') deliveries.push({ kind: 'user', agentId: e.agentId, letters: e.letters })

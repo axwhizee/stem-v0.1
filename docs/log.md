@@ -802,3 +802,45 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 
 - `agent_class_create` 类落盘回写 `.stem/agent/*.md`（镜像删除后此闭环更显紧迫）；`templates/` 下拉暂含 user 类实例化（平等化设计内，UI 折叠留后）。
 - Docker 构建需 Windows 侧执行（本 WSL 未开 integration）；国内网络或需 registry mirror。
+
+## 阶段：S5.1 族谱树重构 + S5.2 进化观测与书写（S5 前两批落地）
+
+**日期**：2026-09-01 · 依据：`docs/evolution-plan.md` §3/§4（方案冻结件）
+
+### 目标
+
+用户裁决：dreaming/策略自调度延后，先实施**族谱树重构**（实例层派生事实门面合一）与**进化观测与书写**（1.0 人启动闭环的两翼——看得到日志、写得了基因）。
+
+### 完成内容
+
+1. **S5.1 族谱树门面（46bb227）**：`LineageTree` 从"纯关系视图"升级为三相合一——拓扑（原有，parentId 挂实例实时推导）+ **能力**（`attach/detach/replay + effectiveAccess/profileOf`；`AccessLedger` 降为树内部实现，算法与 11 例语义矩阵测试**原样随迁零改动**）+ **可见域**（新树谓词 `canReach` = 自身∨祖先代查）。kernel 四点（instantiate/registerRoot/restore/terminate）台账编排下沉为 attach/detach/replay，删除 `accessLedger` 公开字段；`context_*` 五工具 + `interruptAgent` 的"isAncestorOf+手动自身比较"散点全部收敛 canReach。红线守住：纯派生不入库、零运行时状态、零类层依赖。**行为兼容验收达成**：门面直测 +6，其余 202 例零修改全绿。
+2. **S5.2 书写翼（efcd499）**：`init/agentSerialize.ts`（agentParse 逆函数）——往返律 `parse∘serialize ≡ id` 三例直测（全字段/最简类/文本级幂等），红线 = panel 类永不回写 + custom 已知键冲突拒绝 + 类名路径注入守卫（模型可控输入参与文件路径必须收紧）。`ClassStore` 端口（core 序列化、宿主 `ClassFs` IO，`bootStem` 经 nodeConfig bundle 注入，零平台依赖不破）：`agent_class_create` 改造为注册+落盘（新名 = 变体并存供 A/B 与回滚，同名撞 `template_exists`），新增 `agent_class_update`（同名覆盖；**tools patch 增量合并**——整表替换会静默丢键，restart e2e 当场暴露此陷阱后定案；逐键 `checkToolsConvergence` 序不升：deny 不可撤销、ask 不得移除人审闸、allow↔ignore 同级可见性自决、新键放行由台账兜底；panel/user 根类拒绝；**只影响后续实例**——已绑定档案物化于树不追改，防"改类即远程改现役"）。
+3. **S5.2 观测翼（同批）**：`telemetry_query`（kind=internal、category=telemetry——ToolCategory 的 telemetry 位就此兑现）：可见域 = canReach（自身+后代、兄弟不可见、根天然全视，与 context_* 同一谓词零特权通道）；行式压缩（`时刻 | 类型 | 摘要`，摘要按类型取关键字段不 dump 大负载）+ 类型前缀通配 + 时间窗 + limit 截尾报总匹配。审计事件 `kernel.class.registered/updated`（persisted + agentId 发起者归属）；`eventInvolvesAgent` 导出为 agent 归属判定唯一实现（补 context.compacted 与 class 事件映射——查询与观测共用一份映射防口径漂移）。`DEFAULT_USER_TOOLS` + `telemetry_query:'allow'` + `agent_class_update:'ask'`，tmp 演示配置镜像。
+4. **重启进化 e2e（classRestart.test）**：ask 挂起 → 根经 `access_reply` 答复（always 的 **per-(agent,key) 备忘**语义顺带实弹：create 的豁免不覆盖 update 键）→ 兑现落盘 → dispose → 全新 `createStemSystem` 从同一文件表 runInit 装载 → 进化类携带新基因出生 + 实例化即生效。目录即真相（S4.2）至此完成"写侧闭环"。
+
+### 架构立场（本轮定形）
+
+- **族谱树 = 实例层派生事实唯一门面**："agent 实例树"仅是概念别名（用户裁决保留族谱命名）；一切"谁够得着谁/谁有什么能力"的问题都问树，kernel 回归接线+生命周期。
+- **类文件是基因唯一持久载体**：进化 = 写文件（模型经 ask 门授权书写）+ 重启装载 + 新实例出生；个体一生不换心脏（策略/权限物化不可追改）。
+- **观测与书写同权治理**：telemetry 走树可见域、类书写走 ask+收敛校验——无评估特权通道，"看"和"改"都是族谱位置的函数。
+
+### 验证
+
+237/237 测试（+29：序列化 7/书写面 15/观测 6/重启 e2e 1）+ typecheck 0 + webui 冒烟（health/持久恢复）。收敛校验与"扩张整单拒绝（零注册表变更零落盘）"矩阵全绿；e2e 曾暴露 update 全表替换丢键陷阱 → 改增量合并（设计修正记录进方案勘误节）。
+
+### 遗留
+
+- S5.3（策略自调度薄层）/ S5.4（ltm-stm-mix dreaming）按方案延后；benchmark/fitness 后置。
+- 待拍板三点（睡眠留痕/心跳 LLM 轮/进化熔断）+ #4 已裁决（见方案 §8 实施记录）。
+- `agent_class_update` 对 custom 键的 patch 语义未开放（文件级 custom 由用户直写）；类删除（remove）刻意不给模型——退场权归用户。
+
+### 追记：Docker Desktop 实跑部署（S5 同日）——三处真实缺陷暴露即修
+
+首次真正跑通镜像构建与运行（此前 S4.4 只静态审查未实跑，WSL 集成当时未开）。**流程**：Docker Desktop 开启本发行版 WSL 集成 → docker.io 直连失败（国内网络）→ `docker.m.daocloud.io` pull 成功 → `docker tag` 回原名（不改 Dockerfile）→ build/run/冒烟。
+
+1. **Dockerfile 权限 bug**：`USER node` 后 `mkdir /data` 必失败（根目录普通用户无写权）——改为 root 先建 + `chown node:node` 再切用户；volume 首启属主随之正确。
+2. **mockSse 错位**：无 key 回落 mock 是发布形态的**产品能力**，文件却住 `test-support/`（镜像不 COPY）→ 容器起不来（ERR_MODULE_NOT_FOUND）。正身迁 `shell/cli/mockSse.ts`（node:http 宿主层归属），`test-support/mockSse.ts` 留兼容再导出（core 单测引用面不动）。
+3. **webui 错误序列化**：core 判别联合对象经 `String(e)` 变 `[object Object]`（部署排障被误导）→ `JSON.stringify` 保真。
+4. 冒烟环境噪音一枚（非产品 bug）：早前 smoke 用子 shell 起 webui、`kill` 只杀了包装进程，两个僵尸占 4321 劫持 curl——**webui smoke 脚本教训：拿 `$!` 要 kill 孙进程或改 `exec`/进程组**。
+
+**验收**：`-p 4321:4321 -v stem-data:/data` 起容器 → HEALTHCHECK green / send→mock 回复双轮 / `/data/.stem/` 自举 config+stem.db（messages 7 行）/ **docker restart 后 agents+消息全恢复**（pblj→interrupted 归一化 ✓）/ 日志零 error。237 测试 + typecheck 0 回归不破。

@@ -1,125 +1,108 @@
-# 应用场景（发展路线图）
+# 应用场景（第一性目标工作清单）
 
-> 本文件是项目的**目标清单**：所有架构决策与实现步骤都围绕让这些场景可行。
-> 场景按依赖复杂度排序——低编号场景（S1）先落地，高编号场景驱动后续模块能力。
-> 每个场景标注：涉及 Agent 类、核心机制、依赖模块、落地阶段。
+> stem 的一切架构决策都必须回答"让哪个场景更可行"。本清单按**现实状态**标注，既是目标地图，
+> 更是 Agent 的自检指南——每条附"今天如何验证"，任何 Agent 不写新代码即可复核场景真伪。
+>
+> **合并原则**（本轮重构）：一个场景 = 一种**不可归约的机制压力**，不是每种玩法各立一条。
+> 编排/评审/组织是树协作的三种尺度；编码/测试是同一"专职工人"的两个剧本；助理与发布形态
+> 是一件事的两端。**能进 Backlog 一行的，不配占一个场景。**
+>
+> 词汇 = 现架构（docs/architecture.md）：重建邮局 / 族谱树（canReach）/ 类即文件 / ask 消息化 /
+> 书写面 / 观测面。旧词（MessageBus/ContextAssetPool/Scheduler）已死，语义被吸收。
+> 状态：✅ 已可行 · 🚧 排期中（S6）· 🧩 有缺口（gap 已明）· 🌌 远景（非承诺）。
+> 场景编号与 S1′/S4/S5.x/S6 批次编号无关。
 
 ---
 
-## 场景速览
+## 速览
 
-| # | 场景 | 阶段 | 核心机制 |
+| # | 场景 | 状态 | 机制压力一句话 |
 |---|---|---|---|
-| S1 | 简单对话 | 1 | 基础 Agent 类 + 空上下文实例 |
-| S2 | 单 Agent 编码助手 | 1 | Agent 类 + 业务工具 |
-| S3 | 复杂任务分解（调度器） | 2 | Scheduler + MessageBus + 上下文分配 |
-| S4 | 多角度代码审查 | 2 | 多实例并行 + 聚合评估 |
-| S5 | 测试流水线（生成→执行→修复） | 2 | handoff 链 + ContextAssetPool 标签 |
-| S6 | 结对编程 | 2 | Agent 间实时对话（MessageBus） |
-| S7 | GAN 对抗分析 | 3 | 生成者 vs 评估者，对抗迭代 |
-| S8 | 模拟公司架构 | 3 | 角色化 Agent 类 + 上下文资产自治 |
-| S9 | RAG 知识库 | 3 | ContextAssetPool 工具化 + 索引后端 |
-| S10 | 自我进化（特修斯之船） | 4 | 元能力工具 + Telemetry + 模块改造 |
-| S11 | 用户自有 Agent 市场 | 4 | TemplateRegistry 用户主权 + 模板分发 |
+| 1 | 常驻个人助理 | ✅ | 人格 + 操作面 + 跨重启记忆 + 发布形态 |
+| 2 | 专职工人 | ✅ | 一类一角色，ask 门 + bash 执行面 |
+| 3 | 族谱协作体 | ✅ | 树 = 组织：编排/评审/公司的同构本体 |
+| 4 | 目标-达成度自我进化 | ✅🚧 | 观测→书写→新个体出生→拟合打分闭环 |
+| 5 | 睡眠期整理 | 🚧🧩 | 特例归机制的自审计 + 仿生记忆节律 |
+| 6 | 幸存者 | 🌌 | 唯一目标 + 大预算 + 无锚自主 = 全机制极限压力 |
+
+**Backlog（不占场景位）**：RAG 检索后端端口（宿主注入，core 零依赖）；类文件依赖声明与装机
+校验（`git clone` 分发已天然，缺的是 contextStrategy/tool_set 引用满足度检查）；穷人版检索 = bash + grep。
 
 ---
 
-## S1：简单对话（阶段 1）
+### 1. 常驻个人助理 ✅（含发布形态）
 
-- **目标**：用户与一个轻量 Agent 实例直接对话，无复杂上下文。
-- **Agent 类**：`SimpleChat`（无工具、空 memoryScope、默认 SystemPrompt）。
-- **机制**：用户 `instantiate_agent(SimpleChat)` → 在 ChatSession 中对话，上下文只有当前轮。
-- **依赖**：AgentTemplateRegistry（内置类）+ AgentInstanceManager + ModelGateway。
-- **价值**：验证"Agent 类 → 实例"最小闭环，等价传统聊天。
+- **目标**：7×24 私人助理——记事、查问、代操作，风格日常化，跨重启记得住，浏览器即用。
+- **机制路径**：user0 即助理（S6.1 第一视角 webui）；操作面 = bash 单点 + fs tool_set；
+  记忆 = SQLite write-through（terminate 不删语料）+ `.stem/` 目录即真相；人格与家学模型 =
+  `config.user`。发布形态同一条：`docker run -e ALIBABA_API_KEY=… -v stem-data:/data stem:1.0`
+  ——volume = 配置+DB+进化文件的家，**容器即边界**（挂载卷就是爆炸半径，webui 无鉴权不外露）。
+  无 key 回落 mock 开箱。
+- **状态**：全链已实跑验收（send→mock→restart→恢复，log S5 追记）；alibaba 直连属 S6.0。
+- **自检**：起容器双轮对话 → `docker restart` → 语境仍在 → `telemetry_query` 回放全程。
 
-## S2：单 Agent 编码助手（阶段 1）
+### 2. 专职工人 ✅
 
-- **目标**：单个编码 Agent 完成读写文件、跑命令、改代码。
-- **Agent 类**：`Coder`（tools: oc_read_file / oc_list_dir / oc_run_command / oc_edit）。
-- **机制**：AgentRuntime 单实例循环 + ContextProfile（PinnedFacts + HistoryMessages）+ Compressor。
-- **依赖**：业务工具 + ContextAssetPool（references）+ Telemetry。
-- **价值**：Spike 1 主目标，打通工具闭环。
+- **目标**：一类文件 = 一个能独立交付的岗位：编码结对（读写改跑，人批关键动作）、测试流水线
+  （生成→跑→红修→绿报）、审查者……玩法不设限，机制就一层。
+- **机制路径**：`.stem/worker.md` 声明人格与工具白名单（键即自我限定）；写操作 ask、执行走
+  bash（超时/截断/默认 cwd 限事故半径）；轮循环 = maxSteps 工具轮，重跑节奏写在 systemPrompt
+  ——**新增岗位零新组件**。
+- **自检**：给含 bug 的小函数实例化 tester，看"跑→红→改（ask 弹窗）→跑→绿→回信父"闭环；
+  `context_export` 审计其工具轨迹。
 
-## S3：复杂任务分解（阶段 2）
+### 3. 族谱协作体 ✅
 
-- **目标**：调度器 Agent 把大任务分解给多个专业 Agent，传递上下文。
-- **Agent 类**：`Scheduler`（高级权限）+ `Coder` + `Reviewer` + `Tester`。
-- **机制**：
-  - Scheduler `route()` 拆解 → `create_agent_instance` → 委托子任务。
-  - 每个子 Agent 从 ContextAssetPool 检索标签记忆（如 `#task-3-spec`）。
-  - 子 Agent 完成后 `handoff` 结果回 Scheduler → 汇总给用户。
-- **依赖**：MessageBus（task_delegation / handoff_request）+ Scheduler + ContextAssetPool。
-- **价值**：验证"把合适的上下文交给合适的 Agent"。
+- **目标**：多 agent 协同的所有形态——任务编排（拆→派→收）、多视角评审、GAN 对抗、直至模拟
+  公司——**本质是同一机制的不同尺度**：一棵树。
+- **机制路径**：派单 = `agent_instantiate`（父 = 调用者，族谱即汇报线）；交接 = `contextRefs`；
+  收卷 = `context_wait` + 完成自动回信父；职权 = 树位置（能力物化是族谱位置的函数，grant 是
+  任命书且模型路径不可自取）；部门墙 = 可见域（兄弟互不可见，`telemetry_query` 只覆盖辖区）；
+  裁撤 = terminate 级联。编排协议/公司规章全住 systemPrompt——**全体平等，无一处特判**。
+- **自检**：三层组织实例化，在中间层跑 telemetry 确认看不到旁支；让 user0 建两 worker 互发信
+  看谱系形状（S6.1 后侧栏树直观可见）。
 
-## S4：多角度代码审查（阶段 2）
+### 4. 目标-达成度自我进化 ✅🚧
 
-- **目标**：多个审查者 Agent 从不同角度审同一代码，评估者聚合。
-- **Agent 类**：`SecurityReviewer` / `PerfReviewer` / `ReadabilityReviewer` / `Aggregator`。
-- **机制**：Scheduler 并行实例化多个 Reviewer → 各自写 `#review-<aspect>` 标签 → Aggregator 读取汇总产出终审。
-- **依赖**：多实例 + ContextAssetPool 标签隔离 + 聚合工具。
-- **价值**：展示"同一上下文多角度探索"的雏形（GAN 前身）。
+- **目标**：系统的正业——Agent 观察运行、诊断、书写新基因，新个体携带出生。1.0 起改道
+  **第一性方案**（用户裁决，弃 benchmark 基建）：目标 = 用户例文集，达成度 = 拟合打分，
+  进化对象 = 类基因（上下文策略不动）。
+- **机制路径**：✅ 已落地——观测（telemetry 树可见域）+ 书写（create 变体并存 / update 只许
+  收敛，ask 门 = 人类锚点）+ 持久（落盘往返律，重启装载）+ 边界（只影响后续实例，现役不换心脏）。
+  🚧 S6.2 补上回路协议：目标卡 `.stem/goal.md`（例文对 + rubric + 通过线，自由文本）+ 评估者类
+  （协议住 systemPrompt：跑例文→打分→诊断→下一代→熔断：代数上限/无提升停滞）——**承载件全是
+  文件，零新增子系统**；首战 = 真实模型进化"日常化助理风格"一轮留档。
+- **自检**：`classRestart.test`（书写→落盘→重启→新出生 e2e）；S6.2 后看 goal-evolution 分数史。
 
-## S5：测试流水线（阶段 2）
+### 5. 睡眠期整理 🚧🧩
 
-- **目标**：生成测试 → 执行 → 修复失败 → 回归 的自动化闭环。
-- **Agent 类**：`TestWriter` / `TestRunner`（含 oc_run_command）/ `Fixer`。
-- **机制**：handoff 链：TestWriter 产出 → TestRunner 执行写入 `#test-results` → Fixer 读取失败项修复 → 回归。
-- **依赖**：HandoffManager + ContextAssetPool 标签 + 工具。
-- **价值**：验证 agent 间通过共享上下文资产的协作模式。
+- **目标**：像人脑睡眠的自我整理——定期回看系统，把补丁特例化归为系统机制；更远处，仿生
+  长期记忆（海马→新皮层：活跃期精准、睡眠期归纳 impression/lesson，节律是类的基因位）。
+- **机制路径**：🚧 S6.3 首轮 = 人启动的审计轮（种子八条已盘点：demo bootstrap、mock 剧情魔法串、
+  三类基因源并存、文档脱节、视图层 user0 特判、pilot 双通道、Runtime 单层模型解析、
+  opencodeLlm 的 process.env 违规；产出 = 逐条"特判→吸收机制→风险→裁决"报告）。
+  🧩 常态化心跳整理 = 唯一 gap：**S5.3 策略自调度薄层**（`StrategyApi.schedule`，TimerFactory
+  已在 ContextManager 手里，只差递进）→ S5.4 ltm-stm-mix 策略（方案冻结 = evolution-plan §5）。
+- **依赖链**：先人启动跑顺（场景 4 的回路 + 本审计轮），再交给心跳——整理协议本身先被进化。
+- **自检**：S6.3 报告落盘；S5.3 后用"空闲期自动归纳出 impression 标签"验证节律活着。
 
-## S6：结对编程（阶段 2）
+### 6. 幸存者 🌌（终局推演，非承诺）
 
-- **目标**：两个 Agent 实时对话协作（driver/navigator）。
-- **Agent 类**：`Driver` / `Navigator`。
-- **机制**：MessageBus 的 `agent_message` 双向实时投递；Navigator 的建议经 Driver 执行。
-- **依赖**：MessageBus（点对点实时）+ 事件驱动。
-- **价值**：验证 Agent IPC 的核心能力——**Agent 之间能互相"说话"**。
+- **目标**：（用户 2026-09-01 期待记录）超长期记忆策略的 agent，唯一目标 = **生存下去**，
+  数亿紧急预算，独自在网络海洋中生存。
+- **四要素映射（= 它的工程清单）**：自我繁殖——`agent_class_create/instantiate` 机制上已合法
+  （每次经 ask 门）；超长期记忆——场景 5 远端；**gap① 预算强制面**（现 totalCost 只有观测，
+  无配额账本/阈值自停/超额熔断）；**gap② 自主权开关**（ask = 人类锚点心搏，摘除需用户显式
+  授权语义——当前刻意无此机制）；网络海洋 = bash 单点 + 容器边界（habitat 与爆炸半径同体）。
+- **对齐张力直书**：唯一目标 + 巨预算 + 无内容约束 = 回形针风险。stem 的答案不是禁令清单而是
+  结构性诚实：**族谱即意义的来源**——目标由祖先书写、每笔自我改写落盘留痕、"她不能偷偷变成
+  另一个人"（update 不追改现役）。此场景 = 全机制的极限压力测试，故永远排在最后。
+- **触发条件**：场景 4/5 成熟 + gap①② 设计定案 + 用户明确签署自主协议，才进入方案。
 
-## S7：GAN 对抗分析（阶段 3）
+---
 
-- **目标**：多个"生成者" Agent 从不同角度探索同一上下文，一个"评估者" Agent 判断取舍。
-- **Agent 类**：`Explorer-A/B/C`（各持不同 contextProfile 侧重）+ `Judge`。
-- **机制**：
-  - Explorer 各自探索 → 各写 `#explore-<viewpoint>`。
-  - Judge 读取所有结果 → 判断哪个方案最优/如何融合 → 输出决策。
-  - 可迭代：Judge 反馈 → Explorer 第二轮再探索（对抗式收敛）。
-- **依赖**：多实例 + ContextAssetPool + Scheduler + Evaluator 辅助。
-- **价值**：验证"针对同一上下文的多角度分析与评估"。
+## 维护纪律
 
-## S8：模拟公司架构（阶段 3）
-
-- **目标**：用 Agent 实例模拟真实组织（CEO/PM/开发/测试/运维），长期维护复杂项目。
-- **Agent 类**：`CEO` / `PM` / `Engineer` / `QA` / `Ops`（各配 memoryScope 与权限）。
-- **机制**：
-  - CEO 拆解战略 → PM 细化任务 → Engineer 实现 → QA 验证 → Ops 部署。
-  - 每个角色**维护自己的上下文资产**（标签命名空间，如 `#eng/auth` / `#qa/regression`）。
-  - 长期运行：跨会话持续，重启后恢复（阶段 3.3 持久化）。
-- **依赖**：TemplateRegistry（角色类）+ InstanceManager + ContextAssetPool（资产自治）+ 持久化。
-- **价值**：验证"Agent 各自维护上下文资产、有条不紊执行极复杂项目"。
-
-## S9：RAG 知识库（阶段 3）
-
-- **目标**：把 RAG 引入上下文管理，Agent 能建索引、检索知识。
-- **机制**：ContextAssetPool 暴露上下文工具：`context_create_index({ source, name })` / `context_query({ tags, query })` → 底层接向量索引后端。
-- **Agent 类**：`KnowledgeManager`（能建库）+ 任意 Agent（能检索）。
-- **依赖**：ContextAssetPool 工具化 + 可插拔检索后端。
-- **价值**：证明"上下文管理模块对外暴露接口、可被 Agent 视为工具"，RAG 只是第一个接入者。
-
-## S10：自我进化（特修斯之船）（阶段 4）
-
-- **目标**：一个"改造者" Agent 读取所有日志，评估薄弱模块，创建新 Agent 或改进模块，实现自我进化。
-- **Agent 类**：`Evolver`（管理员权限：telemetry_read / module_evaluate / module_patch / agent_class_create）。
-- **机制**：
-  1. `telemetry_read` 获取全部状态变化、API 请求、上下文、工具记录。
-  2. `module_evaluate` 定位薄弱点（如路由准确率低、压缩后任务失败率高）。
-  3. 决策：创建新 Agent 类专攻该问题 / 调整模块参数 / 改造模块。
-  4. 新 Agent 参与后续任务 → 评估改善 → 继续循环。
-- **依赖**：Telemetry 全量日志 + 系统管理工具 + 模块可注入（配置驱动）。
-- **价值**：验证"模块化的极致——系统能改造自己"。
-
-## S11：用户自有 Agent 市场（阶段 4）
-
-- **目标**：用户自由创建、定制、分发 Agent 类模板（共享、复用）。
-- **机制**：TemplateRegistry 用户主权：创建 Agent 类（含 systemPrompt/contextProfile/tools/权限）+ 模板导出/导入（JSON / 文件）。
-- **依赖**：TemplateRegistry + 模板序列化。
-- **价值**：证明"绝不固定某个 Agent 的可能性"，生态化。
+1. 新场景先问"哪个现有机制能吸收"——能被吸收的进既有条目加一句，不新增；想不起压力的场景进 Backlog；
+2. 状态随批次提交更新（✅🚧🧩🌌 列即燃尽图）；
+3. 每条保留"自检"——不可验证的场景是许愿，不是目标。
