@@ -5,6 +5,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, GatewayError, abortError } from '../gateway'
+import type { ModelRef } from '../gateway'
 import { DefaultRepository, DefaultCourier, DefaultContextManager } from '../context'
 import type { AgentDelivery } from '../context'
 import { DefaultToolCapabilityRegistry } from '../tools'
@@ -27,7 +28,10 @@ function deliveryFor(agentId: string, system = cls.systemPrompt): AgentDelivery 
   return { kind: 'agent', agentId, system, messages: [{ role: 'user', content: 'hi' }], messageIds: ['m-1'] }
 }
 
-async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCapabilityRegistry; template?: AgentClass }) {
+async function makeRuntime(
+  gateway: FakeGateway,
+  extra?: { tools?: DefaultToolCapabilityRegistry; template?: AgentClass; resolveModel?: () => ModelRef | undefined },
+) {
   const templates = new DefaultTemplateRegistry([extra?.template ?? cls])
   const instances = new DefaultInstanceManager(templates)
   // 根 agent（user0）：普通实例（parentId=null），作为最终回复投递目标。
@@ -63,11 +67,11 @@ async function makeRuntime(gateway: FakeGateway, extra?: { tools?: DefaultToolCa
   const runtime = new DefaultRuntime({
     gateway,
     instances,
-    templates,
     contextManager,
     repository,
     tools: extra?.tools,
-    defaultModel: model,
+    // S6/R6：模型解析归口族谱树四级律（端口 stub；原 templates+defaultModel 单层链已拆除）。
+    resolveModel: extra?.resolveModel ?? (() => model),
   })
   return { runtime, instances, contextManager, repository, letters, agentId: instance.id }
 }
@@ -236,5 +240,20 @@ describe('DefaultRuntime（被动驱动）', () => {
       results.map((r) => r.text),
       ['agent-a', 'agent-b'],
     )
+  })
+
+  test('S6/R6 无锚防御：resolveModel 落空 → 不发请求、中断本轮（model_unresolved）', async () => {
+    const gateway = new FakeGateway(() => [{ type: 'text-delta', text: '不应被调用' }])
+    let resolveCalls = 0
+    const { runtime, agentId, instances } = await makeRuntime(gateway, {
+      resolveModel: () => {
+        resolveCalls++
+        return undefined
+      },
+    })
+    await runtime.processDelivery(deliveryFor(agentId))
+    assert.equal(resolveCalls, 1, '解析端口被咨询一次')
+    assert.equal(gateway.requests.length, 0, '无锚不得触网关')
+    assert.equal(instances.getSync(makeAgentID(agentId))?.status, 'interrupted')
   })
 })

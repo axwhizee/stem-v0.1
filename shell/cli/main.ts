@@ -5,9 +5,10 @@
 // 用户输入 → bus.send → 邮局 → 送信 → Runtime 处理 → 自动寄信
 // → user0 信箱收信汇总 → 本 shell 展示。
 //
-// 运行：
-//   npm run shell
-//   OPENCODE_API_KEY=<key> npm run shell     # 走真实 go/zen
+// 运行（S6/R11 opencode-style：`stem [path]`——在项目里直接启动，项目目录即空间）：
+//   npm run shell                    # cwd 即空间
+//   npm run shell -- tmp             # 指定目录（仓库演示空间）
+//   ALIBABA_API_KEY=<key> npm run shell   # 真实网关（config providers 声明的 key_env）
 //
 // 命令：
 //   直接输入 → 与当前 agent 对话
@@ -23,7 +24,7 @@
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
 import { readFile } from 'node:fs/promises'
-import { isAbsolute, join } from 'node:path'
+import { isAbsolute, resolve } from 'node:path'
 import {
   Kernel,
   makeAgentClassID,
@@ -43,7 +44,8 @@ import { bootStem, createHostTools, demoTemplatesHook } from './platform'
 import type { InitReport } from '../../src/core/init'
 import type { StemConfig } from '../../src/core/config'
 
-const DEFAULT_PROJECT = process.env.STEM_PROJECT_ROOT ?? join(process.cwd(), 'tmp')
+/** S6/R11 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（一进程 = 一空间 = 一 .stem）。 */
+const DEFAULT_PROJECT = resolve(process.argv[2] ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
 const DEFAULT_USER_PROMPT = '你好，请做一个简短的自我介绍。'
 
 interface ShellState {
@@ -236,7 +238,16 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       const cfg = state.config
       const init = state.init
       console.log(`  config: ${DEFAULT_PROJECT}/.stem/stem.jsonc`)
-      console.log(`  model: ${cfg.model ?? '(未配置)'}`)
+      console.log(
+        `  providers: ${
+          cfg.providers !== undefined && Object.keys(cfg.providers).length > 0
+            ? Object.entries(cfg.providers)
+                .map(([k, v]) => `${k}(${v.key_env !== undefined ? `$${v.key_env}` : '匿名'}${v.models !== undefined && v.models.length > 0 ? `·${String(v.models.length)}模型` : ''})`)
+                .join(', ')
+            : '(未注册——一切 LLM 调用硬错)'
+        }`,
+      )
+      console.log(`  家学 user.model: ${cfg.user?.model !== undefined ? `${cfg.user.model.provider}/${cfg.user.model.id}` : '(缺失——boot 应已报错)'}`)
       console.log(`  autoApprove: ${cfg.autoApprove ?? false}`)
       console.log(`  sendCountdown: ${cfg.sendCountdown ?? '(未配置)'}`)
       console.log(`  user 类: ${cfg.user?.tools !== undefined ? `tools=${JSON.stringify(cfg.user.tools)}` : '(内置默认表)'}`)

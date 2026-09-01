@@ -16,7 +16,6 @@ import { isAbortError, isGatewayError } from '../gateway'
 import type { LogSink } from '../logging'
 import type { AgentDelivery, ContextManager, Repository } from '../context'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
-import type { TemplateRegistry } from './TemplateRegistry'
 import type { InstanceManager } from './InstanceManager'
 import type { AgentID, AgentStatus } from './types'
 import { makeAgentID } from './types'
@@ -24,14 +23,16 @@ import { makeAgentID } from './types'
 export interface RuntimeDeps {
   readonly gateway: ModelGateway
   readonly instances: InstanceManager
-  readonly templates: TemplateRegistry
   readonly contextManager: ContextManager
   /** 上下文仓库（assistant/tool 消息入库）。 */
   readonly repository: Repository
   /** 工具注册表（缺省不启用工具轮）。 */
   readonly tools?: ToolCapabilityRegistry
-  /** 模板未配置 model 时使用的默认模型。 */
-  readonly defaultModel: ModelRef
+  /**
+   * 模型解析端口（S6/R6：族谱树四级律——显式 > 类基因 > 父继承 > 家学；
+   * kernel 接 lineage.modelOf。undefined = 全链无锚，见 processDelivery 防御）。
+   */
+  readonly resolveModel: (agentId: AgentID) => ModelRef | undefined
   /** 最大循环步数（含工具轮；默认 5）。 */
   readonly maxSteps?: number
   readonly estimateCost?: (usage: UsageEvent | undefined) => number
@@ -88,8 +89,21 @@ export class DefaultRuntime implements Runtime {
   async processDelivery(delivery: AgentDelivery): Promise<void> {
     const instances = this.deps.instances
     const instance = await instances.get(makeAgentID(delivery.agentId))
-    const template = await this.deps.templates.get(instance.classRef)
-    const model = template.model ?? this.deps.defaultModel
+    // S6/R6：本轮模型 = 族谱树四级律快照（setModel 下轮送信自然生效）。
+    const model = this.deps.resolveModel(instance.id)
+    if (model === undefined) {
+      // 全链无锚 = 配置事故（boot 硬校验保证正常不发生），中断本轮并点名修复处。
+      this.deps.onLog?.log({
+        type: 'kernel.instance.interrupted',
+        at: Date.now(),
+        agentId: instance.id,
+        aborted: false,
+        errorKind: 'model_unresolved',
+        message: '族谱模型解析链无锚（检查 config.user.model / 类 model / set_model）',
+      })
+      await this.setStatus(instance, 'interrupted')
+      return
+    }
 
     await this.setStatus(instance, 'thinking')
 

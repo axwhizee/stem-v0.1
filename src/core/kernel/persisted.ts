@@ -71,6 +71,18 @@ export class PersistedInstanceManager implements InstanceManager {
     this.snap(agentId)
   }
 
+  async setModel(agentId: AgentID, model: NonNullable<AgentInstance['model']>): Promise<void> {
+    await this.inner.setModel(agentId, model)
+    // R14：模型显式层随实例行落盘（行 JSON 序列化，零 schema 迁移）。
+    this.snap(agentId)
+  }
+
+  async setModelSnapshot(agentId: AgentID, snapshot: NonNullable<AgentInstance['modelSnapshot']>): Promise<void> {
+    await this.inner.setModelSnapshot(agentId, snapshot)
+    // §5 族规持久载体：出生快照随实例行落盘（replay 优先于父现值）。
+    this.snap(agentId)
+  }
+
   restore(instance: AgentInstance): void {
     this.inner.restore(instance)
   }

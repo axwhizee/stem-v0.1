@@ -9,11 +9,28 @@
 //   `.stem/tools/`、`.stem/agent/`、`.stem/context/` 目录本身——
 //   不再有 config 镜像字段（旧 tools/agents/strategies 键已删除，
 //   出现于旧配置时被忽略）。
-//   - `model` 采用 opencode 格式 `提供商/模型`（如 `opencode-go/deepseek-v4-flash`）。
+//   - **providers 注册表**（S6/R13）：模型端点全部 config 声明（`base_url` +
+//     `key_env` 密钥注入 + `models` 白名单），代码零端点常量、零兜底；
+//     模型引用一律 `提供商/模型`（如 `opencode-go/deepseek-v4-flash`）。
+//   - **全量有效原则**（S6/R12）：config 即全部配置——未知顶层键 fail-fast，
+//     `custom` 为唯一合法扩展位；顶层 model 链已拆除，家学锚点 = `user.model`。
 // ============================================================
 
 import type { ToolAccess } from '../tools'
 import type { ModelRef } from '../gateway'
+
+/**
+ * provider 注册表条目（S6/R13；块内 snake_case，对齐 OpenAI 生态书写习惯）。
+ * OpenAI 兼容语义：POST `{base_url}/chat/completions`，请求 model 恒发裸 id。
+ */
+export interface StemProviderConfig {
+  /** 端点基址（必填，如 `https://dashscope.aliyuncs.com/compatible-mode/v1`）。 */
+  readonly base_url: string
+  /** 密钥所在**环境变量名**（可缺省 = 匿名/本地端点；配置文件永不承载明文密钥）。 */
+  readonly key_env?: string
+  /** 启用模型白名单（空数组/缺省 = 全启用）。 */
+  readonly models?: readonly string[]
+}
 
 /**
  * user0 内嵌 agent 类完整配置（`config.user`——元 agent 单独处理为对象）。
@@ -32,7 +49,10 @@ export interface StemUserClass {
   readonly tools?: Readonly<Record<string, ToolAccess>>
   /** 上下文管理策略（user0 面板态默认不消费，pilot 未来 as() 扩展预留）。 */
   readonly contextStrategy?: string
-  /** 模型偏好（解析 `提供商/模型` 字符串）。 */
+  /**
+   * **家学锚点**（S6/R12 必填，boot 硬校验）：全体 agent 模型解析链
+   * （显式 > 类基因 > 父继承 > 家学）的链尾默认值。
+   */
   readonly model?: ModelRef
   /** 送信倒计时毫秒（缺省 0 = 直接获得回复）。 */
   readonly sendCountdown?: number
@@ -69,13 +89,13 @@ export interface StemBashConfig {
   readonly cwd?: string
 }
 
-/**
- * 全局配置（`.stem/stem.jsonc` 的内容形状）。
- * 所有字段可选——读取时逐项兜底为默认值。
- */
+/** 全局配置（`.stem/stem.jsonc` 的内容形状）。 */
 export interface StemConfig {
-  /** 当前使用的模型（opencode 格式 `提供商/模型`）。 */
-  readonly model?: string
+  /**
+   * 模型提供商注册表（S6/R13，键 = provider 名）。引用格式 `提供商/模型`；
+   * 一切模型引用（user.model/类文件/实例化参数）的 provider 必须在此注册。
+   */
+  readonly providers?: Readonly<Record<string, StemProviderConfig>>
   /** 是否开启权限自动批准（true 时 ask 直接放行，不弹窗）。 */
   readonly autoApprove?: boolean
   /** user0 内嵌 agent 类完整配置（元 agent = 族谱根 = 全局权限首层）。 */

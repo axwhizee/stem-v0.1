@@ -1,9 +1,10 @@
 // ============================================================
 // shell/cli/mockSse.ts —— OpenAI 兼容 SSE 流式 mock 服务器（宿主层）
 //
-// 双重身份（S5.2 Docker 实跑后归位 shell）：**发布形态无 key 的产品回落**
-// （buildGateway mock 分支，镜像必须自带）+ 单元测试/冒烟支撑
-// （test-support/mockSse.ts 兼容再导出）。
+// S6 定位（零兜底裁决 R1）：**不再是产品回落**——无 key 时系统照常启动、
+// LLM 调用硬错。本服务器转为纯测试/冒烟支撑（test-support/mockSse.ts 兼容
+// 再导出），并可被作为匿名 provider 写进冒烟 config（base_url = mock.url，
+// 无 key_env——R13 匿名端点形态自洽）。
 // 行为可控：认证校验 / 文本流 / reasoning / tool_calls / 错误响应。
 // ============================================================
 

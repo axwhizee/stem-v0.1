@@ -11,6 +11,8 @@ import type { ToolCapability } from '../tools'
 import type { ToolAccess } from '../tools'
 import type { AccessReply } from '../tools'
 import type { AccessProfile } from '../lineage'
+import type { ModelOrigin } from '../lineage'
+import type { ModelRef } from '../gateway'
 import type { LogEvent } from '../logging'
 import { eventInvolvesAgent } from '../logging'
 import type { Kernel } from './Kernel'
@@ -29,6 +31,7 @@ export function createSystemTools(kernel: Kernel): ToolCapability[] {
     agentAncestry(kernel),
     agentDescendants(kernel),
     agentTerminate(kernel),
+    agentSetModel(kernel),
     busSend(kernel),
     busParticipants(kernel),
     telemetryQuery(kernel),
@@ -59,7 +62,7 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
         systemPrompt: { type: 'string', description: '该类的专属系统提示词' },
         tools: { type: 'object', description: '工具清单：访问键 → allow|ask|deny|ignore（键即白名单，对继承面收敛）' },
         contextStrategy: { type: 'string', description: '上下文管理策略（默认 classic）' },
-        model: { type: 'string', description: '模型 id（可选，缺省用系统默认模型）' },
+        model: { type: 'string', description: '模型（"提供商/模型"，可选；缺省沿 父继承>家学 链解析）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒（可选，缺省 1000）' },
       },
       required: ['name', 'description'],
@@ -74,13 +77,19 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
         model?: string
         sendCountdown?: number
       }
+      let model: ModelRef | undefined
+      if (args.model !== undefined) {
+        const parsed = parseModelArg(args.model)
+        if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
+        model = parsed
+      }
       const cls: AgentClass = {
         name: makeAgentClassID(args.name),
         description: args.description,
         systemPrompt: args.systemPrompt ?? '',
         tools: args.tools ?? {},
         ...(args.contextStrategy !== undefined ? { contextStrategy: args.contextStrategy } : {}),
-        ...(args.model !== undefined ? { model: parseModelArg(args.model) } : {}),
+        ...(model !== undefined ? { model } : {}),
         ...(args.sendCountdown !== undefined ? { sendCountdown: args.sendCountdown } : {}),
       }
       await kernel.registerAgentClass(cls, { persist: true, by: ctx.agentId })
@@ -113,7 +122,7 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
         systemPrompt: { type: 'string', description: '新系统提示词' },
         tools: { type: 'object', description: '工具清单增量更新（未提及键保留原值；提及键逐键只能收敛，不可扩张）' },
         contextStrategy: { type: 'string', description: '上下文策略名' },
-        model: { type: 'string', description: '模型 id（提供商/模型 或裸模型名）' },
+        model: { type: 'string', description: '模型（"提供商/模型"）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒' },
       },
     },
@@ -147,7 +156,12 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
       }
       // tools patch = 增量合并（未提及键保留原值——整表替换会静默丢键，属意外收缩陷阱）。
       const mergedTools = args.tools !== undefined ? { ...current.tools, ...args.tools } : undefined
-      const model = args.model !== undefined ? parseModelArg(args.model) : undefined
+      let model: ModelRef | undefined
+      if (args.model !== undefined) {
+        const parsed = parseModelArg(args.model)
+        if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
+        model = parsed
+      }
       const patch: Partial<AgentClass> = {
         ...(args.description !== undefined ? { description: args.description } : {}),
         ...(args.systemPrompt !== undefined ? { systemPrompt: args.systemPrompt } : {}),
@@ -171,10 +185,21 @@ function accessRank(action: ToolAccess): number {
   return action === 'deny' ? 0 : action === 'ask' ? 1 : 2
 }
 
-/** 模型参数解析：`提供商/模型` 严格式，裸模型名回落 opencode（与 create 工具一致）。 */
-function parseModelArg(value: string): { provider: string; id: string } {
+/** 模型参数解析（S6/R6 严格式）：仅接受 `提供商/模型`，两段非空；非法 → undefined。 */
+function parseModelArg(value: string): { provider: string; id: string } | undefined {
   const slash = value.indexOf('/')
-  return slash > 0 ? { provider: value.slice(0, slash), id: value.slice(slash + 1) } : { provider: 'opencode', id: value }
+  if (slash <= 0 || slash === value.length - 1) return undefined
+  return { provider: value.slice(0, slash), id: value.slice(slash + 1) }
+}
+
+const MODEL_FORMAT_HINT = 'model 必须是 "提供商/模型" 格式（提供商 = config providers 注册表的键；裸模型名无归属不受理）'
+
+/** 模型解析命中层的中文谱系标签（agent_inspect 出示；R6 四级律）。 */
+const MODEL_ORIGIN_LABELS: Record<ModelOrigin, string> = {
+  explicit: '实例显式（出生指定或 set_model 改写）',
+  class: '类基因',
+  inherited: '父继承',
+  home: '家学 = config.user.model',
 }
 
 /**
@@ -224,7 +249,7 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
   return {
     id: 'agent_instantiate',
     description:
-      '创建新的 agent 实例。必填 className（模板名）与 userPrompt（作为该 agent 的首条 user 消息）；族谱父自动为调用者。可选 agentId（唯一）、contextRefs（父仓库消息索引，深拷贝传入）、tools（对模板工具清单的临时收敛）。创建后返回 agent id；若需等待其返回结果，请调用 context_wait(agentId)。',
+      '创建新的 agent 实例。必填 className（模板名）与 userPrompt（作为该 agent 的首条 user 消息）；族谱父自动为调用者。可选 agentId（唯一）、model（"提供商/模型" 显式覆盖出生模型；缺省 = 类基因 > 你的继承链）、contextRefs（父仓库消息索引，深拷贝传入）、tools（对模板工具清单的临时收敛）。创建后返回 agent id；若需等待其返回结果，请调用 context_wait(agentId)。',
     accessKey: 'agent_instantiate',
     kind: 'internal',
     category: 'system',
@@ -234,6 +259,7 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
         className: { type: 'string', description: 'Agent 模板名' },
         userPrompt: { type: 'string', description: '实例化时附带的 user prompt（必填）' },
         agentId: { type: 'string', description: '指定新 agent 的 id（可选，缺省随机生成）' },
+        model: { type: 'string', description: '显式模型 "提供商/模型"（可选；缺省按 类基因>父继承>家学 解析）' },
         contextRefs: { type: 'array', items: { type: 'string' }, description: '父仓库消息索引列表（消息 id 或轮索引），深拷贝传入新实例' },
         tools: { type: 'object', description: '工具清单补充：访问键 → ask/deny（对模板表临时收敛）' },
       },
@@ -244,8 +270,15 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
         className: string
         userPrompt: string
         agentId?: string
+        model?: string
         contextRefs?: string[]
         tools?: Readonly<Record<string, ToolAccess>>
+      }
+      let model: ModelRef | undefined
+      if (args.model !== undefined) {
+        const parsed = parseModelArg(args.model)
+        if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
+        model = parsed
       }
       const agentId = await kernel.instantiateInSpace(
         {
@@ -255,10 +288,48 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
           agentId: args.agentId,
           contextRefs: args.contextRefs,
           tools: args.tools,
+          ...(model !== undefined ? { model } : {}),
         },
         ctx.spaceId,
       )
       return { text: `已创建 agent ${agentId}` }
+    },
+  }
+}
+
+/**
+ * 运行时换模型（S6/R7：模型自由三环之一——实例化可选 / 类基因 / 本通道随时调整）。
+ * internal 缺省 ignore（白名单显式赋权），授权 = 树可见域 canReach（自身∨后代，
+ * 无特权通道）；改后下一轮送信生效，**不级联**已出生子孙（R6 族规=出生快照）；
+ * 显式层随实例行落盘（R14，重启延续）。provider 未接通/模型不在白名单 → 用到才硬错。
+ */
+function agentSetModel(kernel: Kernel): ToolCapability {
+  return {
+    id: 'agent_set_model',
+    description:
+      '切换 agent 的运行时模型（缺省目标 = 你自己；祖先可改后代）。model 为 "提供商/模型"（提供商须已注册于 config providers）。下一轮生效，不影响已出生子孙的继承快照；改动随实例持久化（重启延续）。',
+    accessKey: 'agent_set_model',
+    kind: 'internal',
+    category: 'system',
+    parameters: {
+      type: 'object',
+      properties: {
+        agentId: { type: 'string', description: '目标 agent id（可选，缺省为调用者自身；仅自身或祖先可改）' },
+        model: { type: 'string', description: '新模型（"提供商/模型"，必填）' },
+      },
+      required: ['model'],
+    },
+    execute: async (input, ctx) => {
+      const args = input as { agentId?: string; model: string }
+      const target = args.agentId ?? ctx.agentId
+      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), makeAgentID(target))) {
+        return { text: `无权切换该 agent 的模型（可见域 = 自身 + 族谱后代）: ${target}` }
+      }
+      const model = parseModelArg(args.model)
+      if (model === undefined) return { text: MODEL_FORMAT_HINT }
+      await kernel.setAgentModel(target, model, { by: ctx.agentId })
+      const binding = kernel.lineage.modelOf(target)
+      return { text: `已切换 ${target} 的模型为 ${args.model}（下一轮生效；当前生效档案 = ${binding?.ref.provider ?? model.provider}/${binding?.ref.id ?? model.id}·${binding?.origin ?? 'explicit'}）` }
     },
   }
 }
@@ -301,6 +372,7 @@ function agentInspect(kernel: Kernel): ToolCapability {
       const instance = await kernel.instances.get(agentId as never)
       const children = kernel.lineage.getChildren(instance.id)
       const ancestors = kernel.lineage.getAncestors(instance.id)
+      const node = kernel.lineage.nodeConfigOf(agentId)
       const lines = [
         `agent ${instance.id} (${instance.displayName})`,
         `  class: ${instance.classRef}`,
@@ -308,7 +380,8 @@ function agentInspect(kernel: Kernel): ToolCapability {
         `  children: ${children.length > 0 ? children.join(', ') : '-'}`,
         `  ancestry: ${ancestors.length > 0 ? ancestors.join(' → ') : '（user0 根）'}`,
         `  status: ${instance.status}  turns: ${instance.turnCount}  cost: ${instance.totalCost}`,
-        `  access: ${formatEffectiveAccess(kernel.lineage.profileOf(agentId))}`,
+        `  model: ${node?.model !== undefined ? `${node.model.ref.provider}/${node.model.ref.id}（${MODEL_ORIGIN_LABELS[node.model.origin]}）` : '（全链无锚——检查 config.user.model）'}`,
+        `  access: ${formatEffectiveAccess(node?.access)}`,
       ]
       return { text: lines.join('\n') }
     },
@@ -711,6 +784,8 @@ function telemetryBrief(event: LogEvent): string {
       return `${event.from}→${event.to}`
     case 'kernel.instance.terminated':
       return 'terminated'
+    case 'kernel.model.set':
+      return `model→${event.provider}/${event.model}${event.by !== undefined ? ` by=${event.by}` : ''}`
     case 'kernel.instance.interrupted':
       return `${event.aborted ? 'abort' : 'error'} ${event.message}`
     case 'kernel.message.sent':

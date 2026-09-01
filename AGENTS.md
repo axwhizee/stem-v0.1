@@ -22,7 +22,10 @@
    不可撤销）；`grant` 加法 = 系统机制特权（整表替换+未列一律 deny+显式 deny 铁律鉴权，
    模型工具路径不可达）；session always = **ask 免询问备忘**（非权限层）。config.user.tools
    = user0 根类清单（缺省 DEFAULT_USER_TOOLS 含 access_reply 根义务 + bash 对外操作面 +
-   telemetry_query 观测 allow + agent_class_create/update 书写 ask）。
+   telemetry_query 观测 allow + agent_class_create/update 书写 ask + agent_set_model 模型面 allow）。
+   **S6/R6 全参数统一解析律**：生效模型 = 显式（实例行）> 类基因 > 父继承 > 家学（user.model 必填
+   锚点；attach 同批物化、Runtime 经 resolveModel 单点取快照、setModel 不级联子女——族规=出生快照，
+   快照随实例行持久跨重启）——模型与权限同门面，无第二套通道。
 4. **模块自治**：初始化/装配在 core（平台能力经接口注入，core 零平台依赖、可独立运行）；
    shell 只做平台适配 + UI；外部与 core 的一切交互经模块接口（pilot 为 user0 扮演接口）。
 5. **少即是多**：工具生命周期（`init`）扩展优先于新建子系统；internal 工具列表不固化、随开发增长。
@@ -41,28 +44,31 @@ npm install                 # 安装依赖（node >= 23.4，node:sqlite 免 flag
 npm run typecheck           # tsc --noEmit 类型检查（唯一 lint/typecheck）
 npm test                    # 全量单测：tsx --test src/**/*.test.ts shell/**/*.test.ts
 npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑（node:test 并发）
-npm run shell               # CLI 交互 shell（参考 shell，mock 网关）
-OPENCODE_API_KEY=<key> npm run shell   # 真实网关（opencode-go）
-npm run web                 # WebUIShell（浏览器打开 http://localhost:4321）
+npm run shell               # CLI shell：cwd 即空间（opencode-style；`-- <path>` 指定目录）
+ALIBABA_API_KEY=<key> npm run shell   # 真实网关（密钥只走 env：config providers.<p>.key_env 声明变量名）
+npm run web                 # WebUIShell（http://localhost:4321；空间定位同上，`-- <path>`/STEM_PROJECT_ROOT）
 npm run build               # 与 typecheck 相同（tsc --noEmit）
 docker build -t stem:1.0 . && docker run -d -p 4321:4321 -v stem-data:/data stem:1.0   # 发布形态
-docker run -d -p 4321:4321 -v stem-data:/data -e OPENCODE_API_KEY=<key> stem:1.0   # 真实网关
+docker run -d -p 4321:4321 -v stem-data:/data -e <providers 声明的 key_env 名>=<key> stem:1.0   # 真实网关
 ```
 
 ## 项目结构
 
 ```text
 src/core/                  # 纯 TS 领域逻辑，零平台依赖（D11 硬规则）
-  ├── config/              # 全局配置：StemConfig 类型 + JSONC 解析（唯一配置文件 .stem/stem.jsonc；
-  │                        #   user 对象（tools 键）/ maxSteps / context 块 / bash 块 / extensions 数组；
-  │                        #   S4.2 起无 tools/agents/strategies 镜像——目录即真相）
+  ├── config/              # 全局配置：StemConfig 类型 + JSONC 解析 + defaults.ts（首启模板 = 唯一预设的
+  │                        #   数据形态）（唯一配置文件 .stem/stem.jsonc；providers 注册表（base_url/
+  │                        #   key_env/models）/ user 对象（含 model 家学锚点，必填）/ maxSteps / context
+  │                        #   块 / bash 块 / extensions 数组；无 tools/agents/strategies 镜像——目录即真相；
+  │                        #   R12 全量有效：未知顶层键 fail-fast，custom 唯一扩展位）
   ├── context/             # 重建邮局：仓库 Repository + 管理员 ContextManager + 快递员 Courier
   │                        #   + tag/双索引 + exportJsonl/overview + legalize（组装合法化）
   │                        #   + store.ts（MessageStore 端口）+ persisted.ts（write-through 装饰器）
   │                        #   + strategies/（上下文策略子模块：契约+注册表+classic/none；
   │                        #     process/assemble 两段式、compact、模块扮演 agent、.stem/context 加载）
   ├── events/              # PilotEvent 判别联合 + EventHub（多订阅者事件中心）
-  ├── gateway/             # ModelGateway 接口 + providers/(opencodeLlm / fetch) + FakeGateway
+  ├── gateway/             # ModelGateway 接口 + providers/(openaiCompatible：零端点常量/零 env 读取，
+  │                        #   baseUrl + 可选 apiKey + models 白名单) + FakeGateway；路由门面在宿主 buildGateway(config,env)
   ├── init/                # 系统初始化与装配：createStemSystem（组合根）+ runInit 扫描管线
   │                        #   （.stem/tools + .stem/agent + .stem/context → 注册进 core；
   │                        #     目录即真相，config 只在首次自举默认模板、永不回写）
@@ -70,12 +76,13 @@ src/core/                  # 纯 TS 领域逻辑，零平台依赖（D11 硬规�
   ├── kernel/              # Kernel + TemplateRegistry/InstanceManager/SpaceManager/
   │                        #   Runtime + userClass（内置 user 类 + DEFAULT_USER_TOOLS，user0 采用）
   │                        #   + store.ts（InstanceStore 端口）+ persisted.ts（实例/空间写穿装饰器）
-  ├── lineage/             # 族谱树门面 LineageTree（S5.1 三相合一：拓扑实时推导 + 能力物化
-  │                        #   attach/detach/replay + effectiveAccess/profileOf + 可见域 canReach）；
+  ├── lineage/             # 族谱树门面 LineageTree（S5.1 三相合一 + S6 模型配置相：拓扑实时推导 +
+  │                        #   能力物化 attach/detach/replay + effectiveAccess/profileOf +
+  │                        #   modelOf/setModel/nodeConfigOf（四级律出生物化+快照） + 可见域 canReach）；
   │                        #   AccessLedger 降为内部实现（算法/语义矩阵不变，不入库纯派生）
   ├── logging/             # LogEvent 判别联合 + Logger（经注入 LogSink，无总线）
-  ├── pilot/               # Pilot：user0 扮演接口（驾驶舱；sendMessage/instantiate/
-  │                        #   replyAccess/runContextAction/订阅事件流）
+  ├── pilot/               # Pilot：user0 扮演接口（驾驶舱；sendMessage/instantiate(可带 model)/
+  │                        #   setModel/replyAccess/runContextAction/订阅事件流）
   ├── tools/               # ToolCapabilityRegistry（含 init 生命周期；materialize/execute 经
   │                        #   AccessResolver 端口查询族谱树）+ access.ts（四态纯代数 restrict）
   │                        #   + accessRequest.ts（ask 消息化：投递根信箱 + access_reply +
@@ -85,15 +92,16 @@ src/core/                  # 纯 TS 领域逻辑，零平台依赖（D11 硬规�
   └── types.ts
 shell/                     # 宿主层（node/CLI + Web），实现 core 注入的接口
   ├── cli/                 # 参考 shell：platform.ts（bootStem 共享装配 + TOOL_SETS 解析 + bash
-  │                        #   runner）+ gateway + fs 工具集（read/write/edit/grep/glob，tool_set）+
-  │                        #   storage/（SQLite 端口实现）+ CLI 命令
+  │                        #   runner）+ gateway.ts（providers 路由两段式）+ fs 工具集（read/write/
+  │                        #   edit/grep/glob，tool_set）+ storage/（SQLite 端口实现，v2 根伪空间归并）
+  │                        #   + CLI 命令（stem [path] 空间定位）
   └── webui/               # WebUIShell：HTTP + SSE 浏览器交互层（OLED 主题；agent 侧栏/timeline/
                            #   composer/ask 弹窗/compact/销毁；/api/health）
 extension/                 # 可选功能扩展（tool_set 包落位；config.extensions 选择、宿主解析注入）
 templates/                 # 内置 AgentClass 模板（JSON，name 即 id，tools 为 Record）
 test-support/              # 测试支撑：kernelHarness.ts（内存 + FakeGateway + 手动计时器）+
-                           #   mockSse 兼容再导出（正身 shell/cli/mockSse.ts = 无 key 产品回落，
-                           #   Docker 实跑后归位——镜像只 COPY src/shell/extension/templates）
+                           #   mockSse 兼容再导出（正身 shell/cli/mockSse.ts = 纯测试/冒烟支撑，
+                           #   S6 起产品无 mock 回落；离线冒烟 = mockSse 作匿名 provider 入测试 config）
 tmp/                       # 测试项目空间（.stem/ 配置 + 用户 tools/agent 示例）
 docs/                      # 设计文档：architecture.md（实际架构，以此为准）/ log.md（开发日志）/
                            #   evolution-plan.md（S5 方案冻结；S5.1 族谱树/S5.2 观测书写已落地，
@@ -116,13 +124,14 @@ docs/                      # 设计文档：architecture.md（实际架构，以
 ### 核心模型
 
 - **AgentClass（模板）**：`name` 即 id（注册查重）；`description`；`systemPrompt`；`tools`（`Record<访问键, ask|deny|allow|ignore>`，**键即白名单=自我限定**，空 Record=无工具、undefined=完整继承父档案）；`contextStrategy`（默认 classic，开辟上下文空间时确定）；`model`；`sendCountdown`；`panel`（模块扮演面板：不组装不跑 LLM，如 user0/策略 role）；`custom`（自由扩展位）。
-- **AgentInstance**：`id` / `classRef`（模板名）/ `parentId`（= 创建者，user0 为 null 即根）/ `displayName` / `spaceId` / `status` / `turnCount` / `totalCost` / `userPrompt` / `toolOverride`。**creatorId 已合并进 parentId**（谁创建谁就是父），运行时属性多于工具调用参数。
+- **AgentInstance**：`id` / `classRef`（模板名）/ `parentId`（= 创建者，user0 为 null 即根）/ `displayName` / `spaceId` / `status` / `turnCount` / `totalCost` / `userPrompt` / `toolOverride` / `model`（模型显式层）/ `modelSnapshot`（出生快照，族规跨重启）——后两者随实例行 JSON 持久（零 schema 迁移）。**creatorId 已合并进 parentId**（谁创建谁就是父），运行时属性多于工具调用参数。
 - **状态机**：`idle → thinking → holding`；`interrupted`（当前轮被中断，仅暂停、消息闭合、可恢复）。
-- **族谱树（LineageTree，S5.1 门面）**：实例层派生事实唯一面——拓扑（parentId 挂实例实时推导）+ 能力（台账物化，见原则 3）+ 可见域 `canReach`（销毁/中断/上下文/telemetry 统一谓词；有活跃子默认拒销毁，recursive 级联）；红线：纯派生不入库、零运行时状态、零类层依赖。
+- **族谱树（LineageTree，S5.1 门面 + S6 配置相）**：实例层派生事实唯一面——拓扑（parentId 挂实例实时推导）+ 能力（权限台账物化 + **模型配置相**：显式>类基因>出生快照>父继承>家学 四级律 attach 物化 ModelBinding{ref,origin}，modelOf/setModel（不级联）/nodeConfigOf，见原则 3）+ 可见域 `canReach`（销毁/中断/上下文/telemetry/set_model 统一谓词；有活跃子默认拒销毁，recursive 级联）；红线：纯派生不入库（显式/快照的持久载体在实例行，kernel 装载传入）、零运行时状态、零类层依赖（原始层输入由 kernel 算好传入）。
 - **重建邮局（无总线）**：仓库（存储）→ 管理员（打戳/策略 process/组装/context_wait 填充/信箱配对）→ 快递员（倒计时送信，**只发不组装**——送信快照经管理员按策略委托构造）；agent 通信经 `kernel.sendMessage` 直接投递；log/access_reply 走注入接口。
 - **上下文策略（context/strategies/）**：每种策略 = 独立子模块（契约 `ContextStrategyModule`：note/role/assemble/process/actions）；触发点 = user_prompt 信件抵达，终点 = 就绪后唤醒快递员（process 异步许可、assemble 纯函数，重入合并、失败兜底不卡死）；classic = 全量直出 + opencode 式 compact（轮边界、摘要 worker 邮局正规往返、markInvalid 归档可逆）；策略需要造 agent 时用**模块扮演 agent**（role 挂宿主下、panel 态、worker 用完 terminate 归档，回信经 waitForReply 配对）；用户策略 `.stem/context/*.ts` 可覆盖内置。
-- **个体层持久化（SQLite write-through）**：core 端口 `MessageStore`/`InstanceStore`（+内存默认实现）+ 装饰器（PersistedRepository/InstanceManager/SpaceManager，内存为准同步落行）；宿主注入 node:sqlite 实现（`shell/cli/storage/`，默认 `.stem/stem.db`）。**terminate 归档消息保留语料**；重启恢复 = 装载 + 状态归一化（thinking/holding→interrupted）+ 计数器续接 + 族谱树能力相 replay 重放 + 快递员 lastSentIds 预置（零重放）；类层持久仍走文件，不进 DB。
+- **个体层持久化（SQLite write-through）**：core 端口 `MessageStore`/`InstanceStore`（+内存默认实现）+ 装饰器（PersistedRepository/InstanceManager/SpaceManager，内存为准同步落行）；宿主注入 node:sqlite 实现（`shell/cli/storage/`，默认 `.stem/stem.db`，`createSqliteStateStore(file, project)`，user_version **v2**：根伪空间归并迁移）。**空间语义（S6/R3/R11）**：`.stem` = 世界——一进程一空间一库；opencode-style 定位 `stem [path]` > env > cwd；单实例 = 约定非机制（无锁）。**terminate 归档消息保留语料**；重启恢复 = 装载 + 状态归一化（thinking/holding→interrupted）+ 计数器续接 + 族谱树能力相 replay 重放 + 快递员 lastSentIds 预置（零重放）；类层持久仍走文件，不进 DB。
 - **进化书写与观测（S5.2，1.0 人启动闭环）**：`agent_class_create`（新名 = 变体并存）/ `agent_class_update`（同名覆盖；tools 增量 patch、逐键只许收敛 `checkToolsConvergence`；panel/user 根类拒绝；**只影响后续实例**——已物化档案不追改）经 `ClassStore` 端口落盘 `.stem/agent/`（core `agentSerialize` 往返律 + 宿主 `ClassFs` IO，panel 永不回写红线）——目录即真相，进化跨重启生效；`telemetry_query`（internal 缺省 ignore、user0 默认 allow）按树可见域（自身 + 后代）查全部运行日志，行式压缩；审计事件 `kernel.class.registered/updated`（persisted + 发起者归属）。
+- **模型自由三环（S6）**：实例化 `model` 参（出生显式）/ 类基因 `AgentClass.model` / 运行时 `agent_set_model`（internal 缺省 ignore、canReach、审计 `kernel.model.set`）+ `pilot.setModel`（宿主通道）；`agent_inspect` 出示 NodeConfig 整像（origin 四态谱系：实例显式/类基因/父继承/家学）；改模型 = 下轮送信生效、不级联子女；`context.compact.summarizeModel` 为摘要 worker 类基因位（缺省继承宿主档案）。
 - **事件流（PilotEvent）**：`stream`（LLM 流式）/ `letter`（信箱来信，含 access_request）/ `status` / `notice`，经 EventHub 多订阅者发布，外部（shell/webui）统一订阅。
 
 ### 工具体系与访问
@@ -142,8 +151,8 @@ docs/                      # 设计文档：architecture.md（实际架构，以
 ### 全局配置与初始化（唯一配置文件）
 
 - 配置文件：`<projectRoot>/.stem/stem.jsonc`（或 `stem.json`），是**最终配置载体**，本阶段无多级合并。
-- 配置项：`model`（`提供商/模型` 格式）、`autoApprove`、**`user`（user0 内嵌 agent 类完整对象：description/systemPrompt/tools/contextStrategy/model/sendCountdown；tools 给出整表替换 DEFAULT_USER_TOOLS）**、`maxSteps`、**`context`（window + compact{enabled/threshold/keepRecentTurns/summarizeModel/instruction/replyTimeoutMs}）**、**`bash`（path/defaultTimeoutMs/maxOutputChars/cwd）**、`extensions`（宿主 tool_set 包 id 数组，缺省 `["fs"]`、`[]`=纯 bash）、`sendCountdown`。**S4.2 起无 `tools`/`agents`/`strategies` 镜像字段——目录即真相**（旧键出现被解析丢弃）。
-- **系统装配**（`createStemSystem(deps)`，core 组合根）：config → 工具注册表 + Kernel（user 类 = config.user 对象，contextSettings/maxSteps 注入；注入 `stateStore` 时 Kernel 内恢复+套写穿装饰器+台账拓扑重放）→ 系统工具 → bash 工具（注入 `shellRunner` 端口才装配）→ 宿主工具（bootStem 按 config.extensions 解析 tool_set）→ skill 工具 → `runInit` 扫描管线 → Pilot 初始化（实例化 user0；已恢复则幂等跳过）→ `initAll`（skill 发现）→ 用户注入钩子。
+- 配置项（**R12 全量有效原则：未知顶层键 boot fail-fast**，历史 model/tools/agents/strategies 键报错并指路；`custom` 唯一扩展位）：**`providers`（模型提供商注册表：`base_url` 必填 http(s) / `key_env` 密钥环境变量名（配置文件永不承载明文密钥；缺省=匿名端点）/ `models` 启用白名单——一切模型引用的 provider 必须在此注册）**、`autoApprove`、**`user`（user0 内嵌 agent 类完整对象：description/systemPrompt/tools/contextStrategy/**model=家学锚点（必填，boot 硬校验）**/sendCountdown；tools 给出整表替换 DEFAULT_USER_TOOLS）**、`maxSteps`、**`context`（window + compact{enabled/threshold/keepRecentTurns/summarizeModel/instruction/replyTimeoutMs}）**、**`bash`（path/defaultTimeoutMs/maxOutputChars/cwd）**、`extensions`（宿主 tool_set 包 id 数组，缺省 `["fs"]`、`[]`=纯 bash）、`sendCountdown`。**目录即真相**（S4.2）+ **config 即全部配置**（S6/R12）；无顶层 `model`（链拆除），首启缺文件 = `defaultStemConfig()` 内存等效 + `DEFAULT_CONFIG_TEXT` 落盘（唯一预设 opencode-go 是模板数据非代码常量）。
+- **系统装配**（`createStemSystem(deps)`，core 组合根）：config（缺失=defaultStemConfig；**家学硬校验 config.user.model**）→ 工具注册表 + Kernel（user 类 = config.user 对象，contextSettings/maxSteps/**project（空间身份，根挂真实空间）**注入；注入 `stateStore` 时 Kernel 内恢复+套写穿装饰器+台账&模型相拓扑重放）→ 系统工具 → bash 工具（注入 `shellRunner` 端口才装配）→ 宿主工具（bootStem 按 config.extensions 解析 tool_set）→ skill 工具 → `runInit` 扫描管线 → Pilot 初始化（实例化 user0；已恢复则幂等跳过）→ `initAll`（skill 发现）→ 用户注入钩子。**网关在宿主侧装配**：bootStem 按 config.providers 建 `buildGateway(config, env)` 路由门面（R1 两段式：key_env 未命中启动 warn 点名 + 用到才硬错）。
 - `runInit` 管线：扫描 `.stem/tools/*.ts`（默认导出 `ToolCapability`）+ `.stem/agent/*.md`（YAML 头 + 正文）+ `.stem/context/*.ts`（默认导出 `ContextStrategyModule`，同名覆盖内置）→ 注册进 `ToolCapabilityRegistry` + `TemplateRegistry` + 策略注册表。**目录即真相：config 只在文件不存在时写默认模板，管线此后纯只读、永不回写**。
 - **用户 agent 文件**：文件名即类 id/name（不要求 YAML id/name）；`tools` 的键即工具清单（融合设计，工具=键、动作=值；S4.2 起键名与 AgentClass.tools 齐平）；已知可选键 `context_strategy`/`model`；**其余未知字段透传 `AgentClass.custom`**（自由式 frontmatter）。
 - **user0**：`user` 类的普通实例（内置根模板，`parentId=null`），人格与权限面全部经 `config.user` 声明式可配；在 pilot 初始化流程内实例化；系统 ready 后由用户经 pilot 手动实例化后续 agent。
@@ -173,8 +182,10 @@ docs/                      # 设计文档：architecture.md（实际架构，以
 - 改动 `ToolKind` / 工具 shape / `AgentClass.tools` 时，同时检查 `shell/cli/tools/` 与 `src/core/tools/`。
 - `AgentClass`：name 即模板键；`tools` 为 `Record`（键即白名单=自我限定，空 Record=全部本地 deny、undefined=完整继承父档案），不再是数组 + 独立 toolAccess。
 - `AgentInstance`：无 creatorId；族谱关系用 parentId。
-- **权限一律走族谱树门面**：`lineage/LineageTree` 是唯一权限变更/查询面（attach/detach/replay + effectiveAccess/profileOf；AccessLedger 是其内部实现，禁止 kernel 再直连台账）；跨 agent 操作一律 `canReach`；tools/inspect 只经 `AccessResolver` 查询——**禁止**再拼 accessLayers（`ToolContext` 已无该字段）。类书写（agent_class_create/update）与观测（telemetry_query）也同一等公民：ask 门 + 树可见域，无特权通道。
+- **权限与模型一律走族谱树门面**：`lineage/LineageTree` 是唯一变更/查询面（attach/detach/replay + effectiveAccess/profileOf + **modelOf/setModel/nodeConfigOf**；AccessLedger 是其内部实现，禁止 kernel 再直连台账）；模型解析单点 = Runtime `resolveModel` 端口 → `lineage.modelOf`，**禁止**再拼 `template.model ?? 默认` 单层链（defaultModel/FALLBACK_MODEL 已整体拆除）；跨 agent 操作一律 `canReach`；tools/inspect 只经 `AccessResolver` 查询——**禁止**再拼 accessLayers（`ToolContext` 已无该字段）。类书写（agent_class_create/update）与观测（telemetry_query）也同一等公民：ask 门 + 树可见域，无特权通道。
 - **grant 是系统特权通道**（策略 spawn / pilot 初始化；`InstantiateOptions.accessMode` 不得出现在 `agent_instantiate` 工具参数里——模型永远只能收敛）。
+- **模型引用全严格式**：config/类文件/工具参数一律 `提供商/模型`（裸名不受理，工具回可行动提示）；provider 必须注册于 `providers`、非空白名单必命中（用到才硬错 = 路由/网关层执行）；改配置结构后**旧卷 stem.jsonc 含顶层 `model` 会 fail-fast**——按报错文案迁移，DB 侧 v2 自动归并不用管。
+- **`config.user.tools` 整表替换同样波及模型面**：误删 `agent_set_model` 后 user0 不能改模型（DEFAULT_USER_TOOLS 已含 allow）；家学 `user.model` 只能经配置文件改（工具面改的是实例显式层）。
 - `config.user.tools` 给出 = **整表替换**默认表：误删 `access_reply` 会锁死 ask 消息化（根答复义务）。
 - bash 无 ask 无黑名单：治理 = 超时/截断/默认 cwd 机制 + 提示词 + 白名单不列键；容器发布形态下**挂载 volume = 爆炸半径**，不建议裸机对外暴露 webui。
 - 面板注册（`assemble:false`，含 user0 / 策略 role）恒绑 none 策略：不触发 process、不注入策略 note；`contextStrategy` 字段仅对真跑 LLM 轮的 agent 有意义。

@@ -7,14 +7,14 @@
 // ============================================================
 
 import { join } from 'node:path'
-import { createNodeConfigBundle, FALLBACK_MODEL } from './config'
+import { createNodeConfigBundle } from './config'
 import { createHostTools } from './tools'
 import { createNodeShellRunner } from './bash'
 import { buildGateway } from './gateway'
 import { createSqliteStateStore } from './storage'
 import { createStemSystem, type StemSystemDeps, type UserInitHook } from '../../src/core/init'
 import type { StemSystem } from '../../src/core/init'
-import { parseModelRef } from '../../src/core/config'
+import { defaultStemConfig } from '../../src/core/config'
 import type { PilotEvent } from '../../src/core/events'
 import type { ShellRunner, ToolCapability } from '../../src/core/tools'
 import { makeAgentClassID } from '../../src/core/kernel'
@@ -106,13 +106,19 @@ export interface BootResult {
   readonly stateStore?: StemSystemDeps['stateStore']
 }
 
-/** 节点平台装配：读取配置 → 构建网关 → createStemSystem（含 user0 实例化 + SQLite 恢复）。 */
+/** 节点平台装配：读取配置 → 构建网关（providers 路由）→ createStemSystem（user0 实例化 + SQLite 恢复）。 */
 export async function bootStem(opts: BootOptions): Promise<BootResult> {
   const bundle = createNodeConfigBundle(opts.projectRoot)
   const loaded = await bundle.store.load()
-  const model = parseModelRef(loaded.config.model, FALLBACK_MODEL)
-  const { gateway, source } = await buildGateway(model.id)
-  const stateStore = opts.stateStore === false ? undefined : (opts.stateStore ?? createSqliteStateStore(defaultDbFile(opts.projectRoot)))
+  // S6/R12：配置文件不存在 = 首启，内存等效 = 首启模板解析产物（runInit 随后落盘同一文本）。
+  const config = loaded.exists ? loaded.config : defaultStemConfig()
+  const { gateway, source, warnings } = buildGateway(config, process.env)
+  // R1 两段式第一段：key_env 未命中启动即 warn（不印值），用到才硬错。
+  for (const warning of warnings) console.warn(`[stem] ${warning}`)
+  const stateStore =
+    opts.stateStore === false
+      ? undefined
+      : (opts.stateStore ?? createSqliteStateStore(defaultDbFile(opts.projectRoot), opts.projectRoot))
   const shellRunner = opts.shellRunner === false ? undefined : (opts.shellRunner ?? createNodeShellRunner({ defaultCwd: opts.projectRoot }))
   const system = await createStemSystem({
     config: { store: bundle.store, paths: bundle.paths },
@@ -120,8 +126,7 @@ export async function bootStem(opts: BootOptions): Promise<BootResult> {
     classFs: bundle.classFs,
     tools: { loadTool: bundle.loadTool },
     gateway,
-    defaultModel: model,
-    hostTools: opts.hostTools ?? resolveToolSets(loaded.config.extensions, opts.projectRoot),
+    hostTools: opts.hostTools ?? resolveToolSets(config.extensions, opts.projectRoot),
     ...(shellRunner !== undefined ? { shellRunner } : {}),
     onEvent: opts.onEvent,
     userHooks: opts.userHooks,

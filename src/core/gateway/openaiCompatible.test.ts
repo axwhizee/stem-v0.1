@@ -1,5 +1,5 @@
 // ============================================================
-// core/gateway/opencodeLlm.test.ts —— provider 实现验证
+// core/gateway/openaiCompatible.test.ts —— provider 实现验证
 //
 // 使用 mock SSE 服务器（prototype/mockSse.ts）在无真实 key 下
 // 覆盖：文本流式 / usage / finish / 认证 / 错误分类 / 工具调用 /
@@ -8,7 +8,7 @@
 
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createOpencodeGateway } from './providers/opencodeLlm'
+import { createOpenAiCompatibleGateway } from './providers/openaiCompatible'
 import { GatewayError, isGatewayError } from './types'
 import type { LLMRequest, LLMEvent } from './types'
 import { startMockSse, sseLine } from '../../../test-support/mockSse'
@@ -20,7 +20,7 @@ const baseRequest: LLMRequest = {
   messages: [{ role: 'user', content: 'hi' }],
 }
 
-async function collect(gateway: ReturnType<typeof createOpencodeGateway>, request: LLMRequest): Promise<LLMEvent[]> {
+async function collect(gateway: ReturnType<typeof createOpenAiCompatibleGateway>, request: LLMRequest): Promise<LLMEvent[]> {
   const events: LLMEvent[] = []
   for await (const event of gateway.chat(request)) events.push(event)
   return events
@@ -32,19 +32,41 @@ function errorFrom(events: LLMEvent[], error: unknown): GatewayError {
   return error
 }
 
-describe('createOpencodeGateway', () => {
-  test('缺少凭据时同步抛出 auth_missing', () => {
-    if (process.env.OPENCODE_API_KEY) return // 环境中已有 key，跳过
-    assert.throws(() => createOpencodeGateway(), (error: unknown) => {
-      assert.ok(isGatewayError(error))
-      return (error as GatewayError).kind === 'auth_missing'
-    })
+describe('createOpenAiCompatibleGateway', () => {
+  test('apiKey 可选（R13 匿名端点）：构造不抛，请求不带 Authorization', async () => {
+    const mock = await startMockSse() // 无 requiredApiKey = 匿名服务
+    try {
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url })
+      await collect(gateway, baseRequest)
+      assert.equal(mock.requests[0]?.headers.authorization, undefined)
+    } finally {
+      await mock.close()
+    }
+  })
+
+  test('models 白名单：不命中 → model_not_allowed 硬错（不发请求）', async () => {
+    const mock = await startMockSse()
+    try {
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url, models: ['allowed-model'] })
+      await assert.rejects(
+        (async () => {
+          for await (const _ of gateway.chat(baseRequest)) void _
+        })(),
+        (error: unknown) => isGatewayError(error) && (error as GatewayError).kind === 'model_not_allowed',
+      )
+      assert.equal(mock.requests.length, 0, '白名单拒绝应发生在发请求之前')
+      // 命中白名单则正常流式
+      const events = await collect(gateway, { ...baseRequest, model: { provider: 'x', id: 'allowed-model' } })
+      assert.ok(events.some((e) => e.type === 'finish'))
+    } finally {
+      await mock.close()
+    }
   })
 
   test('文本流式：产出 text-delta / usage / finish(stop)', async () => {
     const mock = await startMockSse({ requiredApiKey: 'test-key' })
     try {
-      const gateway = createOpencodeGateway({ server: mock.url, apiKey: 'test-key' })
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url, apiKey: 'test-key' })
       const events = await collect(gateway, baseRequest)
 
       const text = events
@@ -69,11 +91,12 @@ describe('createOpencodeGateway', () => {
   test('请求体：system 在首位、stream_options.include_usage=true', async () => {
     const mock = await startMockSse({ requiredApiKey: 'test-key' })
     try {
-      const gateway = createOpencodeGateway({ server: mock.url, apiKey: 'test-key' })
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url, apiKey: 'test-key' })
       await collect(gateway, baseRequest)
 
       const body = mock.requests[0]?.body
       assert.ok(body, 'should capture request body')
+      assert.equal(body.model, 'test-model', 'model 恒发裸 id（provider 不泄漏进协议体）')
       assert.equal(body.stream, true)
       assert.deepEqual((body.stream_options as Record<string, unknown>).include_usage, true)
       const messages = body.messages as Array<{ role: string; content: string }>
@@ -89,7 +112,7 @@ describe('createOpencodeGateway', () => {
   test('认证失败：401 → GatewayError(api_error, retryable=false)', async () => {
     const mock = await startMockSse({ requiredApiKey: 'secret' })
     try {
-      const gateway = createOpencodeGateway({ server: mock.url, apiKey: 'wrong-key' })
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url, apiKey: 'wrong-key' })
       const events: LLMEvent[] = []
       await assert.rejects(
         (async () => {
@@ -115,7 +138,7 @@ describe('createOpencodeGateway', () => {
       }),
     })
     try {
-      const gateway = createOpencodeGateway({ server: mock.url, apiKey: 'test-key' })
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url, apiKey: 'test-key' })
       const events: LLMEvent[] = []
       await assert.rejects(
         (async () => {
@@ -141,7 +164,7 @@ describe('createOpencodeGateway', () => {
       }),
     })
     try {
-      const gateway = createOpencodeGateway({ server: mock.url, apiKey: 'test-key' })
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url, apiKey: 'test-key' })
       const events = await collect(gateway, baseRequest)
       const reasoning = events
         .filter((e) => e.type === 'reasoning-delta')
@@ -182,7 +205,7 @@ describe('createOpencodeGateway', () => {
       }),
     })
     try {
-      const gateway = createOpencodeGateway({ server: mock.url, apiKey: 'test-key' })
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url, apiKey: 'test-key' })
       const events = await collect(gateway, baseRequest)
       const calls = events.filter((e) => e.type === 'tool-call')
       assert.equal(calls.length, 1)
@@ -201,7 +224,7 @@ describe('createOpencodeGateway', () => {
   test('消息序列化：assistant tool_calls 与 tool 结果正确回传', async () => {
     const mock = await startMockSse({ requiredApiKey: 'test-key' })
     try {
-      const gateway = createOpencodeGateway({ server: mock.url, apiKey: 'test-key' })
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url, apiKey: 'test-key' })
       const request: LLMRequest = {
         ...baseRequest,
         messages: [
@@ -238,7 +261,7 @@ describe('createOpencodeGateway', () => {
       }),
     })
     try {
-      const gateway = createOpencodeGateway({ server: mock.url, apiKey: 'test-key' })
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url, apiKey: 'test-key' })
       await assert.rejects(
         (async () => {
           for await (const _ of gateway.chat(baseRequest)) void _
@@ -255,7 +278,8 @@ describe('createOpencodeGateway', () => {
       sseLine({ choices: [{ index: 0, delta: { content: 'hello' }, finish_reason: null }] }) +
       sseLine({ choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 3, completion_tokens: 1 } }) +
       'data: [DONE]\n\n'
-    const gateway = createOpencodeGateway({
+    const gateway = createOpenAiCompatibleGateway({
+      baseUrl: 'https://example.test/v1',
       apiKey: 'test-key',
       fetch: (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
         assert.ok(String(input).includes('/chat/completions'))

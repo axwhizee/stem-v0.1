@@ -9,5 +9,4 @@ export {
   createNodeClassFs,
   nodeToolLoader,
   createNodeConfigBundle,
-  FALLBACK_MODEL,
 } from './nodeConfig'

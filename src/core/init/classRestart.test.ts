@@ -26,7 +26,11 @@ function makeMemFs(files: Record<string, string> = {}) {
   }
   const store: ConfigStore = {
     file: paths.configFile,
-    load: async () => ({ exists: true, config: {} as StemConfig }),
+    load: async () => ({
+      exists: true,
+      // S6/R12：家学锚点必填（boot 硬校验），测试 config 统一注入。
+      config: { user: { model: { provider: 'opencode', id: 'test' } } } as StemConfig,
+    }),
     save: async () => {},
   }
   const fs: InitFs = {
@@ -60,7 +64,6 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
       classFs: d.classFs,
       tools: d.loader,
       gateway,
-      defaultModel: { provider: 'opencode', id: 'test' },
     })
     const ctx = { agentId: USER_ID, spaceId: 'space-1' }
     // user0 默认表 create/update = ask → 走 access_reply 正规授权链（根答复义务 +
@@ -111,7 +114,6 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
       classFs: d.classFs,
       tools: d.loader,
       gateway,
-      defaultModel: { provider: 'opencode', id: 'test' },
     })
     const cls = revived.kernel.templates.getSync(makeAgentClassID('reviewer'))
     assert.ok(cls, 'runInit 扫描装载进化的类（目录即真相）')

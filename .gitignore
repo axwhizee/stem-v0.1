@@ -16,3 +16,7 @@ prompts.md
 *.db-journal
 *.db-wal
 *.db-shm
+
+# S6/R11：仓库根直接启动（opencode-style，cwd 即空间）时长出的根空间不入库；
+# tmp/.stem 演示空间是显式跟踪例外（根锚定模式不波及）。
+/.stem/

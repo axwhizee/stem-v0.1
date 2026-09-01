@@ -15,25 +15,9 @@ import type { AgentClass, AgentClassID } from '../kernel'
 import { makeAgentClassID } from '../kernel'
 import type { ContextStrategyModule } from '../context'
 import type { ToolCapability } from '../tools'
+import { DEFAULT_CONFIG_TEXT } from '../config'
 import { parseAgentFile } from './agentParse'
 import type { InitDeps, InitError, InitIssue, InitReport } from './types'
-
-const DEFAULT_CONFIG_TEXT = `{
-  // stem 唯一配置文件（全局配置）。用户工具/agent/策略**目录即真相**：
-  // 放进 .stem/tools/、.stem/agent/、.stem/context/ 即自动注册，无镜像字段。
-  "model": "opencode-go/deepseek-v4-flash",
-  "autoApprove": false,
-  // user0 内嵌 agent 类（元 agent 完整可配；tools 缺省 = 内置管理面默认表）。
-  "user": {},
-  // 上下文策略（classic compact 参数面）。
-  "context": { "window": 128000, "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 } },
-  // bash 工具（缺省走内置：120s 超时 / 50k 截断 / 项目根目录）。
-  // "bash": { "defaultTimeoutMs": 120000, "maxOutputChars": 50000 },
-  // 宿主 tool_set 包（["fs"] = read/write/edit/grep/glob；[] = 纯 bash 最小系统）。
-  "extensions": ["fs"],
-  "sendCountdown": 1000
-}
-`
 
 /** 运行初始化管线。 */
 export async function runInit(deps: InitDeps): Promise<InitReport> {

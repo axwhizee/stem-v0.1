@@ -14,6 +14,8 @@ export type {
   AgentInstancePatch,
   AgentSpace,
   KernelError,
+  ModelBinding,
+  ModelOrigin,
 } from './types'
 export { makeAgentClassID, makeAgentID, makeAgentSpaceID } from './types'
 

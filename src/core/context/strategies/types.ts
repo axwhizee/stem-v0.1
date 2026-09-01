@@ -35,7 +35,7 @@ export interface ContextSettings {
     readonly keepRecentTurns: number
     /** 摘要 worker 指令（缺省用 classic 模块内置模板）。 */
     readonly instruction?: string
-    /** 摘要 worker 模型（缺省用系统默认）。 */
+    /** 摘要 worker 模型（S6/R6 类基因位；缺省 = 走出生链继承宿主档案）。 */
     readonly summarizeModel?: ModelRef
     /** 等待 worker 回信超时（毫秒；超时本轮放弃压缩，不卡送信）。 */
     readonly replyTimeoutMs: number

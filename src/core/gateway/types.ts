@@ -92,6 +92,10 @@ export type GatewayErrorKind =
   | 'api_error'
   | 'invalid_response'
   | 'request_failed'
+  /** 路由/配置类硬错（S6 R1）：provider 未注册、key_env 未命中未接通、baseUrl 无效。 */
+  | 'provider_unwired'
+  /** 模型不在 provider 启用白名单内（config providers.<name>.models）。 */
+  | 'model_not_allowed'
 
 /** 统一网关错误：不 throw 字符串，判别联合错误（code-style §4.1）。 */
 export class GatewayError extends Error {

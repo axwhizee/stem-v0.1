@@ -2,7 +2,7 @@
 // core/gateway/ModelGateway.ts —— 网关接口（领域契约）
 //
 // 消费方（Runtime / 未来宿主）只依赖此接口，不接触 provider 实现。
-// 实现可替换：opencodeLlm / fetchOpenAICompat / FakeGateway / 未来 vendored llm。
+// 实现可替换：openaiCompatible / FakeGateway / 未来 vendored llm。
 // ============================================================
 
 import type { LLMRequest, LLMEvent } from './types'

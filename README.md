@@ -37,7 +37,7 @@
 │   tools/（注册表 + access + accessRequest + bash + SkillRegistry）    │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 1  Model Gateway (core/gateway/)   ← 纯 TS（opencode 隔离）    │
-│   ModelGateway · providers/(opencodeLlm / fetch) · FakeGateway        │
+│   ModelGateway · providers/(openaiCompatible) · FakeGateway           │
 └───────────────────────────────────────────────────────────────────────┘
    extension/tools/  可选 tool_set 包（config.extensions 选择，宿主解析注入）
    横切  Logging (core/logging/) —— LogEvent 经注入 LogSink 直达记录器（无总线）
@@ -133,11 +133,12 @@
 ```bash
 npm install                 # 安装依赖（node >= 23.4）
 npm run typecheck           # tsc --noEmit 类型检查（唯一 lint/typecheck）
-npm test                    # 全量单测（202）
+npm test                    # 全量单测（264）
 npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑
-npm run shell               # CLI 交互 shell（参考 shell，mock 网关）
-OPENCODE_API_KEY=<key> npm run shell   # 真实网关（opencode-go）
-npm run web                 # WebUIShell（OLED 主题，默认绑 127.0.0.1:4321）
+npm run shell               # CLI shell：**cwd 即空间**（opencode-style；无 key 也可起，用到才硬错）
+npm run shell -- tmp        # 指定目录（本仓库演示空间）
+ALIBABA_API_KEY=<key> npm run shell   # 真实网关（密钥只走 env：config providers.<p>.key_env 声明变量名）
+npm run web                 # WebUIShell（OLED 主题，127.0.0.1:4321；同样支持 `npm run web -- <目录>`）
 npm run build               # 与 typecheck 相同（tsc --noEmit）
 ```
 
@@ -146,7 +147,7 @@ npm run build               # 与 typecheck 相同（tsc --noEmit）
 ```bash
 docker build -t stem:1.0 .
 docker run -d -p 4321:4321 -v stem-data:/data --name stem stem:1.0
-# 真实网关：-e OPENCODE_API_KEY=<key>；国内构建可加 --registry-mirror 或改 lock 源
+# 真实网关：-e <providers 声明的 key_env 名>=<key>（模板默认 OPENCODE_API_KEY）；国内构建可加 --registry-mirror 或改 lock 源
 ```
 
 镜像 = `node:24-slim` + 非 root + HEALTHCHECK（`/api/health`）。**`/data` volume 承载

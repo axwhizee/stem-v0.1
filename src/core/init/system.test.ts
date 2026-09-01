@@ -10,11 +10,19 @@ import type { InitFs, InitToolLoader } from './types'
 import { createStemSystem } from './system'
 import { makeAgentClassID, makeAgentID, USER_ID } from '../kernel'
 
-function makeDeps(config: StemConfig = {}, fsFiles: Record<string, string> = {}) {
+/** 家学锚点（S6/R12 boot 硬校验必填：config.user.model = 全链缺省本体）。 */
+const HOME: StemConfig = { user: { model: { provider: 'fake', id: 'home-model' } } }
+
+function makeDeps(
+  config: StemConfig = {},
+  fsFiles: Record<string, string> = {},
+  opts: { exists?: boolean; captureSave?: (text: string) => void } = {},
+) {
+  const exists = opts.exists ?? true
   const store: ConfigStore = {
     file: '/proj/.stem/stem.jsonc',
-    load: async () => ({ exists: true, config }),
-    save: async () => {},
+    load: async () => ({ exists, config: exists ? config : {}, ...(exists ? { raw: '{}' } : {}) }),
+    save: async (text) => opts.captureSave?.(text),
   }
   const paths: ConfigPaths = {
     projectRoot: '/proj',
@@ -38,13 +46,12 @@ function makeDeps(config: StemConfig = {}, fsFiles: Record<string, string> = {})
 
 describe('createStemSystem（系统装配组合根）', () => {
   test('装配：user0 实例化（user 类）+ 系统工具 + skill 工具 + pilot 身份', async () => {
-    const d = makeDeps()
+    const d = makeDeps(HOME)
     const system = await createStemSystem({
       config: { store: d.store, paths: d.paths },
       fs: d.fs,
       tools: d.loader,
       gateway: d.gateway,
-      defaultModel: { provider: 'opencode', id: 'test' },
       userHooks: [
         async (ctx) => {
           assert.equal(ctx.pilot.identity, USER_ID)
@@ -56,6 +63,16 @@ describe('createStemSystem（系统装配组合根）', () => {
     assert.ok(user0)
     assert.equal(user0!.classRef, makeAgentClassID('user'))
     assert.equal(user0!.parentId, null)
+    // S6/R11：根挂真实项目空间（伪空间行已废除；kernel project = paths.projectRoot）。
+    const spaces = await system.kernel.spaces.list()
+    assert.equal(spaces.length, 1)
+    assert.equal(spaces[0]?.project, '/proj', 'user0 与后代共享项目空间')
+    assert.equal(user0!.spaceId, spaces[0]?.id)
+    // S6/R6：根绑定即家学层。
+    assert.deepEqual(system.kernel.lineage.modelOf(USER_ID), {
+      ref: { provider: 'fake', id: 'home-model' },
+      origin: 'home',
+    })
     // 系统工具 + access_reply + skill 已注册。
     assert.ok(await system.tools.get('agent_instantiate'))
     assert.ok(await system.tools.get('access_reply'))
@@ -67,14 +84,13 @@ describe('createStemSystem（系统装配组合根）', () => {
   })
 
   test('bash 装配：注入 ShellRunner 才注册，config.bash 参数流入 runner', async () => {
-    const d = makeDeps({ bash: { path: '/bin/dash', defaultTimeoutMs: 2000, cwd: '/proj/sub' } })
+    const d = makeDeps({ ...HOME, bash: { path: '/bin/dash', defaultTimeoutMs: 2000, cwd: '/proj/sub' } })
     const calls: { command: string; cwd?: string; timeoutMs: number; shell?: string }[] = []
     const system = await createStemSystem({
       config: { store: d.store, paths: d.paths },
       fs: d.fs,
       tools: d.loader,
       gateway: d.gateway,
-      defaultModel: { provider: 'opencode', id: 'test' },
       shellRunner: {
         run: async (opts) => {
           calls.push(opts)
@@ -92,6 +108,7 @@ describe('createStemSystem（系统装配组合根）', () => {
   test('config.user 对象全生效：user0 人格/整表权限/面板无策略 note；context 映射 compact 参数', async () => {
     const d = makeDeps({
       user: {
+        model: { provider: 'fake', id: 'home-model' },
         systemPrompt: '你是根。',
         tools: { read: 'allow', agent_terminate: 'deny' },
       },
@@ -103,7 +120,6 @@ describe('createStemSystem（系统装配组合根）', () => {
       fs: d.fs,
       tools: d.loader,
       gateway: d.gateway,
-      defaultModel: { provider: 'opencode', id: 'test' },
     })
     // user0 人格进配置文件（面板态不跑 LLM 但 transcript 真实）。
     const state = await system.kernel.contextManager.getState(USER_ID)
@@ -124,14 +140,13 @@ describe('createStemSystem（系统装配组合根）', () => {
   })
 
   test('pilot.sendMessage：user0 发消息 → agent 回复 → letter 事件', async () => {
-    const d = makeDeps({ sendCountdown: 0 })
+    const d = makeDeps({ ...HOME, sendCountdown: 0 })
     const letters: string[] = []
     const system = await createStemSystem({
       config: { store: d.store, paths: d.paths },
       fs: d.fs,
       tools: d.loader,
       gateway: d.gateway,
-      defaultModel: { provider: 'opencode', id: 'test' },
       onEvent: (e) => {
         if (e.type === 'letter') letters.push(String(e.letters[0]?.content ?? ''))
       },
@@ -145,6 +160,41 @@ describe('createStemSystem（系统装配组合根）', () => {
     await new Promise((resolve) => setTimeout(resolve, 30))
     assert.ok(letters.length >= 1, `应收到 agent 回信（实际 ${letters.length}）`)
     assert.ok(letters.some((t) => t.includes('我是助手')))
+    await system.dispose()
+  })
+
+  test('R12 家学硬校验：缺 config.user.model → boot fail-fast（无兜底模型链）', async () => {
+    const d = makeDeps({})
+    await assert.rejects(
+      () =>
+        createStemSystem({
+          config: { store: d.store, paths: d.paths },
+          fs: d.fs,
+          tools: d.loader,
+          gateway: d.gateway,
+        }),
+      (e: unknown) => {
+        const err = e as { kind?: string; message?: string }
+        return err.kind === 'invalid_config' && err.message?.includes('user.model') === true
+      },
+    )
+  })
+
+  test('首启自举：config 文件不存在 → 内存等效 = 首启模板（家学锚 opencode-go），runInit 落盘同一文本', async () => {
+    let savedText: string | undefined
+    const d = makeDeps({}, {}, { exists: false, captureSave: (text) => (savedText = text) })
+    const system = await createStemSystem({
+      config: { store: d.store, paths: d.paths },
+      fs: d.fs,
+      tools: d.loader,
+      gateway: d.gateway,
+    })
+    // 模板家学 = opencode-go/deepseek-v4-flash（R2 预设 = 模板数据）。
+    assert.deepEqual(system.kernel.lineage.modelOf(USER_ID), {
+      ref: { provider: 'opencode-go', id: 'deepseek-v4-flash' },
+      origin: 'home',
+    })
+    assert.ok(savedText !== undefined && savedText.includes('"providers"'), '首启模板已落盘')
     await system.dispose()
   })
 })

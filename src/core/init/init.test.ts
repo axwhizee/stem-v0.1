@@ -118,7 +118,7 @@ test('首次创建：无配置时写入默认模板（目录即真相，不登�
 })
 
 test('配置文件已存在：永不回写（管线只读 config）', async () => {
-  const raw = '{\n  "model": "opencode-go/deepseek-v4-flash",\n  "tools": [{"id":"t1","file":"t1.ts","kind":"user","enabled":true}],\n  "agents": [{"id":"a1","file":"a1.md"}]\n}'
+  const raw = '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" }\n}'
   const { deps, savedCalls } = makeDeps({
     toolFiles: [{ id: 't1' }],
     agentTexts: [{ file: 'a1.md', text: '---\n---\nhello' }],
@@ -129,7 +129,7 @@ test('配置文件已存在：永不回写（管线只读 config）', async () =
   assert.deepEqual(report.issues, [])
 })
 
-test('旧镜像键（ghost 登记）被忽略：报告只反映目录发现', async () => {
+test('旧 ghost 键不再静默丢弃：R12 全量有效原则 → 解析即硬错（可行动指路）', async () => {
   const raw =
     '{\n  "tools": [{"id":"ghost","file":"ghost.ts","kind":"user","enabled":true}],\n  "agents": [{"id":"ghost-agent","file":"ghost.md"}]\n}'
   const { deps } = makeDeps({
@@ -137,10 +137,13 @@ test('旧镜像键（ghost 登记）被忽略：报告只反映目录发现', as
     agentTexts: [{ file: 'a1.md', text: '---\n---\nhello' }],
     configRaw: raw,
   })
-  const report = await runInit(deps)
-  assert.deepEqual(report.issues, [], '镜像条目不再是孤儿问题来源')
-  assert.deepEqual(report.tools.map((t) => t.id), ['t1'], '发现 = 目录内容')
-  assert.deepEqual(report.agents.map((a) => a.id), ['a1'])
+  await assert.rejects(
+    () => runInit(deps),
+    (e: unknown) => {
+      const err = e as { kind?: string; message?: string }
+      return err.kind === 'invalid_config' && err.message?.includes('未知配置键 "tools"') === true
+    },
+  )
 })
 
 test('工具加载失败 → issue，其余继续', async () => {

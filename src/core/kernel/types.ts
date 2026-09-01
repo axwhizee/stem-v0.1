@@ -74,6 +74,25 @@ export interface AgentClass {
   readonly custom?: Readonly<Record<string, unknown>>
 }
 
+// ---------- 模型解析相（S6/R6 四级律；lineage 树与实例行共用形状） ----------
+
+/** 模型解析命中层（agent_inspect 谱系出示）。 */
+export type ModelOrigin =
+  /** 实例行显式值（agent_instantiate model 参 / set_model 改写）。 */
+  | 'explicit'
+  /** 所属类的基因（AgentClass.model；非根类）。 */
+  | 'class'
+  /** 父档案继承而来（父的生效模型下传）。 */
+  | 'inherited'
+  /** 家学 = 根（user0）的类模型（config.user.model，全链锚点）。 */
+  | 'home'
+
+/** 模型绑定 = 生效模型 + 解析命中层（git-blame 语义）。 */
+export interface ModelBinding {
+  readonly ref: ModelRef
+  readonly origin: ModelOrigin
+}
+
 // ---------- AgentInstance（运行时原子单位） ----------
 
 /**
@@ -97,6 +116,19 @@ export interface AgentInstance {
   readonly userPrompt: string
   /** 实例化时传入的工具清单补充（对模板表的收敛，可临时收紧；运行时仅用于组装）。 */
   readonly toolOverride?: Readonly<Record<string, ToolAccess>>
+  /**
+   * **模型显式层**（S6/R14）：agent_instantiate 显式指定或 set_model 运行改写
+   * 的落盘载体（族谱树配置相据此物化 explicit 绑定；随实例行 JSON 持久，
+   * 零 schema 迁移）。缺省 = 无显式值，解析链上溯类基因/父继承/家学。
+   */
+  readonly model?: ModelRef
+  /**
+   * **出生快照**（S6 §5"改父不动子（族规=出生快照）"的持久载体）：
+   * 无自身显式/类基因、解析落在父继承或家学层时由 kernel 随附写入——
+   * 重启 replay 族规不失效（父亲行后续改变不动已出生子女快照；
+   * 显式层 model 一旦存在则本快照被遮蔽，语义同树内优先级）。
+   */
+  readonly modelSnapshot?: ModelBinding
 }
 
 /** 用户接管/微调可更新的字段。 */
@@ -118,3 +150,5 @@ export type KernelError =
   | { readonly kind: 'agent_not_found'; readonly agentId: AgentID }
   | { readonly kind: 'space_not_found'; readonly spaceId: AgentSpaceID }
   | { readonly kind: 'agent_conflict'; readonly message: string }
+  /** 族谱解析链无模型锚（正常不发生：boot 硬校验 config.user.model；恢复残卷防御）。 */
+  | { readonly kind: 'model_unresolved'; readonly agentId: AgentID }

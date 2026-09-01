@@ -15,6 +15,7 @@ import { makeAgentClassID, makeAgentID } from '../kernel'
 import type { AgentID, AgentInstance, ProjectRef } from '../kernel'
 import type { PilotEvent } from '../events'
 import type { AccessReplyInput, ToolAccess } from '../tools'
+import type { ModelRef } from '../gateway'
 
 export interface Pilot {
   /** 扮演身份（当前恒为 user0；未来 as(agentId) 可扮演任意 agent）。 */
@@ -29,11 +30,18 @@ export interface Pilot {
       className: string
       userPrompt: string
       agentId?: string
+      /** 显式模型（S6/R6 出生链最高层；"提供商/模型" 由调用侧解析）。 */
+      model?: ModelRef
       contextRefs?: readonly string[]
       tools?: Readonly<Record<string, ToolAccess>>
     },
     project: ProjectRef,
   ) => Promise<AgentID>
+  /**
+   * 以 user0 身份切换 agent 运行时模型（S6/R7 扮演层通道；agent_set_model
+   * 工具的同权入口，宿主 webui/CLI 直连）。不级联子孙、随实例行持久。
+   */
+  readonly setModel: (agentId: string, model: ModelRef) => Promise<void>
   /** 终止 agent（by=user0；根无祖先故 user0 不可销毁）。 */
   readonly terminate: (agentId: string, opts?: { recursive?: boolean }) => Promise<void>
   /** 中断 agent 当前轮（仅暂停，可恢复）。 */
@@ -88,6 +96,7 @@ export class DefaultPilot implements Pilot {
       className: string
       userPrompt: string
       agentId?: string
+      model?: ModelRef
       contextRefs?: readonly string[]
       tools?: Readonly<Record<string, ToolAccess>>
     },
@@ -102,9 +111,15 @@ export class DefaultPilot implements Pilot {
         agentId: opts.agentId,
         contextRefs: opts.contextRefs,
         tools: opts.tools,
+        ...(opts.model !== undefined ? { model: opts.model } : {}),
       },
       space.id,
     )
+  }
+
+  async setModel(agentId: string, model: ModelRef): Promise<void> {
+    // user0 = 族谱根（全体祖先），可见域天然覆盖；by 记审计归属。
+    await this.kernel.setAgentModel(agentId, model, { by: this.identity })
   }
 
   async terminate(agentId: string, opts?: { recursive?: boolean }): Promise<void> {

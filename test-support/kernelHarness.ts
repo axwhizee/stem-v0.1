@@ -88,10 +88,9 @@ export async function createKernelHarness(
 
   const kernel = new Kernel({
     gateway,
-    defaultModel: { provider: 'opencode', id: 'test-model' },
+    userClass: { ...opts.userClass, model: opts.userClass?.model ?? { provider: 'fake', id: 'home-model' } },
     tools,
     templates: opts.templates,
-    userClass: opts.userClass,
     defaultCountdownMs: opts.countdownMs ?? 1000,
     timer: timers.timer,
     ...(opts.contextSettings !== undefined ? { contextSettings: opts.contextSettings } : {}),

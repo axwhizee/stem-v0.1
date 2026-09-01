@@ -39,6 +39,7 @@
       "context_edit": "allow",
       "context_apply": "allow",
       "telemetry_query": "allow",
+      "agent_set_model": "allow",
       "agent_class_create": "ask",
       "agent_class_update": "ask",
       "agent_terminate": "ask",

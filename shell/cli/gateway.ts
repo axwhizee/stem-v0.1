@@ -1,103 +1,73 @@
 // ============================================================
-// shell/cli/gateway.ts —— 网关构建（真实 go/zen 或 mock SSE）
+// shell/cli/gateway.ts —— provider 网关装配 + 路由（S6/R1 宿主门面）
+//
+// 零兜底纪律（docs/s6-plan.md R1/R2/R13）：
+//   - 端点/密钥/白名单全部来自 config.providers（宿主读 env 注入，core 零平台）；
+//   - key_env 未命中 = **启动 warn 点名**（不印值）+ provider 不接通；
+//   - 未接通/未注册的 provider 被**实际用到才硬错**（GatewayError，文案可行动）；
+//   - 产品路径无 mock——离线冒烟把 mockSse 作为普通匿名 provider 写进测试 config。
 // ============================================================
 
-import { createOpencodeGateway, type ModelGateway } from '../../src/core/gateway'
-import { startMockSse, defaultScript, type MockResponse } from './mockSse'
+import {
+  createOpenAiCompatibleGateway,
+  GatewayError,
+  type ModelGateway,
+} from '../../src/core/gateway'
+import type { StemConfig } from '../../src/core/config'
 
-const DEFAULT_MODEL = 'deepseek-v4-flash'
+export interface BuiltGateway {
+  readonly gateway: ModelGateway
+  /** 接通概览（/source 与健康检查展示）。 */
+  readonly source: string
+  /** 启动告警（key_env 未命中等，宿主负责 console.warn）。 */
+  readonly warnings: readonly string[]
+  /** 实际接通的 provider 名（有序）。 */
+  readonly wired: readonly string[]
+}
 
-/** 构建网关：有 OPENCODE_API_KEY 走真实网关，否则 mock SSE。 */
-export async function buildGateway(modelId?: string): Promise<{ gateway: ModelGateway; source: string }> {
-  const apiKey = process.env.OPENCODE_API_KEY
-  if (apiKey) {
-    return {
-      gateway: createOpencodeGateway({ apiKey }),
-      source: `real go/zen (model=${process.env.OPENCODE_MODEL ?? modelId ?? DEFAULT_MODEL})`,
+/** 按 config.providers 逐条建网关，返回按 request.model.provider 路由的门面。 */
+export function buildGateway(config: StemConfig, env: NodeJS.ProcessEnv): BuiltGateway {
+  const warnings: string[] = []
+  const routes = new Map<string, ModelGateway>()
+  /** 未接通原因（provider → 可行动文案；用到才抛，R1 两段式第二段）。 */
+  const unwired = new Map<string, string>()
+  const wired: string[] = []
+
+  for (const [name, provider] of Object.entries(config.providers ?? {})) {
+    const apiKey = provider.key_env !== undefined ? env[provider.key_env] : undefined
+    if (provider.key_env !== undefined && (apiKey === undefined || apiKey === '')) {
+      const reason =
+        `provider "${name}" 未接通：环境变量 $${provider.key_env} 未设置` +
+        `（config providers.${name}.key_env 声明；修复：export ${provider.key_env}=<key> 或改配置）`
+      warnings.push(reason)
+      unwired.set(name, reason)
+      continue
     }
+    routes.set(
+      name,
+      createOpenAiCompatibleGateway({
+        baseUrl: provider.base_url,
+        ...(apiKey !== undefined && apiKey !== '' ? { apiKey } : {}),
+        ...(provider.models !== undefined ? { models: provider.models } : {}),
+      }),
+    )
+    wired.push(name)
   }
-  // mock 模式：按 system 区分角色，按轮次推进（创建→等待→汇报）。
-  const systemRounds = new Map<string, number>()
-  const mock = await startMockSse({
-    requiredApiKey: 'test-key',
-    delayMs: 6,
-    script: (body): MockResponse => {
-      const messages = (body.messages ?? []) as Array<{ role: string; content: unknown }>
-      const system = typeof messages[0]?.content === 'string' ? messages[0].content : ''
-      const lastUser = [...messages].reverse().find((m) => m.role === 'user')
-      const text = typeof lastUser?.content === 'string' ? lastUser.content : ''
-      const hasToolResult = messages.some((m) => m.role === 'tool')
-      const tools = (body.tools ?? []) as Array<{ function?: { name: string } }>
 
-      const key = system.includes('creator-sys') ? 'creator' : system.includes('tool-sys') ? 'tool' : 'other'
-      const round = systemRounds.get(key) ?? 0
-      systemRounds.set(key, round + 1)
-
-      if (key === 'creator') {
-        if (round === 0) {
-          return toolCall('agent_instantiate', { classId: 'tool-agent', userPrompt: '请读取当前时间，然后把时间告诉我。' })
-        }
-        if (round === 1) {
-          const lastTool = [...messages].reverse().find((m) => m.role === 'tool')
-          const toolText = typeof lastTool?.content === 'string' ? lastTool.content : ''
-          const created = /已创建 agent (\w+)/.exec(toolText)
-          return toolCall('context_wait', { agentId: created?.[1] ?? 'sub-0' })
-        }
-        return streamText('（mock）子agent 报告当前时间是 12:00:00')
+  const gateway: ModelGateway = {
+    async * chat(request, options) {
+      const target = routes.get(request.model.provider)
+      if (target) {
+        yield* target.chat(request, options)
+        return
       }
-      if (key === 'tool') {
-        if (round === 0) return toolCall('oc_get_time', {})
-        return streamText('（mock）当前时间是 12:00:00')
-      }
-
-      if (tools.some((t) => t.function?.name === 'oc_echo') && /echo|回显/i.test(text) && !hasToolResult) {
-        return toolCall('oc_echo', { text })
-      }
-      if (hasToolResult) {
-        const lastTool = [...messages].reverse().find((m) => m.role === 'tool')
-        const toolText = typeof lastTool?.content === 'string' ? lastTool.content : ''
-        return streamText(`（mock）工具已执行，结果：${toolText}`)
-      }
-      return defaultScript(body)
+      const reason =
+        unwired.get(request.model.provider) ??
+        `provider "${request.model.provider}" 未在 config providers 注册（已接通：${wired.length > 0 ? wired.join(', ') : '无'}）`
+      throw new GatewayError({ kind: 'provider_unwired', message: reason })
     },
-  })
-  return {
-    gateway: createOpencodeGateway({ server: mock.url, apiKey: 'test-key' }),
-    source: `mock SSE (${mock.url})`,
   }
-}
 
-function splitText(text: string): Array<Record<string, unknown>> {
-  return text.split(/(?<=。) |(?<=。)/).map((piece, i) => ({
-    id: `chatcmpl-mock-${i}`,
-    choices: [{ index: 0, delta: { content: piece }, finish_reason: null }],
-  }))
-}
-
-function streamText(text: string): MockResponse {
-  return {
-    kind: 'stream',
-    chunks: [
-      ...splitText(text),
-      { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: 20, completion_tokens: 8 } },
-    ],
-  }
-}
-
-function toolCall(name: string, args: Record<string, unknown>): MockResponse {
-  return {
-    kind: 'stream',
-    chunks: [
-      {
-        choices: [
-          {
-            index: 0,
-            delta: { tool_calls: [{ index: 0, id: `call_mock_${name}`, type: 'function', function: { name, arguments: JSON.stringify(args) } }] },
-            finish_reason: null,
-          },
-        ],
-      },
-      { choices: [{ index: 0, delta: {}, finish_reason: 'tool_calls' }], usage: { prompt_tokens: 15, completion_tokens: 4 } },
-    ],
-  }
+  const source = wired.length > 0 ? `providers: ${wired.join(', ')}` : '（无已接通 provider——所有 LLM 调用将硬错）'
+  return { gateway, source, warnings, wired }
 }

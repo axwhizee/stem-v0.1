@@ -99,7 +99,11 @@ async function compactNow(api: StrategyApi, trigger: 'auto' | 'manual'): Promise
     // 交给摘要 worker（邮局正规往返：策略扮演 agent 为父，回信配对）。
     const transcript = stale.map(renderForSummary).join('\n')
     const instruction = api.settings.compact.instruction ?? DEFAULT_INSTRUCTION
-    const summary = (await api.spawn(`${instruction}\n\n${transcript}`, SUMMARIZER_SPEC)).trim()
+    // S6/R6：摘要 worker 模型 = 类基因位（config context.compact.summarizeModel）；
+    // 未配置则走出生链（父继承宿主 agent 档案 > 家学），不再有独立兜底常量。
+    const summarizeModel = api.settings.compact.summarizeModel
+    const spec: StrategyAgentSpec = summarizeModel ? { ...SUMMARIZER_SPEC, model: summarizeModel } : SUMMARIZER_SPEC
+    const summary = (await api.spawn(`${instruction}\n\n${transcript}`, spec)).trim()
     if (summary === '') {
       api.log({ type: 'context.compacted', agentId: api.agentId, outcome: 'skipped', compactedCount: 0, message: '摘要为空/超时' })
       return '摘要为空（worker 未产出或超时），本轮未压缩'

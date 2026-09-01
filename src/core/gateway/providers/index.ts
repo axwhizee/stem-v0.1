@@ -1,2 +1,2 @@
-export { createOpencodeGateway } from './opencodeLlm'
-export type { OpencodeGatewayConfig } from './opencodeLlm'
+export { createOpenAiCompatibleGateway } from './openaiCompatible'
+export type { OpenAiCompatibleConfig } from './openaiCompatible'

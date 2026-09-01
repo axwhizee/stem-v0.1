@@ -8,10 +8,36 @@
 import { parse as parseJsonc } from 'jsonc-parser'
 import type { ParseError } from 'jsonc-parser'
 import type { ToolAccess } from '../tools'
-import type { ConfigError, StemBashConfig, StemConfig, StemContextConfig, StemUserClass } from './types'
+import type { ModelRef } from '../gateway'
+import type { ConfigError, StemBashConfig, StemConfig, StemContextConfig, StemProviderConfig, StemUserClass } from './types'
 
 /** 合法工具访问动作（四态）。 */
 const ACTIONS: readonly ToolAccess[] = ['allow', 'deny', 'ask', 'ignore']
+
+/**
+ * config 全量有效原则（S6/R12）：顶层键必须在此表内——config 即全部配置，
+ * 每个键都要有明确消费者；未知键 fail-fast（废除 S4.2"静默丢弃"兼容，
+ * 自定义扩展位的唯一合法出口 = custom 块）。
+ */
+const KNOWN_KEYS: ReadonlySet<string> = new Set([
+  'providers',
+  'autoApprove',
+  'user',
+  'maxSteps',
+  'context',
+  'bash',
+  'sendCountdown',
+  'extensions',
+  'custom',
+])
+
+/** 已废除的历史键 → 迁移指路（仍 fail-fast，但错误可行动）。 */
+const RETIRED_KEYS: Readonly<Record<string, string>> = {
+  model: '顶层 model 已拆除（R12）：家学锚点 = user.model（全体缺省的本体）',
+  tools: '目录即真相：用户工具放入 .stem/tools/ 即自动注册',
+  agents: '目录即真相：类文件放入 .stem/agent/ 即自动注册',
+  strategies: '目录即真相：策略文件放入 .stem/context/ 即自动注册',
+}
 
 /**
  * 解析 JSONC 文本为配置。
@@ -43,15 +69,23 @@ export function parseConfigText(text: string, file?: string): StemConfig {
 }
 
 /**
- * 归一化任意原始配置：丢弃未知字段、校验已知字段类型。
- * 容错优先：字段类型错误时抛错（配置是唯一载体，坏配置应尽早暴露）。
+ * 归一化任意原始配置：校验已知字段、拒绝未知字段（R12 全量有效原则）。
+ * 容错零容忍：坏配置应尽早暴露（boot fail-fast，错误可行动）。
  */
 export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
   const fail = (message: string): never => {
     throw configError({ kind: 'invalid_config', message })
   }
 
-  const model = validateModel(raw.model, fail)
+  for (const key of Object.keys(raw)) {
+    if (KNOWN_KEYS.has(key)) continue
+    const hint = RETIRED_KEYS[key]
+    fail(
+      `未知配置键 "${key}"：${hint ?? 'config 即全部配置，未知键无消费者（自定义扩展请放入 custom 块）'}`,
+    )
+  }
+
+  const providers = raw.providers !== undefined ? validateProviders(raw.providers, fail) : undefined
   const autoApprove = validateBoolean(raw.autoApprove, fail, 'autoApprove')
   const sendCountdown = validateNumber(raw.sendCountdown, fail, 'sendCountdown')
   const maxSteps = validateNumber(raw.maxSteps, fail, 'maxSteps')
@@ -64,8 +98,14 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
       ? (raw.custom as Readonly<Record<string, unknown>>)
       : undefined
 
+  // 交叉校验：config 内部模型引用必须命中 providers 注册表 + 白名单
+  // （类文件/工具参数等运行期引用由网关路由侧"用到才硬错"，R1）。
+  if (user?.model !== undefined) checkModelAllowed(user.model, providers ?? {}, 'user.model', fail)
+  const summarize = context?.compact?.summarizeModel
+  if (summarize !== undefined) checkModelAllowed(summarize, providers ?? {}, 'context.compact.summarizeModel', fail)
+
   return {
-    ...(model !== undefined ? { model } : {}),
+    ...(providers !== undefined ? { providers } : {}),
     ...(autoApprove !== undefined ? { autoApprove } : {}),
     ...(sendCountdown !== undefined ? { sendCountdown } : {}),
     ...(maxSteps !== undefined ? { maxSteps } : {}),
@@ -77,12 +117,65 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
   }
 }
 
-function validateModel(value: unknown, fail: (message: string) => never): string | undefined {
+/** providers 注册表（R13：base_url 必填 http(s)；key_env 非空变量名；models 非空字符串数组）。 */
+function validateProviders(
+  value: unknown,
+  fail: (message: string) => never,
+): Readonly<Record<string, StemProviderConfig>> | undefined {
   if (value === undefined) return undefined
-  if (typeof value !== 'string' || !value.includes('/')) {
-    fail('model 必须是 "提供商/模型" 格式的字符串')
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('providers 必须是对象（模型提供商注册表：provider 名 → { base_url, key_env?, models? }）')
   }
-  return value
+  const result: Record<string, StemProviderConfig> = {}
+  for (const [name, entry] of Object.entries(value as Record<string, unknown>)) {
+    if (name.trim() === '') fail('providers: provider 名不能为空')
+    if (entry === null || typeof entry !== 'object' || Array.isArray(entry)) {
+      fail(`providers.${name} 必须是对象（{ base_url, key_env?, models? }）`)
+    }
+    const e = entry as Record<string, unknown>
+    for (const key of Object.keys(e)) {
+      if (key !== 'base_url' && key !== 'key_env' && key !== 'models') {
+        fail(`providers.${name}.${key} 未知键（合法键：base_url / key_env / models）`)
+      }
+    }
+    if (typeof e.base_url !== 'string' || !/^https?:\/\//.test(e.base_url)) {
+      fail(`providers.${name}.base_url 必填：OpenAI 兼容端点 URL（http(s):// 开头，实际 POST {base_url}/chat/completions）`)
+    }
+    if (e.key_env !== undefined && (typeof e.key_env !== 'string' || e.key_env.trim() === '')) {
+      fail(`providers.${name}.key_env 必须是非空字符串（环境变量名；缺省 = 匿名/本地端点）`)
+    }
+    let models: readonly string[] | undefined
+    if (e.models !== undefined) {
+      if (!Array.isArray(e.models)) fail(`providers.${name}.models 必须是数组（启用白名单；空数组 = 全启用）`)
+      models = (e.models as unknown[]).map((m, index) => {
+        if (typeof m !== 'string' || m.trim() === '') fail(`providers.${name}.models[${index}] 必须是非空字符串`)
+        return m as string
+      })
+    }
+    result[name] = {
+      base_url: e.base_url as string,
+      ...(e.key_env !== undefined ? { key_env: e.key_env as string } : {}),
+      ...(models !== undefined ? { models } : {}),
+    }
+  }
+  return result
+}
+
+/** 模型引用 × providers 注册表对拍（provider 必注册；非空白名单必命中）。 */
+function checkModelAllowed(
+  ref: ModelRef,
+  providers: Readonly<Record<string, StemProviderConfig>>,
+  path: string,
+  fail: (message: string) => never,
+): void {
+  const provider = providers[ref.provider]
+  if (provider === undefined) {
+    const registered = Object.keys(providers)
+    fail(`${path} "${ref.provider}/${ref.id}"：provider "${ref.provider}" 未在 providers 注册${registered.length > 0 ? `（已注册：${registered.join(', ')}）` : '（providers 缺失或为空）'}`)
+  }
+  if (provider.models !== undefined && provider.models.length > 0 && !provider.models.includes(ref.id)) {
+    fail(`${path} "${ref.provider}/${ref.id}"：模型未启用（providers.${ref.provider}.models 白名单 = ${provider.models.join(', ')}）`)
+  }
 }
 
 function validateBoolean(value: unknown, fail: (message: string) => never, name: string): boolean | undefined {
@@ -123,13 +216,14 @@ function validatePermissionRecord(
   return permission
 }
 
-/** `提供商/模型` 字符串 → ModelRef（config 内部完成，下游零解析）。 */
-function validateModelRef(value: unknown, fail: (message: string) => never, path: string) {
+/** `提供商/模型` 字符串 → ModelRef（严格式：两段皆非空；config 内部完成，下游零解析）。 */
+function validateModelRef(value: unknown, fail: (message: string) => never, path: string): ModelRef | undefined {
   if (value === undefined) return undefined
-  if (typeof value !== 'string' || !value.includes('/')) {
-    fail(`${path} 必须是 "提供商/模型" 格式的字符串`)
-  }
+  if (typeof value !== 'string') fail(`${path} 必须是 "提供商/模型" 格式的字符串`)
   const slash = (value as string).indexOf('/')
+  if (slash <= 0 || slash === (value as string).length - 1) {
+    fail(`${path} 必须是 "提供商/模型" 格式的字符串（收到 "${String(value)}"）`)
+  }
   return { provider: (value as string).slice(0, slash), id: (value as string).slice(slash + 1) }
 }
 
@@ -209,14 +303,6 @@ function validateExtensions(value: unknown, fail: (message: string) => never): r
     if (typeof item !== 'string' || item === '') fail(`extensions[${index}] 必须是非空字符串`)
     return item
   })
-}
-
-/** 从配置读取模型引用（`提供商/模型` → { provider, id }）。 */
-export function parseModelRef(model: string | undefined, fallback: { provider: string; id: string }): { provider: string; id: string } {
-  if (!model) return fallback
-  const slash = model.indexOf('/')
-  if (slash <= 0 || slash === model.length - 1) return fallback
-  return { provider: model.slice(0, slash), id: model.slice(slash + 1) }
 }
 
 function configError(e: ConfigError): ConfigError {

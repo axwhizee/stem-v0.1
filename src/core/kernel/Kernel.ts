@@ -69,8 +69,6 @@ export const USER_ID = 'user0'
 
 export interface KernelOptions {
   readonly gateway: ModelGateway
-  /** 模板未配置 model 时的默认模型。 */
-  readonly defaultModel: ModelRef
   /** 覆盖内置模板（缺省用 templates/*.json）。 */
   readonly templates?: readonly AgentClass[]
   /** 工具注册表（缺省不启用工具轮）。 */
@@ -109,6 +107,11 @@ export interface KernelOptions {
    * runInit 扫描装载，进化跨重启生效）；缺省 = 仅内存注册（试验田语义）。
    */
   readonly classStore?: ClassStore
+  /**
+   * 项目空间身份（S6/R3/R11：`.stem` = 世界，一进程一空间）。
+   * 根（user0）挂此空间（废除伪 space 行）；缺省 = 匿名单空间（纯内存/测试）。
+   */
+  readonly project?: ProjectRef
 }
 
 /** 类回写端口（写侧序列化在 core，文件 IO 由宿主实现——零平台依赖不破）。 */
@@ -138,6 +141,8 @@ export class Kernel {
   readonly logger: Logger
   /** 类回写端口（S5.2 进化书写面；undefined = 仅内存注册，无落盘通道）。 */
   private readonly classStore?: ClassStore
+  /** 项目空间身份（S6/R11；根挂真实空间用）。 */
+  private readonly project?: ProjectRef
   /** 启动期从持久化端口恢复出的实例（构造末尾接线上下文用；空 = 首启/纯内存）。 */
   private readonly restoredInstances: readonly AgentInstance[]
 
@@ -173,6 +178,7 @@ export class Kernel {
     this.tools = options.tools
     this.logger = options.logger ?? new InMemoryLogger()
     this.classStore = options.classStore
+    this.project = options.project
 
     // 统一事件流（多订阅者）：外部（shell/GUI）经 onEvent 订阅 stream/letter/status/notice。
     this.events = new DefaultEventHub()
@@ -232,11 +238,11 @@ export class Kernel {
     this.runtime = new DefaultRuntime({
       gateway: options.gateway,
       instances: this.instances,
-      templates: this.templates,
       contextManager: this.contextManager,
       repository: this.repository,
       tools: options.tools,
-      defaultModel: options.defaultModel,
+      // S6/R6：模型解析归口族谱树四级律（defaultModel 单层链已拆除）。
+      resolveModel: (agentId) => this.lineage.modelOf(agentId as string)?.ref,
       maxSteps: options.maxSteps,
       estimateCost: options.estimateCost,
       onEvent: (agentId, event) => this.events.emit({ type: 'stream', agentId, event }),
@@ -282,12 +288,19 @@ export class Kernel {
    * 根（parentId=null，即 user0）沿用 registerRootAgent 的面板接线（assemble:false + letter 事件）。
    */
   private wireRestoredInstances(): void {
-    // 能力相重放（族谱拓扑序，纯派生态不入库）。
+    // 能力相重放（族谱拓扑序，纯派生态不入库；S6 模型相随行——
+    // 实例行 model = 显式层载体（R14），类基因从模板注册表重新解析）。
     this.lineage.replay(
       this.restoredInstances.map((instance) => ({
         agentId: instance.id as string,
         parentId: instance.parentId as string | null,
         own: this.ownAccessOf(instance.id),
+        model: {
+          instanceModel: instance.model,
+          classModel: this.templates.getSync(instance.classRef)?.model,
+          // 出生快照随行恢复（族规跨重启，S6 §5）；无快照的旧行 = 直接按链再解析。
+          ...(instance.modelSnapshot !== undefined ? { snapshot: instance.modelSnapshot } : {}),
+        },
       })),
     )
     for (const instance of this.restoredInstances) {
@@ -325,7 +338,9 @@ export class Kernel {
   /** 注册根 agent（user0）：从内置 user 类实例化（parentId=null 即根，与其他实例等同）。 */
   async registerRootAgent(displayName = 'User'): Promise<AgentID> {
     const template = await this.templates.get(USER_CLASS_ID)
-    const rootSpace = await this.spaces.getOrCreate(USER_ID)
+    // S6/R11：根挂**真实项目空间**（废除旧 getOrCreate('user0') 伪空间行——
+    // 全体平等原则下根不需要专属空间；老卷残留由宿主存储层 v2 迁移归并）。
+    const rootSpace = await this.spaces.getOrCreate(this.project ?? '')
     const instance = await this.instances.instantiate({
       className: USER_CLASS_ID,
       parentId: null,
@@ -333,8 +348,14 @@ export class Kernel {
       spaceId: rootSpace.id,
       agentId: USER_ID,
     })
-    // 能力绑定（根：自身清单 = user 类 tools 整表，物化生效权限）。
-    this.lineage.attach({ agentId: USER_ID, parentId: null, own: this.ownAccessOf(makeAgentID(USER_ID)) })
+    // 能力绑定（根：自身清单 = user 类 tools 整表，物化生效权限；
+    // 模型相：根的类基因 = 家学锚点 config.user.model，全链默认值）。
+    this.lineage.attach({
+      agentId: USER_ID,
+      parentId: null,
+      own: this.ownAccessOf(makeAgentID(USER_ID)),
+      model: { instanceModel: instance.model, classModel: template.model },
+    })
     this.emitLog({
       type: 'kernel.instance.created',
       at: Date.now(),
@@ -388,13 +409,27 @@ export class Kernel {
   /** 实例化（指定空间，供系统工具 agent_instantiate / 策略 spawn 使用）。 */
   async instantiateInSpace(opts: Omit<InstantiateOptions, 'spaceId'>, spaceId: AgentSpaceID | string): Promise<AgentID> {
     const instance = await this.instances.instantiate({ ...opts, spaceId: spaceId as AgentSpaceID })
+    const template = await this.templates.get(instance.classRef)
     // 能力绑定（注册两步曲：继承父档案 → 自身清单收敛；grant = 系统通道加法整表）。
+    // S6/R6：模型配置相同步物化——出生链 显式(opts/实例行) > 类基因 > 父继承 > 家学。
     this.lineage.attach({
       agentId: instance.id as string,
       parentId: instance.parentId as string | null,
       own: this.ownAccessOf(instance.id),
+      model: { instanceModel: instance.model, classModel: template.model },
       ...(opts.accessMode === 'grant' ? { mode: 'grant' as const } : {}),
     })
+    // §5 族规持久化：出生解析落在父继承/家学层 → 快照随实例行（"改父不动子"
+    // 跨重启不失效）。根的 home 不写快照——家学 = config 本体，编辑重启应生效。
+    const binding = this.lineage.modelOf(instance.id as string)
+    if (
+      binding !== undefined &&
+      instance.parentId !== null &&
+      instance.modelSnapshot === undefined &&
+      (binding.origin === 'inherited' || binding.origin === 'home')
+    ) {
+      await this.instances.setModelSnapshot(instance.id, binding)
+    }
     this.emitLog({
       type: 'kernel.instance.created',
       at: Date.now(),
@@ -403,7 +438,6 @@ export class Kernel {
       parentId: instance.parentId ?? '',
     })
 
-    const template = await this.templates.get(instance.classRef)
     // 模块扮演面板（class panel=true：策略 role 等）：不组装、不跑 LLM 轮，
     // 信件由扮演模块消费（信箱配对 waitForReply / 审计），与 user0 面板同构。
     const isPanel = template.panel === true
@@ -528,6 +562,26 @@ export class Kernel {
   /** 中断所有活跃 agent（进程优雅收尾用）。 */
   abortAllAgents(): void {
     this.runtime.abortAll()
+  }
+
+  /**
+   * 运行改写模型（S6/R7/R14；agent_set_model 工具与 pilot 通道共用入口）。
+   * 顺序 = 实例行（持久载体，写穿落库）→ 树配置相（重绑 explicit）。
+   * **不级联**：已物化的子女出生快照不动（R6 族规）；新子女随新档案。
+   * 授权（canReach）由调用方工具/pilot 层负责，本方法不做可见域判定。
+   */
+  async setAgentModel(agentId: string, model: ModelRef, opts?: { by?: string }): Promise<void> {
+    const id = makeAgentID(agentId)
+    await this.instances.setModel(id, model)
+    this.lineage.setModel(agentId, model)
+    this.emitLog({
+      type: 'kernel.model.set',
+      at: Date.now(),
+      agentId,
+      provider: model.provider,
+      model: model.id,
+      ...(opts?.by !== undefined ? { by: opts.by } : {}),
+    })
   }
 
   /** 当前活跃（thinking/进行中）的 agent id 列表。 */

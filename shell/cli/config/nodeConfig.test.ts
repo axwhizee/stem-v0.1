@@ -88,10 +88,10 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
   }
 })
 
-test('真实 fs：旧镜像 ghost 键被忽略（目录即真相）', async () => {
+test('真实 fs：旧镜像 ghost 键 → R12 解析硬错（不再静默丢弃）', async () => {
   const dir = await makeProjectSpace()
   try {
-    // 旧配置含幽灵镜像键（S4.2 起解析时被丢弃，不报错也不产出）。
+    // S4.2 兼容层已废除：幽灵镜像键在解析期即 fail-fast（config 即全部配置）。
     const ghostConfig = `{
       "tools": [{ "id": "ghost", "file": "ghost.ts", "kind": "user", "enabled": true }],
       "agents": [{ "id": "ghost-agent", "file": "ghost-agent.md" }]
@@ -99,30 +99,29 @@ test('真实 fs：旧镜像 ghost 键被忽略（目录即真相）', async () =
     await writeFile(join(dir, '.stem', 'stem.jsonc'), ghostConfig)
 
     const bundle = createNodeConfigBundle(dir)
-    const report = await runInit({
-      config: { store: bundle.store, paths: bundle.paths },
-      fs: bundle.fs,
-      tools: { loadTool: bundle.loadTool },
-      toolRegistry: new DefaultToolCapabilityRegistry(),
-      templateRegistry: new DefaultTemplateRegistry(),
-      onLog: { log: () => {} },
-    })
-
-    assert.deepEqual(report.issues, [], 'ghost 登记不再是问题来源')
-    assert.deepEqual(report.tools, [])
-    assert.deepEqual(report.agents, [])
+    await assert.rejects(
+      () => bundle.store.load(),
+      (e: unknown) => {
+        const err = e as { kind?: string; message?: string }
+        return err.kind === 'invalid_config' && err.message?.includes('未知配置键') === true
+      },
+    )
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
 })
 
-test('真实 fs：模型引用解析', async () => {
+test('真实 fs：providers + 家学 user.model 解析（S6/R12 后 config 唯一模型面）', async () => {
   const dir = await makeProjectSpace()
   try {
-    await writeFile(join(dir, '.stem', 'stem.jsonc'), '{ "model": "opencode-go/deepseek-v4-flash" }')
+    await writeFile(
+      join(dir, '.stem', 'stem.jsonc'),
+      '{ "providers": { "dash": { "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "key_env": "DASH_KEY" } }, "user": { "model": "dash/qwen3.8-flash" } }',
+    )
     const bundle = createNodeConfigBundle(dir)
     const loaded = await bundle.store.load()
-    assert.equal(loaded.config.model, 'opencode-go/deepseek-v4-flash')
+    assert.equal(loaded.config.providers?.dash?.key_env, 'DASH_KEY')
+    assert.deepEqual(loaded.config.user?.model, { provider: 'dash', id: 'qwen3.8-flash' })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }

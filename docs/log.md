@@ -844,3 +844,36 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 4. 冒烟环境噪音一枚（非产品 bug）：早前 smoke 用子 shell 起 webui、`kill` 只杀了包装进程，两个僵尸占 4321 劫持 curl——**webui smoke 脚本教训：拿 `$!` 要 kill 孙进程或改 `exec`/进程组**。
 
 **验收**：`-p 4321:4321 -v stem-data:/data` 起容器 → HEALTHCHECK green / send→mock 回复双轮 / `/data/.stem/` 自举 config+stem.db（messages 7 行）/ **docker restart 后 agents+消息全恢复**（pblj→interrupted 归一化 ✓）/ 日志零 error。237 测试 + typecheck 0 回归不破。
+
+---
+
+## 阶段：S6 批 1 —— 零兜底网关、config 全量有效、模型入族谱、空间归位（2026-09-01）
+
+**执行依据**：`docs/s6-plan.md`（R1-R14 定稿）。一个功能 commit 覆盖 1a（网关/配置）+ 1b（模型配置相）+ 1c（空间归位）。
+
+### 完成内容
+
+1. **网关泛化（1a）**：`git mv opencodeLlm.ts → openaiCompatible.ts`——一切 OpenAI 兼容端点（opencode zen / dashscope compatible-mode / deepseek / 本地 mock）共用一个实现。**代码零端点常量、零 process.env 读取**（core 红线种子 #8 清零）：`{ baseUrl(必填), apiKey?, models?, requestTimeoutMs?, fetch? }` 全由宿主传入，POST `{base_url}/chat/completions`、请求恒发裸模型 id（provider 是路由概念不入协议体）；apiKey 缺省 = 匿名端点不发 Authorization（R13 本地/测试端点自洽）；models 白名单在请求前硬拦（`model_not_allowed`，不触网）。错误 union 新增 `provider_unwired` / `model_not_allowed`。
+2. **config 全量有效原则（R12，1a）**：顶层 `model`、`FALLBACK_MODEL`、`Kernel/Runtime.defaultModel` 三层兜底整体拆除（含 Runtime 的 `templates` 依赖——它只为查 model 而存在，随单层链殉葬）。`providers` 注册表入型（块内 snake_case：`base_url` 必填 http(s) / `key_env` 变量名 / `models` 白名单），config 内模型引用（user.model / summarizeModel）与注册表交叉对拍（provider 必注册、白名单必命中）。**未知顶层键 boot fail-fast**（废除 S4.2 静默丢弃兼容；`model/tools/agents/strategies` 历史键给专门迁移指路文案），`custom` 成唯一扩展位。**首启模板迁 `config/defaults.ts`**（R2"唯一预设 opencode-go"降格为模板数据 + `defaultStemConfig()` 兼作文件缺失时的内存等效，杜绝"无配置装配无锚系统"）。
+3. **家学硬校验（R12）**：`config.user.model` = 全体解析链链尾锚点，`createStemSystem` 缺失即抛（可行动文案直指 stem.jsonc）。
+4. **模型入族谱（R6/R7/R14，1b）**：LineageTree 能力相新增**模型配置相**——`attach` 携带 kernel 算好的原始层 `{instanceModel, classModel, snapshot}`（树零类层红线不破），按**显式 > 类基因 > 出生快照 > 父继承 > 家学**物化 `ModelBinding{ref, origin}`（home 值随链下传不改标 = git-blame 语义）；`modelOf/setModel(不级联)/nodeConfigOf` 门面化，replay 与台账同拓拓扑序。Runtime 经 `resolveModel` 端口取本轮快照（setModel 下轮送信自然生效；无锚防御 = interrupted + `model_unresolved` 日志点名）。`AgentInstance.model`（显式层）随实例行 JSON 持久（零 schema 迁移）；新工具 **`agent_set_model`**（internal 缺省 ignore、canReach 可见域、`kernel.model.set` 审计事件 + telemetry 行式）+ `agent_instantiate.model` 参 + `pilot.setModel` + `/api/set_model`；`agent_inspect` 出示整份 NodeConfig（origin 四态中文谱系）。`summarizeModel` 死键接线（审计发现只解析不消费——升为摘要 worker 类的类基因位，缺省走出生链继承宿主）。
+5. **宿主路由（R1，1a）**：`buildGateway(config, env)` 逐 provider 装配 + `req.model.provider` 路由门面，两段式 = key_env 未命中启动 warn 点名（不印值）+ 用到才硬错（文案指到 config 行/env 名）。**产品路径 mock 回落删除**（种子 #2 兑现：creator/tool 剧情脚本随之下线，离线冒烟用 mockSse-as-匿名-provider 通道——gateway.test 即示范）。
+6. **空间归位（R3/R11/R5，1c）**：**根伪空间 bug 修**——`registerRootAgent` 改挂真实项目 space（`KernelOptions.project` 自 `paths.projectRoot` 下传；spaces 表新卷只有一行）；老卷 **sqlite v1→v2 归并迁移**（`createSqliteStateStore(file, project)`：伪行+真空间并存 → 实例并真空间删伪行；只有伪行 → 直接转正；JSON1 就地改写，幂等）。CLI **`stem [path]`** 位置参数（> `STEM_PROJECT_ROOT` > cwd，opencode-style）、webui 默认 cwd（原 `cwd/tmp` 判死，`npm run shell -- tmp` 跑演示空间）；`.gitignore` 加 `/.stem/`。单实例 = 约定非机制（无锁，R5 裁决）。
+
+### 实施偏差（不回改方案，此案在册）
+
+- **新增 `modelSnapshot` 持久层**（计划未明写的语义洞，restart e2e 当场暴露）："改父不动子（族规=出生快照）"在纯再解析的 replay 下会跨重启失效（父亲行改后，无显式子女重启即被"追改"）→ attach 落在 inherited/home 层时 kernel 把出生解析写进行 JSON（根 home 层不写——家学 = config 本体，编辑重启应在根生效；此边界与 S5.2"改类只影响后续实例"同构）。origin 谱系自此跨重启保真。
+- `AgentInstancePatch` 未扩 model（takeover 保持 displayName 专职；改模型走显式 `setModel` 端口，语义分界干净）。
+
+### 验证
+
+- **264/264 测试**（+25：providers 校验矩阵×10、路由两段式×4、快照层×2、模型工具面×5、sqlite v2×2、首启模板×2）+ typecheck 0。
+- **端到端冒烟（mockSse 匿名 provider，真 HTTP+SSE+sqlite）**：首启接通 → 双轮送达 → **spaces 表单行断言**（伪空间回归）→ 快照随行持久 → 重启族谱/档案/续谈全量恢复 → setModel 落盘 → **无 key 两段式**（boot warn 点名 + 首封信 interrupted+provider_unwired 入账，系统照常启动）。
+- **webui 端点冒烟**：health `providers: mock` / instantiate / set_model（origin=explicit）/ 非法模型串 400 文案。
+- **ALIBABA 实弹**：轮 1 真对话（qwen3.8-flash，tok 142/52，reasoning 正常）；会话中 setModel→`qwen3.7-plus`/`qwen3.8-max` 均撞 dashscope `AllocationQuota.FreeTierOnly`（免费额度耗尽，非代码问题）——**切换生效由错误本身证明**（quota 报错按模型返回），错误被分类捕获走 halt→interrupted、消息闭合，零兜底错误路径实战合规；`模型显式出生 + setModel 后双轮成功续谈`（flash→flash）全链路无中断。max/plus 恢复付费或换 key 后可复跑 A/B。
+
+### 架构立场（本批定形）
+
+- **模型与权限同门面**：R6"全参数统一解析律"落地——tools（收敛格代数）与 model（取先链）都是族谱位置的函数，树物化、kernel 算输入、工具走 canReach，无第二套通道。
+- **config = 真相的完整兑现**：无兜底常量、无静默丢弃、无死键（summarizeModel 补全消费位）；首启模板是数据不是代码。
+- **空间语义终极化**：`.stem` = 世界（一进程一空间一库）；opencode-style `stem [path]`；单实例靠约定。

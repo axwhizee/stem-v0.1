@@ -17,13 +17,15 @@ import { createStemSystem } from './system'
 import type { StemSystemDeps } from './system'
 import { MemoryMessageStore } from '../context'
 import { MemoryInstanceStore } from '../kernel'
-import { makeAgentID, USER_ID } from '../kernel'
+import { makeAgentClassID, makeAgentID, USER_ID } from '../kernel'
 import { messageSeqOf } from '../context'
 
 function makeDeps(config: StemConfig = {}) {
+  // S6/R12：家学锚点必填（boot 硬校验）；用例显式给出的 user 字段优先。
+  const anchored: StemConfig = { ...config, user: { model: { provider: 'opencode', id: 'test' }, ...config.user } }
   const store: ConfigStore = {
     file: '/proj/.stem/stem.jsonc',
-    load: async () => ({ exists: true, config }),
+    load: async () => ({ exists: true, config: anchored }),
     save: async () => {},
   }
   const paths: ConfigPaths = {
@@ -57,7 +59,6 @@ function boot(
     fs: d.fs,
     tools: d.loader,
     gateway,
-    defaultModel: { provider: 'opencode', id: 'test' },
     stateStore,
     onEvent: (e) => {
       if (e.type !== 'letter') return
@@ -139,5 +140,44 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
       'C：新生命周期 id 越过历史（含归档）最大序号',
     )
     await systemC.dispose()
+  })
+  test('S6/R14：显式模型随实例行落盘 → 重启 explicit 层延续；setModel 不级联子女快照', async () => {
+    const messages = new MemoryMessageStore()
+    const instances = new MemoryInstanceStore()
+    const stateStore = { messages, instances }
+    const d = makeDeps({ sendCountdown: 0 })
+
+    // ---------- 生命周期 A：显式出生 + 运行改写 ----------
+    const systemA = await boot(d, gatewayReplying('a'), stateStore, [])
+    const parentId = await systemA.pilot.instantiate(
+      { className: 'simple-chat', userPrompt: '父', model: { provider: 'fake', id: 'birth-p' } },
+      '/proj',
+    )
+    assert.deepEqual(systemA.kernel.lineage.modelOf(parentId), { ref: { provider: 'fake', id: 'birth-p' }, origin: 'explicit' })
+    const parentInstance = systemA.kernel.instances.getSync(makeAgentID(parentId))!
+    const childId = await systemA.kernel.instantiateInSpace(
+      { className: makeAgentClassID('simple-chat'), parentId: parentInstance.id, userPrompt: '子' },
+      parentInstance.spaceId,
+    )
+    // 子女出生快照：继承父的显式层。
+    assert.deepEqual(systemA.kernel.lineage.modelOf(childId), { ref: { provider: 'fake', id: 'birth-p' }, origin: 'inherited' })
+    // 运行改写（pilot 通道）→ 不级联既有子女。
+    await systemA.pilot.setModel(parentId, { provider: 'fake', id: 'swapped' })
+    assert.deepEqual(systemA.kernel.lineage.modelOf(parentId), { ref: { provider: 'fake', id: 'swapped' }, origin: 'explicit' })
+    assert.deepEqual(systemA.kernel.lineage.modelOf(childId), { ref: { provider: 'fake', id: 'birth-p' }, origin: 'inherited' }, '改父不动子（族规=出生快照）')
+    // 实例行持久化（R14：行 JSON 扩展零 schema 迁移）。
+    assert.deepEqual(instances.loadAll().find((row) => row.id === parentId)?.model, { provider: 'fake', id: 'swapped' })
+    await systemA.dispose()
+
+    // ---------- 生命周期 B：重启 replay → 配置相全量续谈 ----------
+    const lettersB: string[] = []
+    const systemB = await boot(d, gatewayReplying('恢复后回复'), stateStore, lettersB)
+    assert.deepEqual(systemB.kernel.lineage.modelOf(parentId), { ref: { provider: 'fake', id: 'swapped' }, origin: 'explicit' })
+    assert.deepEqual(systemB.kernel.lineage.modelOf(childId), { ref: { provider: 'fake', id: 'birth-p' }, origin: 'inherited' })
+    // 续谈可用（模型链在恢复态完整）。
+    await systemB.pilot.sendMessage(parentId, '继续')
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    assert.ok(lettersB.some((text) => text.includes('恢复后回复')), 'B：重启后对话链路正常')
+    await systemB.dispose()
   })
 })

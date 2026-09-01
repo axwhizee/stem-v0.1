@@ -9,7 +9,7 @@
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
-import { join } from 'node:path'
+import { resolve } from 'node:path'
 import { bootStem, demoTemplatesHook } from '../cli/platform'
 import type { PilotEvent } from '../../src/core/events'
 import type { StemSystem } from '../../src/core/init'
@@ -17,7 +17,8 @@ import type { StemSystem } from '../../src/core/init'
 const PORT = Number(process.env.PORT ?? 4321)
 /** 绑定地址：裸机默认仅本机（127.0.0.1）；容器内由 STEM_HOST=0.0.0.0 放开（端口映射需要）。 */
 const HOST = process.env.STEM_HOST ?? '127.0.0.1'
-const PROJECT_ROOT = process.env.STEM_PROJECT_ROOT ?? join(process.cwd(), 'tmp')
+/** S6/R11 opencode-style 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（一进程一空间，无切换器）。 */
+const PROJECT_ROOT = resolve(process.argv[2] ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
 
 // ---------- SSE 广播 ----------
 
@@ -91,6 +92,13 @@ async function main(): Promise<void> {
           await system.pilot.interrupt(String(body.agentId))
           return sendJson(res, { ok: true })
         }
+        if (path === '/api/set_model') {
+          // 运行时换模型（S6/R7 扮演通道，pilot.setModel = user0 根授权）。
+          const model = parseModel(String(body.model ?? ''))
+          if (model === undefined) return sendJson(res, { error: 'model 必须是 "提供商/模型" 格式' }, 400)
+          await system.pilot.setModel(String(body.agentId ?? 'user0'), model)
+          return sendJson(res, { ok: true })
+        }
         if (path === '/api/access') {
           await system.pilot.replyAccess({
             requestId: String(body.requestId),
@@ -135,16 +143,28 @@ async function main(): Promise<void> {
 
 // ---------- 辅助 ----------
 
+/** 严格模型引用解析（"提供商/模型"，两段非空；S6/R6）。 */
+function parseModel(value: string): { provider: string; id: string } | undefined {
+  const slash = value.indexOf('/')
+  if (slash <= 0 || slash === value.length - 1) return undefined
+  return { provider: value.slice(0, slash), id: value.slice(slash + 1) }
+}
+
 async function listAgents(system: StemSystem): Promise<Array<Record<string, unknown>>> {
   const agents = await system.pilot.listAgents()
-  return agents.map((a) => ({
-    id: a.id,
-    displayName: a.displayName,
-    classRef: a.classRef,
-    parentId: a.parentId,
-    status: a.status,
-    turnCount: a.turnCount,
-  }))
+  return agents.map((a) => {
+    const binding = system.kernel.lineage.modelOf(a.id as string)
+    return {
+      id: a.id,
+      displayName: a.displayName,
+      classRef: a.classRef,
+      parentId: a.parentId,
+      status: a.status,
+      turnCount: a.turnCount,
+      // S6：生效模型 + 解析命中层（header 模型行/谱系徽标数据源，批 2 消费）。
+      ...(binding !== undefined ? { model: `${binding.ref.provider}/${binding.ref.id}`, modelOrigin: binding.origin } : {}),
+    }
+  })
 }
 
 async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId: string; messages: unknown[] }> {

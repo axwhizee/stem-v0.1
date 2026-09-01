@@ -1,13 +1,18 @@
 // ============================================================
-// core/gateway/providers/opencodeLlm.ts —— opencode 单点实现（★）
+// core/gateway/providers/openaiCompatible.ts —— OpenAI 兼容协议实现（★）
 //
-// 本文件是「opencode 隔离」的唯一落点（decisions D5）：
-//   - 认证：OPENCODE_API_KEY（Bearer）/ config.apiKey
-//   - 协议：OpenAI 兼容 /zen/v1/chat/completions，SSE 流式
-//   - 端点配置驱动，不硬编码（decisions 风险表）
-// 对外只暴露 ModelGateway 接口，不泄漏任何 opencode 概念。
-// 参考：opencode core/src/plugin/provider/opencode.ts（认证）、
-//       llm/src/provider-error.ts（context overflow 判定）、
+// S6 泛化（原 opencodeLlm.ts——opencode 隔离唯一落点的自然产物）：
+// 一切「OpenAI 兼容 /chat/completions + Bearer」端点共用本实现
+// （opencode zen、dashscope compatible-mode、deepseek、本地 mock…）。
+//   - **零端点常量**（R2）：baseUrl 必填，由宿主从 config.providers 构造
+//    （config=真相，代码不预设任何 URL）；
+//   - 密钥注入制（R13）：apiKey 由宿主从 key_env 解析传入，缺省 = 匿名端点
+//    （不发 Authorization）；本文件不读 process.env（core 零平台红线）；
+//   - 协议：POST {baseUrl}/chat/completions，SSE 流式；请求 model 恒发
+//    裸 id（provider 是路由概念，不泄漏进协议体）；
+//   - models 白名单（config 启用清单的网关侧执行点，用到才硬错）。
+// 对外只暴露 ModelGateway 接口，不泄漏任何具体服务商概念。
+// 参考：opencode llm/src/provider-error.ts（context overflow 判定）、
 //       opencode src/provider/error.ts（错误分类）。
 // ============================================================
 
@@ -15,50 +20,43 @@ import type { ModelGateway, ChatOptions } from '../ModelGateway'
 import type { ChatMessage, LLMRequest, LLMEvent, ToolCall, ToolDefinition, UsageEvent } from '../types'
 import { GatewayError, type ContentPart } from '../types'
 
-// 已验证的真实端点（opencode-go / OpenCode Go）：
-//   host https://opencode.ai, path /zen/go/v1/chat/completions
-// （decisions 中记录的 api.opencode.ai/zen/v1/* 已随服务端演进失效，
-//   保持「配置驱动、不硬编码」原则，默认值仅作兜底。）
-export const DEFAULT_SERVER = 'https://opencode.ai'
-export const DEFAULT_PATH = '/zen/go/v1/chat/completions'
 export const DEFAULT_REQUEST_TIMEOUT_MS = 300_000
 
-export interface OpencodeGatewayConfig {
-  /** 服务端基址（默认 https://api.opencode.ai）。 */
-  readonly server?: string
-  /** 协议路径（默认 /zen/v1/chat/completions）。 */
-  readonly path?: string
-  /** API key（默认取 OPENCODE_API_KEY）。 */
+export interface OpenAiCompatibleConfig {
+  /** 服务端基址（必填，如 `https://dashscope.aliyuncs.com/compatible-mode/v1`；尾部斜杠自动去除，实际 POST {base}/chat/completions）。 */
+  readonly baseUrl: string
+  /** Bearer 密钥（缺省 = 匿名端点，不发 Authorization 头）。 */
   readonly apiKey?: string
+  /** 启用模型白名单（空/缺省 = 全启用；不命中 → 请求期硬错 model_not_allowed）。 */
+  readonly models?: readonly string[]
   /** 首包超时（毫秒）。 */
   readonly requestTimeoutMs?: number
   /** 可注入 fetch（测试用）。 */
   readonly fetch?: typeof fetch
 }
 
-/** 构造 opencode 网关。缺少凭据时同步抛出 GatewayError(auth_missing)。 */
-export function createOpencodeGateway(config: OpencodeGatewayConfig = {}): ModelGateway {
-  const server = (config.server ?? DEFAULT_SERVER).replace(/\/+$/, '')
-  const path = config.path ?? DEFAULT_PATH
-  const apiKey = config.apiKey ?? process.env.OPENCODE_API_KEY
+/** 构造 OpenAI 兼容网关（纯端点封装；凭据/路由决策在宿主 buildGateway）。 */
+export function createOpenAiCompatibleGateway(config: OpenAiCompatibleConfig): ModelGateway {
+  const base = config.baseUrl.replace(/\/+$/, '')
+  if (base === '') throw new GatewayError({ kind: 'provider_unwired', message: 'provider baseUrl 为空（config providers 条目无效）' })
   const httpFetch = config.fetch ?? globalThis.fetch
   const requestTimeoutMs = config.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS
+  const whitelist = config.models !== undefined && config.models.length > 0 ? new Set(config.models) : undefined
 
-  if (!apiKey) {
-    throw new GatewayError({
-      kind: 'auth_missing',
-      message: 'Missing OpenCode API key: set OPENCODE_API_KEY or pass config.apiKey',
-    })
-  }
-
-  const endpoint = `${server}${path}`
+  const endpoint = `${base}/chat/completions`
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
-    Authorization: `Bearer ${apiKey}`,
     Accept: 'text/event-stream',
+    ...(config.apiKey !== undefined && config.apiKey !== '' ? { Authorization: `Bearer ${config.apiKey}` } : {}),
   }
 
   async function* chat(request: LLMRequest, options?: ChatOptions): AsyncIterable<LLMEvent> {
+    if (whitelist && !whitelist.has(request.model.id)) {
+      throw new GatewayError({
+        kind: 'model_not_allowed',
+        message: `模型 "${request.model.provider}/${request.model.id}" 不在该 provider 的 models 白名单内（启用清单：${[...whitelist].join(', ')}；改 config providers 白名单或换模型）`,
+      })
+    }
     const ctl = new AbortController()
     let onAbort: (() => void) | undefined
     const external = options?.signal

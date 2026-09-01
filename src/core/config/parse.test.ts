@@ -1,25 +1,121 @@
 // ============================================================
-// core/config/parse.test.ts —— 配置解析单测
+// core/config/parse.test.ts —— 配置解析单测（S6 验收矩阵）
+//
+// 覆盖：providers 校验（R13）/ 全量有效原则（R12 未知键 fail-fast）/
+// 模型引用 × 注册表交叉校验 / 各块类型校验 / 首启模板自洽。
 // ============================================================
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseConfigText, parseModelRef } from './parse'
+import { parseConfigText } from './parse'
+import { DEFAULT_CONFIG_TEXT, defaultStemConfig } from './defaults'
 
-test('解析完整 JSONC 配置（user 对象 + context 块 + extensions；旧镜像键被忽略）', () => {
-  const text = `{
+/** 断言解析抛 invalid_config 且消息含指定片段。 */
+function expectFail(text: string, ...fragments: string[]): void {
+  assert.throws(
+    () => parseConfigText(text),
+    (e: unknown) => {
+      const err = e as { kind?: string; message?: string }
+      if (err.kind !== 'invalid_config') return false
+      return fragments.every((f) => err.message?.includes(f) ?? false)
+    },
+    `应抛 invalid_config 且含 ${fragments.join(' + ')}`,
+  )
+}
+
+// ---------- providers（R13） ----------
+
+test('providers 完整形状解析（base_url/key_env/models）', () => {
+  const config = parseConfigText(`{
+    "providers": {
+      "alibaba": { "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "key_env": "ALIBABA_API_KEY", "models": ["qwen3.8-flash", "qwen3.8-max"] },
+      "local": { "base_url": "http://127.0.0.1:11434/v1" }
+    },
+    "user": { "model": "alibaba/qwen3.8-flash" }
+  }`)
+  assert.deepEqual(config.providers?.alibaba, {
+    base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    key_env: 'ALIBABA_API_KEY',
+    models: ['qwen3.8-flash', 'qwen3.8-max'],
+  })
+  assert.deepEqual(config.providers?.local, { base_url: 'http://127.0.0.1:11434/v1' })
+})
+
+test('providers 校验矩阵：缺 base_url / 非 http(s) / 非对象 / 未知键 / key_env 空 / models 非串', () => {
+  expectFail('{ "providers": { "a": { "key_env": "K" } } }', 'providers.a.base_url', '必填')
+  expectFail('{ "providers": { "a": { "base_url": "ftp://x" } } }', 'providers.a.base_url')
+  expectFail('{ "providers": { "a": [] } }', 'providers.a 必须是对象')
+  expectFail('{ "providers": { "a": { "base_url": "https://x", "kind": "openai" } } }', 'providers.a.kind', '未知键')
+  expectFail('{ "providers": { "a": { "base_url": "https://x", "key_env": "" } } }', 'key_env')
+  expectFail('{ "providers": { "a": { "base_url": "https://x", "models": [42] } } }', 'models[0]')
+  expectFail('{ "providers": 42 }', 'providers 必须是对象')
+})
+
+// ---------- 模型引用 × 注册表交叉校验 ----------
+
+test('user.model 的 provider 未注册 → fail-fast 并列出已注册', () => {
+  expectFail(
+    '{ "providers": { "a": { "base_url": "https://x" } }, "user": { "model": "b/m" } }',
+    'user.model',
+    '"b" 未在 providers 注册',
+    'a',
+  )
+})
+
+test('user.model 不在 models 白名单 → fail-fast（空数组 = 全启用）', () => {
+  expectFail(
+    '{ "providers": { "a": { "base_url": "https://x", "models": ["m1"] } }, "user": { "model": "a/m2" } }',
+    'user.model',
+    '未启用',
+  )
+  const ok = parseConfigText(
+    '{ "providers": { "a": { "base_url": "https://x", "models": [] } }, "user": { "model": "a/anything" } }',
+  )
+  assert.deepEqual(ok.user?.model, { provider: 'a', id: 'anything' })
+})
+
+test('summarizeModel 同样对拍注册表', () => {
+  expectFail(
+    '{ "context": { "compact": { "summarizeModel": "ghost/mini" } } }',
+    'context.compact.summarizeModel',
+    '未在 providers 注册',
+  )
+})
+
+// ---------- 全量有效原则（R12） ----------
+
+test('未知顶层键 fail-fast；custom 是唯一合法扩展位', () => {
+  expectFail('{ "temperature": 0.7 }', '未知配置键 "temperature"')
+  parseConfigText('{ "custom": { "anything": [1, 2] } }') // 不抛
+  assert.deepEqual(parseConfigText('{ "custom": { "k": 1 } }').custom, { k: 1 })
+})
+
+test('已废除历史键 → fail-fast 且错误可行动（指路新家）', () => {
+  expectFail('{ "model": "opencode-go/x" }', '未知配置键 "model"', '家学锚点 = user.model')
+  expectFail('{ "tools": [] }', '目录即真相')
+  expectFail('{ "agents": {} }', '目录即真相')
+  expectFail('{ "strategies": [] }', '目录即真相')
+})
+
+test('model 必须 "提供商/模型" 严格式（两段皆非空）', () => {
+  expectFail('{ "user": { "model": "no-slash" } }', 'user.model')
+  expectFail('{ "user": { "model": "/leading" } }', 'user.model')
+  expectFail('{ "user": { "model": "trailing/" } }', 'user.model')
+})
+
+// ---------- 其余块类型校验 ----------
+
+test('解析完整 JSONC（注释 + 尾逗号 + 全块）', () => {
+  const config = parseConfigText(`{
     // 注释
-    "model": "opencode-go/deepseek-v4-flash",
+    "providers": { "opencode-go": { "base_url": "https://opencode.ai/zen/go/v1", "key_env": "OPENCODE_API_KEY" } },
     "autoApprove": false,
     "maxSteps": 8,
     "sendCountdown": 800,
     "user": { "systemPrompt": "你是根。", "tools": { "read": "allow", "bash": "ask" }, "model": "opencode-go/deepseek-v4-flash" },
-    "context": { "window": 64000, "compact": { "threshold": 0.9, "keepRecentTurns": 2 } },
+    "context": { "window": 64000, "compact": { "threshold": 0.9, "keepRecentTurns": 2, "summarizeModel": "opencode-go/deepseek-v4-flash" } },
     "extensions": ["fs", "vscode"],
-    "tools": [{ "id": "t1", "file": "tool/t1.ts" }]
-  }`
-  const config = parseConfigText(text)
-  assert.equal(config.model, 'opencode-go/deepseek-v4-flash')
+  }`)
   assert.equal(config.autoApprove, false)
   assert.equal(config.maxSteps, 8)
   assert.equal(config.sendCountdown, 800)
@@ -28,81 +124,30 @@ test('解析完整 JSONC 配置（user 对象 + context 块 + extensions；旧�
   assert.deepEqual(config.user?.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
   assert.equal(config.context?.window, 64000)
   assert.equal(config.context?.compact?.threshold, 0.9)
-  assert.equal(config.context?.compact?.keepRecentTurns, 2)
   assert.deepEqual(config.extensions, ['fs', 'vscode'])
-  assert.equal((config as Record<string, unknown>).tools, undefined, '旧镜像键被丢弃（目录即真相）')
-})
-
-test('user 对象：全部字段可缺省（内置默认由 userClass 兜底）', () => {
-  const config = parseConfigText('{ "user": {} }')
-  assert.deepEqual(config.user, {})
-  assert.equal(config.user?.tools, undefined)
-})
-
-test('解析空对象与尾逗号', () => {
-  const config = parseConfigText('{ "model": "p/m", "user": { "tools": {} }, }')
-  assert.equal(config.model, 'p/m')
-  assert.deepEqual(config.user?.tools, {})
-  assert.equal(config.autoApprove, undefined)
-})
-
-test('extensions 校验：字符串数组', () => {
-  assert.deepEqual(parseConfigText('{ "extensions": [] }').extensions, [])
-  assert.throws(() => parseConfigText('{ "extensions": "fs" }'), (e: unknown) => (e as { message?: string }).message?.includes('extensions'))
-  assert.throws(() => parseConfigText('{ "extensions": [42] }'), (e: unknown) => (e as { message?: string }).message?.includes('extensions[0]'))
-})
-
-test('model 非法（无 /）抛错', () => {
-  assert.throws(() => parseConfigText('{ "model": "deepseek-v4-flash" }'), (e: unknown) => {
-    return (e as { message?: string }).message?.includes('model') ?? false
-  })
-})
-
-test('model 必须是字符串', () => {
-  assert.throws(() => parseConfigText('{ "model": 123 }'), (e: unknown) => {
-    return (e as { message?: string }).message?.includes('model') ?? false
-  })
 })
 
 test('autoApprove 必须是布尔', () => {
-  assert.throws(() => parseConfigText('{ "autoApprove": "yes" }'), (e: unknown) => {
-    return (e as { message?: string }).message?.includes('autoApprove') ?? false
-  })
+  expectFail('{ "autoApprove": "yes" }', 'autoApprove')
 })
 
 test('sendCountdown / maxSteps 必须是非负数字', () => {
-  assert.throws(() => parseConfigText('{ "sendCountdown": -1 }'), (e: unknown) => {
-    return (e as { message?: string }).message?.includes('sendCountdown') ?? false
-  })
-  assert.throws(() => parseConfigText('{ "maxSteps": "fast" }'), (e: unknown) => {
-    return (e as { message?: string }).message?.includes('maxSteps') ?? false
-  })
+  expectFail('{ "sendCountdown": -1 }', 'sendCountdown')
+  expectFail('{ "maxSteps": "fast" }', 'maxSteps')
 })
 
-test('user.tools 动作非法抛错', () => {
-  assert.throws(() => parseConfigText('{ "user": { "tools": { "read": "ban" } } }'), (e: unknown) => {
-    return (e as { message?: string }).message?.includes('user.tools.read') ?? false
-  })
+test('user.tools 动作非法抛错（四态）', () => {
+  expectFail('{ "user": { "tools": { "read": "ban" } } }', 'user.tools.read')
 })
 
-test('user 必须是对象 / user.model 格式校验', () => {
-  assert.throws(() => parseConfigText('{ "user": [] }'), (e: unknown) => (e as { message?: string }).message?.includes('user'))
-  assert.throws(
-    () => parseConfigText('{ "user": { "model": "no-slash" } }'),
-    (e: unknown) => (e as { message?: string }).message?.includes('user.model'),
-  )
+test('user 必须是对象', () => {
+  expectFail('{ "user": [] }', 'user 必须是对象')
 })
 
 test('context 校验：类型 + threshold 上限', () => {
-  assert.throws(() => parseConfigText('{ "context": 42 }'), (e: unknown) => (e as { message?: string }).message?.includes('context'))
-  assert.throws(
-    () => parseConfigText('{ "context": { "compact": { "threshold": 1.5 } } }'),
-    (e: unknown) => (e as { message?: string }).message?.includes('threshold'),
-  )
-  assert.throws(
-    () => parseConfigText('{ "context": { "compact": { "summarizeModel": "bad" } } }'),
-    (e: unknown) => (e as { message?: string }).message?.includes('summarizeModel'),
-  )
+  expectFail('{ "context": 42 }', 'context')
+  expectFail('{ "context": { "compact": { "threshold": 1.5 } } }', 'threshold')
+  expectFail('{ "context": { "compact": { "summarizeModel": "bad" } } }', 'summarizeModel')
 })
 
 test('bash 块：解析 + 类型校验', () => {
@@ -110,35 +155,33 @@ test('bash 块：解析 + 类型校验', () => {
     '{ "bash": { "path": "/bin/dash", "defaultTimeoutMs": 30000, "maxOutputChars": 1000, "cwd": "sub" } }',
   )
   assert.deepEqual(config.bash, { path: '/bin/dash', defaultTimeoutMs: 30000, maxOutputChars: 1000, cwd: 'sub' })
-  assert.throws(() => parseConfigText('{ "bash": [] }'), (e: unknown) => (e as { message?: string }).message?.includes('bash'))
-  assert.throws(
-    () => parseConfigText('{ "bash": { "path": 42 } }'),
-    (e: unknown) => (e as { message?: string }).message?.includes('bash.path'),
-  )
-  assert.throws(
-    () => parseConfigText('{ "bash": { "defaultTimeoutMs": -1 } }'),
-    (e: unknown) => (e as { message?: string }).message?.includes('defaultTimeoutMs'),
-  )
+  expectFail('{ "bash": [] }', 'bash')
+  expectFail('{ "bash": { "path": 42 } }', 'bash.path')
+  expectFail('{ "bash": { "defaultTimeoutMs": -1 } }', 'defaultTimeoutMs')
 })
 
-// （镜像校验已随 S4.2 目录即真相移除）
-
-test('配置必须是对象', () => {
-  assert.throws(() => parseConfigText('[1,2]'), (e: unknown) => {
-    return (e as { message?: string }).message?.includes('对象') ?? false
-  })
+test('extensions：字符串数组', () => {
+  assert.deepEqual(parseConfigText('{ "extensions": [] }').extensions, [])
+  expectFail('{ "extensions": "fs" }', 'extensions')
+  expectFail('{ "extensions": [42] }', 'extensions[0]')
 })
 
-test('JSONC 语法错误抛 config_parse_error', () => {
-  assert.throws(() => parseConfigText('{ "model": }'), (e: unknown) => (e as { kind?: string }).kind === 'config_parse_error')
+test('配置必须是对象；JSONC 语法错误抛 config_parse_error', () => {
+  expectFail('[1,2]', '配置必须是 JSON 对象')
+  assert.throws(() => parseConfigText('{ "providers": }'), (e: unknown) => (e as { kind?: string }).kind === 'config_parse_error')
 })
 
-test('parseModelRef 拆分 provider/model', () => {
-  const fallback = { provider: 'opencode-go', id: 'deepseek-v4-flash' }
-  assert.deepEqual(parseModelRef('opencode-go/deepseek-v4-flash', fallback), {
-    provider: 'opencode-go',
-    id: 'deepseek-v4-flash',
-  })
-  assert.deepEqual(parseModelRef(undefined, fallback), fallback)
-  assert.deepEqual(parseModelRef('bad', fallback), fallback)
+// ---------- 首启模板（R2：预设 = 模板数据） ----------
+
+test('DEFAULT_CONFIG_TEXT 自洽：schema 全量校验通过', () => {
+  const config = defaultStemConfig()
+  assert.deepEqual(Object.keys(config).sort(), ['autoApprove', 'context', 'extensions', 'providers', 'sendCountdown', 'user'])
+})
+
+test('模板含唯一预设 opencode-go + 家学锚点 user.model（零代码常量的数据形态）', () => {
+  const config = defaultStemConfig()
+  assert.equal(config.providers?.['opencode-go']?.base_url, 'https://opencode.ai/zen/go/v1')
+  assert.equal(config.providers?.['opencode-go']?.key_env, 'OPENCODE_API_KEY')
+  assert.deepEqual(config.user?.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
+  assert.ok(DEFAULT_CONFIG_TEXT.includes('key_env'))
 })

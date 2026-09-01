@@ -7,9 +7,10 @@
 // ============================================================
 
 import type { TemplateRegistry } from './TemplateRegistry'
-import type { AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, AgentStatus } from './types'
+import type { AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, AgentStatus, ModelBinding } from './types'
 import { makeAgentID } from './types'
 import type { ToolAccess } from '../tools'
+import type { ModelRef } from '../gateway'
 
 export interface InstantiateOptions {
   /** 模板名（= 模板键）。 */
@@ -23,6 +24,11 @@ export interface InstantiateOptions {
   readonly agentId?: string
   /** 实例化时传入的工具清单补充（对模板表的收敛，可临时收紧）。 */
   readonly tools?: Readonly<Record<string, ToolAccess>>
+  /**
+   * 显式模型（S6/R6 解析链最高层；落实例行 = R14 持久载体）。
+   * 缺省 = 不显式，落类基因/父继承/家学链。
+   */
+  readonly model?: ModelRef
   /**
    * 台账绑定模式（缺省 'inherit' 减法收敛）。'grant' 加法整表替换**仅限系统
    * 机制通道**（策略 spawn / pilot 初始化）；agent_instantiate 工具路径不可设。
@@ -49,6 +55,16 @@ export interface InstanceManager {
   readonly listAllSync: () => readonly AgentInstance[]
   readonly updateStatus: (agentId: AgentID, status: AgentStatus) => Promise<void>
   readonly takeover: (agentId: AgentID, patch: Partial<AgentInstancePatch>) => Promise<void>
+  /**
+   * 运行改写模型显式层（S6/R14 set_model 通道）：实例行 model 就地更新
+   * （写穿装饰器负责落盘）；族谱树重绑由 kernel 编排。
+   */
+  readonly setModel: (agentId: AgentID, model: ModelRef) => Promise<void>
+  /**
+   * 写出生快照（kernel attach 后调用；仅落在父继承/家学层的实例）：
+   * 族规"改父不动子"的持久载体（S6 §5/R14），replay 时优先于父现值。
+   */
+  readonly setModelSnapshot: (agentId: AgentID, snapshot: ModelBinding) => Promise<void>
   /**
    * 持久化恢复专用（绕过模板校验，仅由组合根启动期调用）：
    * 直接装载实例行；活跃状态归一化——thinking/holding → interrupted
@@ -98,6 +114,7 @@ export class DefaultInstanceManager implements InstanceManager {
       totalCost: 0,
       userPrompt: opts.userPrompt,
       ...(opts.tools !== undefined ? { toolOverride: opts.tools } : {}),
+      ...(opts.model !== undefined ? { model: opts.model } : {}),
     }
     this.agents.set(id, instance)
     return instance
@@ -158,6 +175,17 @@ export class DefaultInstanceManager implements InstanceManager {
   async takeover(agentId: AgentID, patch: Partial<AgentInstancePatch>): Promise<void> {
     const instance = await this.get(agentId)
     if (patch.displayName !== undefined) instance.displayName = patch.displayName
+  }
+
+  async setModel(agentId: AgentID, model: ModelRef): Promise<void> {
+    const instance = await this.get(agentId)
+    // 就地改写（对象引用被 Runtime/装饰器共享，替换对象会使旧引用脱钩）。
+    ;(instance as { model?: ModelRef }).model = model
+  }
+
+  async setModelSnapshot(agentId: AgentID, snapshot: ModelBinding): Promise<void> {
+    const instance = await this.get(agentId)
+    ;(instance as { modelSnapshot?: ModelBinding }).modelSnapshot = snapshot
   }
 
   restore(instance: AgentInstance): void {

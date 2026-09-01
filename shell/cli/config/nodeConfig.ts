@@ -117,7 +117,4 @@ export function createNodeConfigBundle(projectRoot: string): {
   }
 }
 
-/** 兜底模型引用（无配置 model 时用）。 */
-export const FALLBACK_MODEL: { readonly provider: string; readonly id: string } = { provider: 'opencode-go', id: 'deepseek-v4-flash' }
-
 export type { StemConfig }
