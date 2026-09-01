@@ -25,7 +25,7 @@ export interface ConfigPaths {
   readonly configDir: string
   /** 配置文件路径（`stem.jsonc` 或 `stem.json`）。 */
   readonly configFile: string
-  /** 用户工具目录（`<projectRoot>/.stem/tool/`）。 */
+  /** 用户工具目录（`<projectRoot>/.stem/tools/`；目录即真相）。 */
   readonly toolDir: string
   /** 用户 agent 目录（`<projectRoot>/.stem/agent/`）。 */
   readonly agentDir: string

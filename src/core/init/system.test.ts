@@ -60,6 +60,32 @@ describe('createStemSystem（系统装配组合根）', () => {
     assert.ok(await system.tools.get('agent_instantiate'))
     assert.ok(await system.tools.get('access_reply'))
     assert.ok(await system.tools.get('skill'))
+    // 未注入 ShellRunner → bash 不装配（core 零平台依赖）。
+    const ids = (await system.tools.list()).map((t) => t.id)
+    assert.ok(!ids.includes('bash'))
+    await system.dispose()
+  })
+
+  test('bash 装配：注入 ShellRunner 才注册，config.bash 参数流入 runner', async () => {
+    const d = makeDeps({ bash: { path: '/bin/dash', defaultTimeoutMs: 2000, cwd: '/proj/sub' } })
+    const calls: { command: string; cwd?: string; timeoutMs: number; shell?: string }[] = []
+    const system = await createStemSystem({
+      config: { store: d.store, paths: d.paths },
+      fs: d.fs,
+      tools: d.loader,
+      gateway: d.gateway,
+      defaultModel: { provider: 'opencode', id: 'test' },
+      shellRunner: {
+        run: async (opts) => {
+          calls.push(opts)
+          return { stdout: 'ok', stderr: '', exitCode: 0, timedOut: false }
+        },
+      },
+    })
+    const bash = await system.tools.get('bash')
+    assert.ok(bash)
+    await bash!.execute({ command: 'echo hi' }, { agentId: 'a1', spaceId: 's1' })
+    assert.deepEqual(calls[0], { command: 'echo hi', cwd: '/proj/sub', timeoutMs: 2000, shell: '/bin/dash' })
     await system.dispose()
   })
 
@@ -67,7 +93,7 @@ describe('createStemSystem（系统装配组合根）', () => {
     const d = makeDeps({
       user: {
         systemPrompt: '你是根。',
-        permission: { read: 'allow', agent_terminate: 'deny' },
+        tools: { read: 'allow', agent_terminate: 'deny' },
       },
       context: { window: 100, compact: { threshold: 0.5, keepRecentTurns: 2 } },
       maxSteps: 3,
@@ -84,7 +110,7 @@ describe('createStemSystem（系统装配组合根）', () => {
     const systemLine = String(state.messages.find((m) => m.message.role === 'system')!.message.content)
     assert.match(systemLine, /你是根。/)
     assert.ok(!systemLine.includes('<stem_context>'), '面板绑定 none 策略——不注入 classic note')
-    // permission 整表替换：声明生效、默认表（含 access_reply）被替换——用户自担根义务配置。
+    // user.tools 整表替换：声明生效、默认表（含 access_reply）被替换——用户自担根义务配置。
     assert.equal(system.kernel.accessLedger.effectiveAccess(USER_ID, 'read'), 'allow')
     assert.equal(system.kernel.accessLedger.effectiveAccess(USER_ID, 'agent_terminate'), 'deny')
     assert.equal(system.kernel.accessLedger.effectiveAccess(USER_ID, 'agent_instantiate'), 'deny', '未列出 = 白名单封闭')

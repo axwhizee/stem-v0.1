@@ -6,52 +6,50 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { parseConfigText, parseModelRef } from './parse'
 
-test('解析完整 JSONC 配置（user 对象 + context 块 + 注册表）', () => {
+test('解析完整 JSONC 配置（user 对象 + context 块 + extensions；旧镜像键被忽略）', () => {
   const text = `{
     // 注释
     "model": "opencode-go/deepseek-v4-flash",
     "autoApprove": false,
     "maxSteps": 8,
     "sendCountdown": 800,
-    "user": { "systemPrompt": "你是根。", "permission": { "read": "allow", "bash": "ask" }, "model": "opencode-go/deepseek-v4-flash" },
+    "user": { "systemPrompt": "你是根。", "tools": { "read": "allow", "bash": "ask" }, "model": "opencode-go/deepseek-v4-flash" },
     "context": { "window": 64000, "compact": { "threshold": 0.9, "keepRecentTurns": 2 } },
-    "tools": [{ "id": "t1", "file": "tool/t1.ts" }],
-    "agents": [{ "id": "a1", "file": "agent/a1.md" }],
-    "strategies": [{ "id": "s1", "file": "context/s1.ts" }]
+    "extensions": ["fs", "vscode"],
+    "tools": [{ "id": "t1", "file": "tool/t1.ts" }]
   }`
   const config = parseConfigText(text)
   assert.equal(config.model, 'opencode-go/deepseek-v4-flash')
   assert.equal(config.autoApprove, false)
   assert.equal(config.maxSteps, 8)
   assert.equal(config.sendCountdown, 800)
-  assert.deepEqual(config.user?.permission, { read: 'allow', bash: 'ask' })
+  assert.deepEqual(config.user?.tools, { read: 'allow', bash: 'ask' })
   assert.equal(config.user?.systemPrompt, '你是根。')
   assert.deepEqual(config.user?.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
   assert.equal(config.context?.window, 64000)
   assert.equal(config.context?.compact?.threshold, 0.9)
   assert.equal(config.context?.compact?.keepRecentTurns, 2)
-  assert.deepEqual(config.tools, [{ id: 't1', file: 'tool/t1.ts', kind: 'user', enabled: true }])
-  assert.deepEqual(config.agents, [{ id: 'a1', file: 'agent/a1.md' }])
-  assert.deepEqual(config.strategies, [{ id: 's1', file: 'context/s1.ts' }])
+  assert.deepEqual(config.extensions, ['fs', 'vscode'])
+  assert.equal((config as Record<string, unknown>).tools, undefined, '旧镜像键被丢弃（目录即真相）')
 })
 
 test('user 对象：全部字段可缺省（内置默认由 userClass 兜底）', () => {
   const config = parseConfigText('{ "user": {} }')
   assert.deepEqual(config.user, {})
-  assert.equal(config.user?.permission, undefined)
+  assert.equal(config.user?.tools, undefined)
 })
 
 test('解析空对象与尾逗号', () => {
-  const config = parseConfigText('{ "model": "p/m", "user": { "permission": {} }, }')
+  const config = parseConfigText('{ "model": "p/m", "user": { "tools": {} }, }')
   assert.equal(config.model, 'p/m')
-  assert.deepEqual(config.user?.permission, {})
+  assert.deepEqual(config.user?.tools, {})
   assert.equal(config.autoApprove, undefined)
 })
 
-test('tools 缺省 enabled=true，enabled=false 保留', () => {
-  const config = parseConfigText('{ "tools": [{ "id": "a", "file": "x.ts" }, { "id": "b", "file": "y.ts", "enabled": false }] }')
-  assert.equal(config.tools?.[0]?.enabled, true)
-  assert.equal(config.tools?.[1]?.enabled, false)
+test('extensions 校验：字符串数组', () => {
+  assert.deepEqual(parseConfigText('{ "extensions": [] }').extensions, [])
+  assert.throws(() => parseConfigText('{ "extensions": "fs" }'), (e: unknown) => (e as { message?: string }).message?.includes('extensions'))
+  assert.throws(() => parseConfigText('{ "extensions": [42] }'), (e: unknown) => (e as { message?: string }).message?.includes('extensions[0]'))
 })
 
 test('model 非法（无 /）抛错', () => {
@@ -81,9 +79,9 @@ test('sendCountdown / maxSteps 必须是非负数字', () => {
   })
 })
 
-test('user.permission 动作非法抛错', () => {
-  assert.throws(() => parseConfigText('{ "user": { "permission": { "read": "ban" } } }'), (e: unknown) => {
-    return (e as { message?: string }).message?.includes('user.permission.read') ?? false
+test('user.tools 动作非法抛错', () => {
+  assert.throws(() => parseConfigText('{ "user": { "tools": { "read": "ban" } } }'), (e: unknown) => {
+    return (e as { message?: string }).message?.includes('user.tools.read') ?? false
   })
 })
 
@@ -107,11 +105,23 @@ test('context 校验：类型 + threshold 上限', () => {
   )
 })
 
-test('strategies 镜像条目校验', () => {
-  assert.throws(() => parseConfigText('{ "strategies": [{ "id": "s1" }] }'), (e: unknown) => {
-    return (e as { message?: string }).message?.includes('strategies[0].file') ?? false
-  })
+test('bash 块：解析 + 类型校验', () => {
+  const config = parseConfigText(
+    '{ "bash": { "path": "/bin/dash", "defaultTimeoutMs": 30000, "maxOutputChars": 1000, "cwd": "sub" } }',
+  )
+  assert.deepEqual(config.bash, { path: '/bin/dash', defaultTimeoutMs: 30000, maxOutputChars: 1000, cwd: 'sub' })
+  assert.throws(() => parseConfigText('{ "bash": [] }'), (e: unknown) => (e as { message?: string }).message?.includes('bash'))
+  assert.throws(
+    () => parseConfigText('{ "bash": { "path": 42 } }'),
+    (e: unknown) => (e as { message?: string }).message?.includes('bash.path'),
+  )
+  assert.throws(
+    () => parseConfigText('{ "bash": { "defaultTimeoutMs": -1 } }'),
+    (e: unknown) => (e as { message?: string }).message?.includes('defaultTimeoutMs'),
+  )
 })
+
+// （镜像校验已随 S4.2 目录即真相移除）
 
 test('配置必须是对象', () => {
   assert.throws(() => parseConfigText('[1,2]'), (e: unknown) => {

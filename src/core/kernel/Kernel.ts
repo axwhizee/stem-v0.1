@@ -90,7 +90,7 @@ export interface KernelOptions {
   /** 日志记录器（缺省内存版）。 */
   readonly logger?: Logger
   /**
-   * user0 内嵌 agent 类配置（config.user 全对象：permission/systemPrompt/
+   * user0 内嵌 agent 类配置（config.user 全对象：tools/systemPrompt/
    * sendCountdown/model/contextStrategy）；缺省 = 内置默认表（DEFAULT_USER_TOOLS）。
    */
   readonly userClass?: UserClassConfig

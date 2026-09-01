@@ -3,7 +3,7 @@
 //
 // user0 = user 类的普通实例（parentId=null 即根），无任何特判。
 // 类配置 = config.user 对象（元 agent 单独处理为对象，完整可配）；
-// permission 给出则**整表替换**内置默认表（键即白名单，user0 生效权限
+// tools 给出则**整表替换**内置默认表（键即白名单，user0 生效权限
 // 由台账注册期物化）。缺省走 DEFAULT_USER_TOOLS：
 //   - access_reply 必须显式 allow——根答复义务，缺失 = ask 消息化死锁；
 //   - 管理/观察/上下文面显式声明（internal 工具默认隐藏，模板显式赋权）；
@@ -24,16 +24,19 @@ export interface UserClassConfig {
   readonly description?: string
   readonly systemPrompt?: string
   /** = user 类 tools 清单（给出则整表替换默认）。 */
-  readonly permission?: Readonly<Record<string, ToolAccess>>
+  readonly tools?: Readonly<Record<string, ToolAccess>>
   readonly contextStrategy?: string
   readonly model?: ModelRef
   readonly sendCountdown?: number
 }
 
-/** 内置 user 类默认工具清单（config.user.permission 缺省时生效）。 */
+/** 内置 user 类默认工具清单（config.user.tools 缺省时生效）。 */
 export const DEFAULT_USER_TOOLS: Readonly<Record<string, ToolAccess>> = {
   // 根答复义务（ask 消息化的授权侧）——绝不可缺，缺失 = 权限系统死锁。
   access_reply: 'allow',
+  // 对外操作面：bash = 最小系统唯一外部操作入口（internal 显式 allow——
+  // 高频工具不走 ask，治理靠超时/截断机制与提示词分担，见 tools/bash）。
+  bash: 'allow',
   // 管理面：user0 经工具驱动系统（pilot 旁路之外的模型侧能力）。
   agent_instantiate: 'allow',
   agent_list: 'allow',
@@ -60,9 +63,9 @@ export function createUserClass(cfg?: UserClassConfig): AgentClass {
     name: USER_CLASS_ID,
     description:
       cfg?.description ??
-      'user 类：系统根 agent（元 agent），由人类经 pilot 扮演；tools = config.user.permission（缺省内置管理面）。',
+      'user 类：系统根 agent（元 agent），由人类经 pilot 扮演；tools = config.user.tools（缺省内置管理面）。',
     systemPrompt: cfg?.systemPrompt ?? '',
-    tools: cfg?.permission ?? DEFAULT_USER_TOOLS,
+    tools: cfg?.tools ?? DEFAULT_USER_TOOLS,
     sendCountdown: cfg?.sendCountdown ?? 0,
     ...(cfg?.contextStrategy !== undefined ? { contextStrategy: cfg.contextStrategy } : {}),
     ...(cfg?.model !== undefined ? { model: cfg.model } : {}),

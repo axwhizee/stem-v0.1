@@ -9,17 +9,44 @@
 import { join } from 'node:path'
 import { createNodeConfigBundle, FALLBACK_MODEL } from './config'
 import { createHostTools } from './tools'
+import { createNodeShellRunner } from './bash'
 import { buildGateway } from './gateway'
 import { createSqliteStateStore } from './storage'
 import { createStemSystem, type StemSystemDeps, type UserInitHook } from '../../src/core/init'
 import type { StemSystem } from '../../src/core/init'
 import { parseModelRef } from '../../src/core/config'
 import type { PilotEvent } from '../../src/core/events'
-import type { ToolCapability } from '../../src/core/tools'
+import type { ShellRunner, ToolCapability } from '../../src/core/tools'
 import { makeAgentClassID } from '../../src/core/kernel'
 import type { Kernel } from '../../src/core/kernel'
 
 export { createHostTools }
+
+/**
+ * 宿主 tool_set 清单（config.extensions 的 id → 工具工厂）。
+ * core 对 id 语义无感知（只透传字符串数组）；fs 参考实现暂驻 shell/cli/tools
+ * （最小变体：目录不动），第三方 tool_set 未来在 extension/tools/ 落位并入本表。
+ */
+const TOOL_SETS: Readonly<Record<string, (root: string) => readonly ToolCapability[]>> = {
+  fs: (root) => createHostTools(root),
+}
+
+/** config.extensions 缺省值（键不存在时）= 装载 fs 包；显式 [] = 纯 bash 最小系统。 */
+const DEFAULT_EXTENSIONS: readonly string[] = ['fs']
+
+/** 解析 config.extensions → 宿主工具清单（未知 id 告警跳过，不炸启动）。 */
+export function resolveToolSets(extIds: readonly string[] | undefined, root: string): ToolCapability[] {
+  const tools: ToolCapability[] = []
+  for (const id of extIds ?? DEFAULT_EXTENSIONS) {
+    const factory = TOOL_SETS[id]
+    if (!factory) {
+      console.warn(`[stem] 未知 extension "${id}"（可用：${Object.keys(TOOL_SETS).join(', ')}），已跳过`)
+      continue
+    }
+    tools.push(...factory(root))
+  }
+  return tools
+}
 
 /** 示例模板注册钩子（参考 shell 共享）：tool-assistant（带工具）+ creator（调度者）。 */
 export const demoTemplatesHook: UserInitHook = async ({ kernel }: { kernel: Kernel }) => {
@@ -56,7 +83,7 @@ export const demoTemplatesHook: UserInitHook = async ({ kernel }: { kernel: Kern
 export interface BootOptions {
   /** 项目根（含 .stem/ 配置）。 */
   readonly projectRoot: string
-  /** 宿主工具（缺省 = fs 工具集 read/write/edit/grep/glob）。 */
+  /** 宿主工具（显式覆盖；缺省 = 按 config.extensions 解析 tool_set，未写键 = ["fs"]）。 */
   readonly hostTools?: readonly ToolCapability[]
   /** 事件流回调（PilotEvent；pilot 创建后订阅）。 */
   readonly onEvent?: (event: PilotEvent) => void
@@ -67,6 +94,8 @@ export interface BootOptions {
    * `false` = 显式纯内存运行（不落盘）。
    */
   readonly stateStore?: StemSystemDeps['stateStore'] | false
+  /** shell 执行端口（缺省 = node child_process，cwd=项目根；`false` = 不装配 bash）。 */
+  readonly shellRunner?: ShellRunner | false
 }
 
 export interface BootResult {
@@ -84,13 +113,15 @@ export async function bootStem(opts: BootOptions): Promise<BootResult> {
   const model = parseModelRef(loaded.config.model, FALLBACK_MODEL)
   const { gateway, source } = await buildGateway(model.id)
   const stateStore = opts.stateStore === false ? undefined : (opts.stateStore ?? createSqliteStateStore(defaultDbFile(opts.projectRoot)))
+  const shellRunner = opts.shellRunner === false ? undefined : (opts.shellRunner ?? createNodeShellRunner({ defaultCwd: opts.projectRoot }))
   const system = await createStemSystem({
     config: { store: bundle.store, paths: bundle.paths },
     fs: bundle.fs,
     tools: { loadTool: bundle.loadTool },
     gateway,
     defaultModel: model,
-    hostTools: opts.hostTools ?? createHostTools(opts.projectRoot),
+    hostTools: opts.hostTools ?? resolveToolSets(loaded.config.extensions, opts.projectRoot),
+    ...(shellRunner !== undefined ? { shellRunner } : {}),
     onEvent: opts.onEvent,
     userHooks: opts.userHooks,
     ...(stateStore !== undefined ? { stateStore } : {}),

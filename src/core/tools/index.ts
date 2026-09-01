@@ -32,6 +32,9 @@ export { validateArgs } from './validate'
 
 export { restrictAccess } from './access'
 
+export type { ShellRunOptions, ShellRunResult, ShellRunner, BashToolSettings } from './bash'
+export { createBashTool, formatShellOutput, BASH_DEFAULTS } from './bash'
+
 export type { SkillInfo, SkillRegistry, SkillError } from './SkillRegistry'
 export { DefaultSkillRegistry } from './SkillRegistry'
 export { createSkillTool, parseSkillFile } from './skill'

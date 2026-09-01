@@ -4,17 +4,19 @@
 // 复用 cli 的节点平台（bootStem + fs 工具 + 示例模板），对外提供
 // HTTP + SSE：浏览器经 REST/事件流与 stem 自治系统交互。
 //   - 扮演：/api/send、/api/instantiate、/api/terminate、/api/access…
-//   - 观察：/api/agents、/api/agents/:id/context、/api/templates、/api/events(SSE)
+//   - 观察：/api/agents、/api/agents/:id/context、/api/templates、/api/events(SSE)、/api/health
 // ============================================================
 
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import { bootStem, createHostTools, demoTemplatesHook } from '../cli/platform'
+import { bootStem, demoTemplatesHook } from '../cli/platform'
 import type { PilotEvent } from '../../src/core/events'
 import type { StemSystem } from '../../src/core/init'
 
 const PORT = Number(process.env.PORT ?? 4321)
+/** 绑定地址：裸机默认仅本机（127.0.0.1）；容器内由 STEM_HOST=0.0.0.0 放开（端口映射需要）。 */
+const HOST = process.env.STEM_HOST ?? '127.0.0.1'
 const PROJECT_ROOT = process.env.STEM_PROJECT_ROOT ?? join(process.cwd(), 'tmp')
 
 // ---------- SSE 广播 ----------
@@ -33,7 +35,6 @@ function broadcast(event: PilotEvent): void {
 async function main(): Promise<void> {
   const { system, source } = await bootStem({
     projectRoot: PROJECT_ROOT,
-    hostTools: createHostTools(PROJECT_ROOT),
     onEvent: broadcast,
     userHooks: [demoTemplatesHook],
   })
@@ -54,6 +55,11 @@ async function main(): Promise<void> {
 
       // —— 静态页 ——
       if (req.method === 'GET' && path === '/') return sendHtml(res)
+      // —— 健康检查（docker HEALTHCHECK / 反探活） ——
+      if (req.method === 'GET' && path === '/api/health') {
+        const agents = await system.pilot.listAgents()
+        return sendJson(res, { ok: true, gateway: source, agents: agents.length, uptimeSec: Math.round(process.uptime()) })
+      }
       // —— SSE 事件流 ——
       if (req.method === 'GET' && path === '/api/events') return openSse(res)
       // —— 观察（仪表盘） ——
@@ -109,8 +115,8 @@ async function main(): Promise<void> {
     }
   })
 
-  server.listen(PORT, () => {
-    console.log(`stem WebUIShell → http://localhost:${PORT}`)
+  server.listen(PORT, HOST, () => {
+    console.log(`stem WebUIShell → http://${HOST === '0.0.0.0' ? 'localhost' : HOST}:${PORT}`)
     console.log(`  gateway: ${source}   project: ${PROJECT_ROOT}`)
     console.log('  Ctrl+C 退出（中断所有活跃 agent）')
   })

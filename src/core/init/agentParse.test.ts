@@ -8,7 +8,7 @@ import { parseAgentFile, parseFrontmatter, extractPrompt } from './agentParse'
 
 const SAMPLE = `---
 description: 代码审查员
-permission:
+tools:
   read: allow
   glob: allow
   edit: deny
@@ -26,7 +26,7 @@ test('解析完整 agent 文件（文件名即 id/name）', () => {
   assert.equal(parsed.name, 'user-reviewer')
   assert.equal(parsed.description, '代码审查员')
   assert.deepEqual(parsed.toolAccess, { read: 'allow', glob: 'allow', edit: 'deny' })
-  // 融合：工具白名单 = permission 的键。
+  // 融合：工具白名单 = tools 的键。
   assert.deepEqual(parsed.tools, ['read', 'glob', 'edit'])
   assert.equal(parsed.sendCountdown, 800)
   assert.match(parsed.systemPrompt, /senior code reviewer/)
@@ -44,7 +44,7 @@ test('description 缺省 = 文件名', () => {
   assert.equal(parsed.description, 'foo')
 })
 
-test('无 permission → 无工具', () => {
+test('无 tools → 无工具', () => {
   const parsed = parseAgentFile('---\ndescription: x\n---\nbody', 'foo')
   assert.deepEqual(parsed.toolAccess, {})
   assert.deepEqual(parsed.tools, [])
@@ -59,8 +59,8 @@ test('缺 frontmatter 抛错', () => {
   assert.throws(() => parseAgentFile('just text', 'foo'), /frontmatter/)
 })
 
-test('permission 动作非法抛错', () => {
-  assert.throws(() => parseAgentFile('---\npermission:\n  read: ban\n---\nbody', 'foo'), /allow/)
+test('tools 动作非法抛错', () => {
+  assert.throws(() => parseAgentFile('---\ntools:\n  read: ban\n---\nbody', 'foo'), /allow/)
 })
 
 test('frontmatter 必须是对象', () => {

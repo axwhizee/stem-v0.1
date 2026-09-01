@@ -3,13 +3,12 @@
 //
 // 管线职责（本阶段）：
 //   1. 读取唯一配置（ConfigStore）；
-//   2. 扫描 `.stem/tool/`、`.stem/agent/` 目录；
-//   3. 同步注册表到 stem.jsonc（纯镜像：发现文件就登记、缺实现就移除）；
-//   4. 注册到 core（工具注册表 + TemplateRegistry）。
+//   2. 扫描 `.stem/tools/`、`.stem/agent/`、`.stem/context/` 目录
+//     （**目录即真相**——S4.2 起不再维护 config 镜像注册表）；
+//   3. 注册到 core（工具注册表 + TemplateRegistry + 策略注册表）。
 // 平台能力（fs / 动态 import）全部由宿主注入。
 // ============================================================
 
-import type { RegisteredAgent, RegisteredTool, StemConfig } from '../config'
 import type { AgentClass } from '../kernel'
 import type { ToolCapability } from '../tools'
 
@@ -59,16 +58,21 @@ export type InitIssue =
   | { readonly kind: 'agent_invalid'; readonly file: string; readonly message: string }
   | { readonly kind: 'strategy_load_failed'; readonly file: string; readonly message: string }
   | { readonly kind: 'strategy_invalid'; readonly file: string; readonly message: string }
-  | { readonly kind: 'orphan_registration'; readonly type: 'tool' | 'agent' | 'strategy'; readonly id: string; readonly file: string }
+
+/** 扫描发现的目录条目（目录即真相；报告只作展示/日志，不再回写 config）。 */
+export interface DiscoveredEntry {
+  readonly id: string
+  readonly file: string
+}
 
 /** 初始化报告。 */
 export interface InitReport {
-  /** 同步后的配置。 */
-  readonly config: StemConfig
-  /** 同步后的注册表（tools 镜像）。 */
-  readonly tools: readonly RegisteredTool[]
-  /** 同步后的注册表（agents 镜像）。 */
-  readonly agents: readonly RegisteredAgent[]
+  /** 扫描发现的用户工具（目录 = `.stem/tools/`）。 */
+  readonly tools: readonly DiscoveredEntry[]
+  /** 扫描发现的用户 agent 类（目录 = `.stem/agent/`）。 */
+  readonly agents: readonly DiscoveredEntry[]
+  /** 扫描发现的用户上下文策略（目录 = `.stem/context/`）。 */
+  readonly strategies: readonly DiscoveredEntry[]
   /** 成功注册的用户工具（ToolCapability 对象）。 */
   readonly registeredTools: readonly ToolCapability[]
   /** 成功注册的用户 agent 类。 */

@@ -1,21 +1,16 @@
 // ============================================================
-// core/init/init.ts —— 初始化管线（config 同步 + 注册到 core）
+// core/init/init.ts —— 初始化管线（扫描目录 + 注册到 core）
 //
 // 流程（纯 TS，fs/import 经 InitDeps 注入）：
 //   1. 读取唯一配置（ConfigStore.load）；
-//   2. 扫描 `tool/`、`agent/` 目录；
-//   3. 同步注册表到 stem.jsonc（纯镜像）：
-//        - 发现的工具/agent → 登记（同名 id）；
-//        - 已注册但无实现文件 → 移除（orphan_registration issue）；
-//   4. 注册到 core：
+//   2. 扫描 `tools/`、`agent/`、`context/` 目录（**目录即真相**，S4.2）；
+//   3. 注册到 core：
 //        - 用户工具 → ToolCapabilityRegistry（kind 强制 'user'）；
-//        - 用户 agent → TemplateRegistry（解析 YAML 头 + 正文）。
-//   5. 写回配置（仅当注册表变化时）。
+//        - 用户 agent → TemplateRegistry（解析 YAML 头 + 正文）；
+//        - 用户策略 → StrategyRegistry（同名覆盖内置 = 用户主权）。
+//   4. 仅当配置文件不存在时写入初始模板（不做任何回写同步）。
 // ============================================================
 
-import { applyEdits, modify } from 'jsonc-parser'
-import type { RegisteredAgent, RegisteredStrategy, RegisteredTool, StemConfig } from '../config'
-import { parseConfigText } from '../config'
 import type { AgentClass, AgentClassID } from '../kernel'
 import { makeAgentClassID } from '../kernel'
 import type { ContextStrategyModule } from '../context'
@@ -24,13 +19,18 @@ import { parseAgentFile } from './agentParse'
 import type { InitDeps, InitError, InitIssue, InitReport } from './types'
 
 const DEFAULT_CONFIG_TEXT = `{
-  // stem 唯一配置文件：全局配置 + 同步注册表（tools/agents/strategies 由 init 自动维护）。
+  // stem 唯一配置文件（全局配置）。用户工具/agent/策略**目录即真相**：
+  // 放进 .stem/tools/、.stem/agent/、.stem/context/ 即自动注册，无镜像字段。
   "model": "opencode-go/deepseek-v4-flash",
   "autoApprove": false,
-  // user0 内嵌 agent 类（元 agent 完整可配；permission 缺省 = 内置管理面默认表）。
+  // user0 内嵌 agent 类（元 agent 完整可配；tools 缺省 = 内置管理面默认表）。
   "user": {},
   // 上下文策略（classic compact 参数面）。
   "context": { "window": 128000, "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 } },
+  // bash 工具（缺省走内置：120s 超时 / 50k 截断 / 项目根目录）。
+  // "bash": { "defaultTimeoutMs": 120000, "maxOutputChars": 50000 },
+  // 宿主 tool_set 包（["fs"] = read/write/edit/grep/glob；[] = 纯 bash 最小系统）。
+  "extensions": ["fs"],
   "sendCountdown": 1000
 }
 `
@@ -39,9 +39,8 @@ const DEFAULT_CONFIG_TEXT = `{
 export async function runInit(deps: InitDeps): Promise<InitReport> {
   const { config } = deps
   const loaded = await config.store.load()
-  const current: StemConfig = loaded.config
 
-  // 扫描目录。
+  // 扫描目录（目录即真相）。
   const toolFiles = await safeList(deps, config.paths.toolDir)
   const agentFiles = await safeList(deps, config.paths.agentDir)
   const strategyFiles = await safeList(deps, config.paths.strategyDir)
@@ -52,30 +51,20 @@ export async function runInit(deps: InitDeps): Promise<InitReport> {
   const agents = await loadUserAgents(deps, agentFiles, issues)
   const strategies = await loadUserStrategies(deps, strategyFiles, issues)
 
-  // 同步注册表（纯镜像）：新工具/agent/策略 → 登记；已注册但无实现 → 移除。
-  const syncedTools: RegisteredTool[] = tools.map((tool) => ({ id: tool.id, file: relOf(config.paths.toolDir, tool.file), kind: 'user', enabled: true }))
-  const syncedAgents: RegisteredAgent[] = agents.map((agent) => ({ id: agent.name, file: relOf(config.paths.agentDir, agent.file) }))
-  const syncedStrategies: RegisteredStrategy[] = strategies.map((strategy) => ({ id: strategy.module.name, file: relOf(config.paths.strategyDir, strategy.file) }))
-  collectOrphans(current.tools ?? [], syncedTools, 'tool', issues)
-  collectOrphans(current.agents ?? [], syncedAgents, 'agent', issues)
-  collectOrphans(current.strategies ?? [], syncedStrategies, 'strategy', issues)
-
   // 注册到 core。
   const registeredTools = await registerTools(deps, tools, issues)
   const registeredAgents = await registerAgents(deps, agents, issues)
   registerStrategies(deps, strategies, issues)
 
-  // 写回配置（仅当注册表变化，且首次创建时总是写）。
-  const changed = loaded.raw === undefined || !sameRegistry(current, syncedTools, syncedAgents, syncedStrategies)
-  if (changed) {
-    const text = syncConfigText(loaded.raw, syncedTools, syncedAgents, syncedStrategies)
-    await config.store.save(text)
+  // 首次创建时写入初始模板（此后永不回写——config 是用户的，管线只读）。
+  if (loaded.raw === undefined) {
+    await config.store.save(DEFAULT_CONFIG_TEXT)
   }
 
   return {
-    config: { ...current, tools: syncedTools, agents: syncedAgents, strategies: syncedStrategies },
-    tools: syncedTools,
-    agents: syncedAgents,
+    tools: tools.map((tool) => ({ id: tool.id, file: relOf(config.paths.toolDir, tool.file) })),
+    agents: agents.map((agent) => ({ id: agent.name as AgentClassID as string, file: relOf(config.paths.agentDir, agent.file) })),
+    strategies: strategies.map((strategy) => ({ id: strategy.module.name, file: relOf(config.paths.strategyDir, strategy.file) })),
     registeredTools,
     registeredAgents,
     issues,
@@ -141,7 +130,7 @@ async function loadUserAgents(deps: InitDeps, files: readonly string[], issues: 
 
 /**
  * 扫描用户上下文策略（`.stem/context/*.ts`，默认导出 ContextStrategyModule）。
- * "让 agent 自己写策略"的加载通道（与 .stem/tool 同构，自我进化承载之一）。
+ * "让 agent 自己写策略"的加载通道（与 .stem/tools 同构，自我进化承载之一）。
  */
 async function loadUserStrategies(
   deps: InitDeps,
@@ -231,50 +220,6 @@ async function registerAgents(deps: InitDeps, agents: readonly (AgentClass & { f
   return registered
 }
 
-/** 检查"已注册但无实现文件"（纯镜像：登记里存在但镜像里没有 → 孤儿）。 */
-function collectOrphans(
-  registered: readonly (RegisteredTool | RegisteredAgent | RegisteredStrategy)[],
-  mirror: readonly { id: string }[],
-  type: 'tool' | 'agent' | 'strategy',
-  issues: InitIssue[],
-): void {
-  const mirrorIds = new Set(mirror.map((m) => m.id))
-  for (const entry of registered) {
-    if (!mirrorIds.has(entry.id)) {
-      issues.push({ kind: 'orphan_registration', type, id: entry.id, file: entry.file })
-    }
-  }
-}
-
-/** 比较注册表是否变化。 */
-function sameRegistry(
-  current: StemConfig,
-  tools: readonly RegisteredTool[],
-  agents: readonly RegisteredAgent[],
-  strategies: readonly RegisteredStrategy[],
-): boolean {
-  return (
-    JSON.stringify(current.tools ?? []) === JSON.stringify(tools) &&
-    JSON.stringify(current.agents ?? []) === JSON.stringify(agents) &&
-    JSON.stringify(current.strategies ?? []) === JSON.stringify(strategies)
-  )
-}
-
-/** 用 jsonc-parser 同步注册表字段（保留注释与其它配置项）。 */
-function syncConfigText(
-  raw: string | undefined,
-  tools: readonly RegisteredTool[],
-  agents: readonly RegisteredAgent[],
-  strategies: readonly RegisteredStrategy[],
-): string {
-  const base = raw ?? DEFAULT_CONFIG_TEXT
-  let text = base
-  text = applyEdits(text, modify(text, ['tools'], tools, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))
-  text = applyEdits(text, modify(text, ['agents'], agents, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))
-  text = applyEdits(text, modify(text, ['strategies'], strategies, { formattingOptions: { insertSpaces: true, tabSize: 2 } }))
-  return text
-}
-
 // ---------- 小工具 ----------
 
 async function safeList(deps: InitDeps, dir: string): Promise<readonly string[]> {
@@ -310,4 +255,4 @@ function initError(e: InitError): InitError {
   return e
 }
 
-export { initError, parseConfigText }
+export { initError }

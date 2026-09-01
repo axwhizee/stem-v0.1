@@ -5,58 +5,31 @@
 // （或 `.stem/stem.json`）是最终配置载体，全量存储所有可配置项；
 // 本阶段不引入 `~/.config/stem/` 多级合并。
 //
-// 同步注册表（tools/agents）：
-//   - 由 `core/init` 自动维护的**纯镜像**——扫描 `.stem/tool/`、`.stem/agent/`
-//     目录，发现文件就登记，缺实现文件就移除，用户不应手工编辑。
+// **目录即真相**（S4.2）：用户工具/agent/策略的注册表就是
+//   `.stem/tools/`、`.stem/agent/`、`.stem/context/` 目录本身——
+//   不再有 config 镜像字段（旧 tools/agents/strategies 键已删除，
+//   出现于旧配置时被忽略）。
 //   - `model` 采用 opencode 格式 `提供商/模型`（如 `opencode-go/deepseek-v4-flash`）。
 // ============================================================
 
 import type { ToolAccess } from '../tools'
 import type { ModelRef } from '../gateway'
 
-/** 已注册的用户工具条目（纯镜像，init 自动维护）。 */
-export interface RegisteredTool {
-  /** 工具 id（与实现文件导出的 ToolCapability.id 同名）。 */
-  readonly id: string
-  /** 相对 `.stem/` 目录的实现文件路径，如 `tool/foo.ts`。 */
-  readonly file: string
-  /** 工具来源：user = 用户提供（`.stem/tool/`）。 */
-  readonly kind: 'user'
-  /** 是否启用（镜像保留；后续用户覆盖 enabled 时使用）。 */
-  readonly enabled: boolean
-}
-
-/** 已注册的用户 agent 条目（纯镜像，init 自动维护）。 */
-export interface RegisteredAgent {
-  /** agent 类 id（YAML 头 id 或文件名兜底）。 */
-  readonly id: string
-  /** 相对 `.stem/` 目录的实现文件路径，如 `agent/foo.md`。 */
-  readonly file: string
-}
-
-/** 已注册的用户上下文策略条目（纯镜像，init 自动维护）。 */
-export interface RegisteredStrategy {
-  /** 策略名（ContextStrategyModule.name，AgentClass.contextStrategy 引用）。 */
-  readonly id: string
-  /** 相对策略目录的实现文件路径，如 `foo.ts`。 */
-  readonly file: string
-}
-
 /**
  * user0 内嵌 agent 类完整配置（`config.user`——元 agent 单独处理为对象）。
  * 与 AgentClass 形状同构（name 固定 'user' 不可配，防命名空间入侵）：
- * user0 = user 类的普通实例，其"人格"（权限面/提示词/倒计时/模型/策略）
+ * user0 = user 类的普通实例，其"人格"（工具清单/提示词/倒计时/模型/策略）
  * 全部声明式可配，缺省走内置默认（DEFAULT_USER_* 见 kernel/userClass）。
  */
 export interface StemUserClass {
   readonly description?: string
   readonly systemPrompt?: string
   /**
-   * 工具权限清单 = user 类 tools（键即白名单：未列出的工具对 user0 一律
-   * deny；对子孙则只供显式判定——缺席 ≠ 否决，显式 deny/ask 锁子孙）。
-   * 给出则**整表替换**内置默认（含 access_reply 等根义务面，慎删）。
+   * 工具清单 = user 类 tools（键即白名单：未列出的工具对 user0 一律
+   * deny；对子孙则只供显式判定——缺席 ≠ 否决，显式 deny = 铁律锁子孙）。
+   * 给出则**整表替换**内置默认（含 access_reply 根义务与 bash 操作面，慎删）。
    */
-  readonly permission?: Readonly<Record<string, ToolAccess>>
+  readonly tools?: Readonly<Record<string, ToolAccess>>
   /** 上下文管理策略（user0 面板态默认不消费，pilot 未来 as() 扩展预留）。 */
   readonly contextStrategy?: string
   /** 模型偏好（解析 `提供商/模型` 字符串）。 */
@@ -84,6 +57,18 @@ export interface StemContextConfig {
   }
 }
 
+/** bash 工具配置块（`config.bash`——core 侧仅 defaultTimeoutMs/maxOutputChars/cwd 参与工具成形，path 透传给宿主 runner）。 */
+export interface StemBashConfig {
+  /** shell 二进制路径（缺省由宿主定，典型 'bash'）。 */
+  readonly path?: string
+  /** 缺省硬超时毫秒（工具参数 timeoutMs 可逐次覆盖）。 */
+  readonly defaultTimeoutMs?: number
+  /** stdout/stderr 各自截断上限（字符）。 */
+  readonly maxOutputChars?: number
+  /** 缺省工作目录（相对项目根由宿主解释；缺省 = 项目根）。 */
+  readonly cwd?: string
+}
+
 /**
  * 全局配置（`.stem/stem.jsonc` 的内容形状）。
  * 所有字段可选——读取时逐项兜底为默认值。
@@ -99,14 +84,15 @@ export interface StemConfig {
   readonly maxSteps?: number
   /** 上下文策略配置（window/compact）。 */
   readonly context?: StemContextConfig
+  /** bash 工具配置（超时/输出上限/shell 路径/缺省目录）。 */
+  readonly bash?: StemBashConfig
   /** 全局默认送信倒计时（毫秒；agent 文件/类未指定时使用）。 */
   readonly sendCountdown?: number
-  /** 已注册的用户工具（纯镜像，init 自动维护）。 */
-  readonly tools?: readonly RegisteredTool[]
-  /** 已注册的用户 agent（纯镜像，init 自动维护）。 */
-  readonly agents?: readonly RegisteredAgent[]
-  /** 已注册的用户上下文策略（纯镜像，init 自动维护）。 */
-  readonly strategies?: readonly RegisteredStrategy[]
+  /**
+   * 启用的宿主 tool_set 包 id（如 `["fs"]`；`[]` = 纯 bash 最小系统）。
+   * core 只透传字符串清单，解析加载由宿主装配层完成（缺省由宿主兜底）。
+   */
+  readonly extensions?: readonly string[]
   /** 用户自定义扩展配置（透传保留）。 */
   readonly custom?: Readonly<Record<string, unknown>>
 }

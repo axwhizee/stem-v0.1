@@ -15,7 +15,7 @@ import { DefaultTemplateRegistry } from '../kernel'
 import { runInit } from './init'
 import type { InitDeps, InitFs } from './types'
 
-function makePaths(toolDir = '/proj/.stem/tool', agentDir = '/proj/.stem/agent', strategyDir = '/proj/.stem/context'): ConfigPaths {
+function makePaths(toolDir = '/proj/.stem/tools', agentDir = '/proj/.stem/agent', strategyDir = '/proj/.stem/context'): ConfigPaths {
   return {
     projectRoot: '/proj',
     configDir: '/proj/.stem',
@@ -59,11 +59,10 @@ function makeDeps(opts: {
   readonly brokenTool?: boolean
 }): { deps: InitDeps; saved: () => string; savedCalls: () => number; registry: import('../context').StrategyRegistry } {
   const { store, saved } = makeStore(opts.configRaw)
-  let saveCalls = 0
   const registry = new DefaultStrategyRegistry()
   const fs: InitFs = {
     async listFiles(dir: string): Promise<readonly string[]> {
-      if (dir.endsWith('/tool')) return (opts.toolFiles ?? []).map((t) => `/proj/.stem/tool/${t.id}.ts`)
+      if (dir.endsWith('/tools')) return (opts.toolFiles ?? []).map((t) => `/proj/.stem/tools/${t.id}.ts`)
       if (dir.endsWith('/agent')) return (opts.agentTexts ?? []).map((a) => `/proj/.stem/agent/${a.file}`)
       if (dir.endsWith('/context')) return (opts.strategyFiles ?? []).map((s) => `/proj/.stem/context/${s.id}.ts`)
       return []
@@ -99,10 +98,10 @@ function makeDeps(opts: {
     strategyRegistry: registry,
     onLog: { log: () => {} },
   }
-  return { deps, saved: () => saved[0] ?? '', savedCalls: () => saveCalls, registry }
+  return { deps, saved: () => saved[0] ?? '', savedCalls: () => saved.length, registry }
 }
 
-test('首次创建：无配置时生成默认配置并登记工具/agent', async () => {
+test('首次创建：无配置时写入默认模板（目录即真相，不登记镜像）', async () => {
   const { deps, saved } = makeDeps({
     toolFiles: [{ id: 't1' }],
     agentTexts: [{ file: 'a1.md', text: '---\n---\nhello' }],
@@ -114,11 +113,11 @@ test('首次创建：无配置时生成默认配置并登记工具/agent', async
   assert.equal(report.registeredAgents.length, 1)
   assert.deepEqual(report.issues, [])
   const text = saved()
-  assert.match(text, /"t1"/)
-  assert.match(text, /"a1"/)
+  assert.match(text, /"extensions"/)
+  assert.doesNotMatch(text, /"t1"|"a1"/, '默认模板不含镜像')
 })
 
-test('再次运行：注册表不变时不写回', async () => {
+test('配置文件已存在：永不回写（管线只读 config）', async () => {
   const raw = '{\n  "model": "opencode-go/deepseek-v4-flash",\n  "tools": [{"id":"t1","file":"t1.ts","kind":"user","enabled":true}],\n  "agents": [{"id":"a1","file":"a1.md"}]\n}'
   const { deps, savedCalls } = makeDeps({
     toolFiles: [{ id: 't1' }],
@@ -130,7 +129,7 @@ test('再次运行：注册表不变时不写回', async () => {
   assert.deepEqual(report.issues, [])
 })
 
-test('已注册但无实现文件 → orphan_registration issue', async () => {
+test('旧镜像键（ghost 登记）被忽略：报告只反映目录发现', async () => {
   const raw =
     '{\n  "tools": [{"id":"ghost","file":"ghost.ts","kind":"user","enabled":true}],\n  "agents": [{"id":"ghost-agent","file":"ghost.md"}]\n}'
   const { deps } = makeDeps({
@@ -139,19 +138,9 @@ test('已注册但无实现文件 → orphan_registration issue', async () => {
     configRaw: raw,
   })
   const report = await runInit(deps)
-  const orphans = report.issues.filter((i) => i.kind === 'orphan_registration')
-  const orphanTools = orphans.filter(
-    (i): i is { readonly kind: 'orphan_registration'; readonly type: 'tool'; readonly id: string; readonly file: string } =>
-      i.type === 'tool',
-  )
-  const orphanAgents = orphans.filter(
-    (i): i is { readonly kind: 'orphan_registration'; readonly type: 'agent'; readonly id: string; readonly file: string } =>
-      i.type === 'agent',
-  )
-  assert.equal(orphanTools.length, 1)
-  assert.equal(orphanTools[0]?.id, 'ghost')
-  assert.equal(orphanAgents.length, 1)
-  assert.equal(orphanAgents[0]?.id, 'ghost-agent')
+  assert.deepEqual(report.issues, [], '镜像条目不再是孤儿问题来源')
+  assert.deepEqual(report.tools.map((t) => t.id), ['t1'], '发现 = 目录内容')
+  assert.deepEqual(report.agents.map((a) => a.id), ['a1'])
 })
 
 test('工具加载失败 → issue，其余继续', async () => {
@@ -185,7 +174,7 @@ test('用户 agent 注册为完整 AgentClass（id/name 取自文件名）', asy
   const { deps } = makeDeps({
     toolFiles: [],
     agentTexts: [
-      { file: 'reviewer.md', text: '---\npermission:\n  read: allow\nsend_countdown: 500\n---\nReview system.\n' },
+      { file: 'reviewer.md', text: '---\ntools:\n  read: allow\nsend_countdown: 500\n---\nReview system.\n' },
     ],
   })
   const report = await runInit(deps)
@@ -214,7 +203,7 @@ test('工具已注册冲突 → issue 不抛错', async () => {
 
 // ---------- 用户上下文策略（.stem/context/，S1′ 加载通道） ----------
 
-test('用户策略：扫描 .stem/context → 注册进策略注册表 + 配置镜像写回', async () => {
+test('用户策略：扫描 .stem/context → 注册进策略注册表 + 报告条目', async () => {
   const shouty = {
     name: 'shouty',
     assemble: (input: { messages: readonly { id: string; message: { role: string; content: unknown } }[] }) => ({
@@ -229,8 +218,8 @@ test('用户策略：扫描 .stem/context → 注册进策略注册表 + 配置�
   const report = await runInit(deps)
   assert.deepEqual(report.issues.filter((i) => i.kind.startsWith('strategy')), [])
   assert.ok(registry.has('shouty'), '策略应注册进注册表')
-  assert.deepEqual(report.config.strategies?.map((s) => [s.id, s.file]), [['shouty', 'shouty.ts']])
-  assert.match(saved(), /"shouty"/)
+  assert.deepEqual(report.strategies.map((s) => [s.id, s.file]), [['shouty', 'shouty.ts']])
+  assert.match(saved(), /"extensions"/, '无配置时写默认模板（不再镜像策略名）')
 })
 
 test('用户策略：形状非法（缺 assemble）→ strategy_invalid issue，不中断', async () => {

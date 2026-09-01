@@ -13,7 +13,7 @@
 //     供 telemetry、审计、限流等横切能力挂载；
 //  4. kind（internal/shell/user）是工具固有属性：internal=core 系统工具
 //     （默认 ignore 隐藏，显式 allow 才暴露），shell=宿主内置工具，
-//     user=用户 `.stem/tool/` 提供的工具。
+//     user=用户 `.stem/tools/` 提供的工具。
 // ============================================================
 
 /** 工具访问四态（权限融合进 tools 后的原子状态）。 */
@@ -42,7 +42,7 @@ export type ToolCategory =
  * 工具来源（固有属性）：
  *   - internal = core 系统工具（agent_* / context_*，Kernel 提供）；
  *   - shell = 宿主内置工具（shell/tools/，如 read/write/edit/grep/glob）；
- *   - user = 用户提供的工具（`.stem/tool/`，经 init 注册）。
+ *   - user = 用户提供的工具（`.stem/tools/`，经 init 注册）。
  */
 export type ToolKind = 'internal' | 'shell' | 'user'
 

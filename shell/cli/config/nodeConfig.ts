@@ -23,7 +23,7 @@ export function resolveConfigPaths(projectRoot: string): ConfigPaths {
     projectRoot: root,
     configDir,
     configFile: join(configDir, 'stem.jsonc'),
-    toolDir: join(configDir, 'tool'),
+    toolDir: join(configDir, 'tools'),
     agentDir: join(configDir, 'agent'),
     strategyDir: join(configDir, 'context'),
   }

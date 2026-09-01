@@ -1,12 +1,13 @@
 {
-  // stem 唯一配置文件：全局配置 + 同步注册表（tools/agents/strategies 由 init 自动维护）。
+  // stem 唯一配置文件（全局配置）。用户工具/agent/策略**目录即真相**：
+  // 放进 .stem/tools/、.stem/agent/、.stem/context/ 即自动注册（无镜像字段）。
   "model": "opencode-go/deepseek-v4-flash",
   "autoApprove": false,
   "maxSteps": 8,
-  // user0 内嵌 agent 类（元 agent 完整可配；permission 给出则整表替换默认——
+  // user0 内嵌 agent 类（元 agent 完整可配；tools 给出则整表替换默认——
   // 键即白名单锁 user0 自己；对子孙只供显式判定，缺席 ≠ 否决，显式 deny = 铁律）。
   "user": {
-    "permission": {
+    "tools": {
       "access_reply": "allow",
       "agent_instantiate": "allow",
       "agent_list": "allow",
@@ -23,6 +24,7 @@
       "context_apply": "allow",
       "agent_class_create": "ask",
       "agent_terminate": "ask",
+      "bash": "allow",
       "read": "allow",
       "grep": "allow",
       "glob": "allow",
@@ -35,20 +37,12 @@
     "window": 128000,
     "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 }
   },
-  "sendCountdown": 1000,
-  "tools": [
-    {
-      "id": "user_hello",
-      "file": "user_hello.ts",
-      "kind": "user",
-      "enabled": true
-    }
-  ],
-  "agents": [
-    {
-      "id": "user-reviewer",
-      "file": "user-reviewer.md"
-    }
-  ],
-  "strategies": []
+  // bash 工具（最小系统对外操作面；缺省项走 BASH_DEFAULTS：120s / 50k 字符）。
+  "bash": {
+    "defaultTimeoutMs": 120000,
+    "maxOutputChars": 50000
+  },
+  // 宿主 tool_set 包：["fs"] = read/write/edit/grep/glob；[] = 纯 bash 最小系统。
+  "extensions": ["fs"],
+  "sendCountdown": 1000
 }

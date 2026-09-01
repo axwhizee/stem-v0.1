@@ -41,6 +41,7 @@ import type { PilotEvent } from '../../src/core/events'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
 import { bootStem, createHostTools, demoTemplatesHook } from './platform'
 import type { InitReport } from '../../src/core/init'
+import type { StemConfig } from '../../src/core/config'
 
 const DEFAULT_PROJECT = process.env.STEM_PROJECT_ROOT ?? join(process.cwd(), 'tmp')
 const DEFAULT_USER_PROMPT = '你好，请做一个简短的自我介绍。'
@@ -53,8 +54,10 @@ interface ShellState {
   dialogs: QueueDialog
   /** 流式输出状态（避免收信重复打印）。 */
   display: { streamedAny: boolean }
-  /** 初始化报告（config + 注册表，供 /config 展示）。 */
+  /** 初始化报告（目录扫描结果，供 /config 展示）。 */
   init: InitReport
+  /** 生效配置（唯一配置文件读取结果）。 */
+  config: StemConfig
 }
 
 /** 演示业务工具：回显文本。 */
@@ -116,6 +119,7 @@ async function createShell(): Promise<ShellState> {
     dialogs,
     display,
     init: undefined as never,
+    config: undefined as never,
   }
 
   // 自治系统装配（platform.bootStem：config + 网关 + createStemSystem + user0 实例化）。
@@ -131,6 +135,7 @@ async function createShell(): Promise<ShellState> {
   state.source = source
   state.kernel = system.kernel
   state.init = system.init
+  state.config = system.config
   for (const issue of system.init.issues) console.log(`  [init] ${formatInitIssue(issue)}`)
 
   state.currentAgentId = await system.kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), DEFAULT_PROJECT, {
@@ -146,9 +151,6 @@ function contentText(content: unknown): string {
 
 /** 格式化初始化问题（不同 issue 形状不同）。 */
 function formatInitIssue(issue: InitReport['issues'][number]): string {
-  if (issue.kind === 'orphan_registration') {
-    return `已注册但无实现文件：${issue.type} ${issue.id}（${issue.file}）`
-  }
   return `${issue.kind}: ${issue.message}（${issue.file}）`
 }
 
@@ -231,16 +233,19 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       return false
     }
     case '/config': {
+      const cfg = state.config
       const init = state.init
       console.log(`  config: ${DEFAULT_PROJECT}/.stem/stem.jsonc`)
-      console.log(`  model: ${init.config.model ?? '(未配置)'}`)
-      console.log(`  autoApprove: ${init.config.autoApprove ?? false}`)
-      console.log(`  sendCountdown: ${init.config.sendCountdown ?? '(未配置)'}`)
-      console.log(`  user 类: ${init.config.user?.permission !== undefined ? `permission=${JSON.stringify(init.config.user.permission)}` : '(内置默认表)'}`)
-      console.log(`  context: ${init.config.context !== undefined ? JSON.stringify(init.config.context) : '(默认 window/compact)'}`)
+      console.log(`  model: ${cfg.model ?? '(未配置)'}`)
+      console.log(`  autoApprove: ${cfg.autoApprove ?? false}`)
+      console.log(`  sendCountdown: ${cfg.sendCountdown ?? '(未配置)'}`)
+      console.log(`  user 类: ${cfg.user?.tools !== undefined ? `tools=${JSON.stringify(cfg.user.tools)}` : '(内置默认表)'}`)
+      console.log(`  context: ${cfg.context !== undefined ? JSON.stringify(cfg.context) : '(默认 window/compact)'}`)
+      console.log(`  bash: ${cfg.bash !== undefined ? JSON.stringify(cfg.bash) : '(默认 120s/50k)'}`)
+      console.log(`  extensions: ${JSON.stringify(cfg.extensions ?? ['fs'])}`)
       console.log(`  注册工具: ${init.tools.length > 0 ? init.tools.map((t) => `${t.id}(${t.file})`).join(', ') : '-'}`)
       console.log(`  注册 agent: ${init.agents.length > 0 ? init.agents.map((a) => `${a.id}(${a.file})`).join(', ') : '-'}`)
-      console.log(`  注册策略: ${init.config.strategies && init.config.strategies.length > 0 ? init.config.strategies.map((s) => `${s.id}(${s.file})`).join(', ') : '-'}`)
+      console.log(`  注册策略: ${init.strategies.length > 0 ? init.strategies.map((s) => `${s.id}(${s.file})`).join(', ') : '-'}`)
       return false
     }
     case '/source':

@@ -17,14 +17,14 @@ import { createNodeConfigBundle } from './nodeConfig'
 
 async function makeProjectSpace(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'stem-config-'))
-  await mkdir(join(dir, '.stem', 'tool'), { recursive: true })
+  await mkdir(join(dir, '.stem', 'tools'), { recursive: true })
   await mkdir(join(dir, '.stem', 'agent'), { recursive: true })
   return dir
 }
 
 const AGENT_TEXT = `---
 description: 我的审查员
-permission:
+tools:
   read: allow
 send_countdown: 700
 ---
@@ -47,7 +47,7 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
   const dir = await makeProjectSpace()
   try {
     // 写工具 + agent 文件。
-    await writeFile(join(dir, '.stem', 'tool', 'my_tool.ts'), TOOL_TEXT)
+    await writeFile(join(dir, '.stem', 'tools', 'my_tool.ts'), TOOL_TEXT)
     await writeFile(join(dir, '.stem', 'agent', 'my-reviewer.md'), AGENT_TEXT)
 
     const bundle = createNodeConfigBundle(dir)
@@ -69,10 +69,10 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
     assert.equal(report.registeredTools.length, 1)
     assert.equal(report.registeredAgents.length, 1)
 
-    // 配置已写回（纯镜像）。
+    // 配置文件不存在 → 写入默认模板；目录即真相，不回写镜像登记。
     const text = await readFile(join(dir, '.stem', 'stem.jsonc'), 'utf8')
-    assert.match(text, /"my_tool"/)
-    assert.match(text, /"my-reviewer"/)
+    assert.match(text, /"extensions"/)
+    assert.doesNotMatch(text, /my_tool|my-reviewer/, '不再有镜像写回')
 
     // registry 中可查到用户工具。
     const tool = await toolRegistry.get('my_tool')
@@ -88,10 +88,10 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
   }
 })
 
-test('真实 fs：已注册但无实现文件 → orphan issue 并从镜像移除', async () => {
+test('真实 fs：旧镜像 ghost 键被忽略（目录即真相）', async () => {
   const dir = await makeProjectSpace()
   try {
-    // 先写一个配置文件（含幽灵注册）。
+    // 旧配置含幽灵镜像键（S4.2 起解析时被丢弃，不报错也不产出）。
     const ghostConfig = `{
       "tools": [{ "id": "ghost", "file": "ghost.ts", "kind": "user", "enabled": true }],
       "agents": [{ "id": "ghost-agent", "file": "ghost-agent.md" }]
@@ -108,8 +108,7 @@ test('真实 fs：已注册但无实现文件 → orphan issue 并从镜像移�
       onLog: { log: () => {} },
     })
 
-    const orphans = report.issues.filter((i) => i.kind === 'orphan_registration')
-    assert.equal(orphans.length, 2)
+    assert.deepEqual(report.issues, [], 'ghost 登记不再是问题来源')
     assert.deepEqual(report.tools, [])
     assert.deepEqual(report.agents, [])
   } finally {

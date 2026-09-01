@@ -771,3 +771,34 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - self_focus / ltm-stm-mix / coding-hybrid 策略（契约与插槽就绪，逐策略独立模块交付）。
 - `agent_class_create` 落盘回写 `.stem/agent/*.md`（自我进化闭环）；benchmark 模块（评估→进化回路）。
 - Docker 打包（node:24-slim 基像、tsx 移入 dependencies、/api/health）——按定稿在 v1.0 前执行。
+
+## 阶段：bash 最小操作面 + extensions tool_set + 目录即真相 + OLED webui + Docker（S4，1.0 前置）
+
+**日期**：2026-09-01
+
+### 目标
+
+用户规划：不采用扩展时，除系统工具外**只应有 bash** 供模型操作外部文件/系统。四方讨论冻结四决策：fs 五件套 = extension tool_set（config.extensions 选择、缺省 ["fs"] 保默认体验）；config 三镜像全删（目录即真相）；层级取**最小变体**（不动目录，extension 定义为 tool_set 包）；webui 采用 **OLED 友好主题**（纯黑 + 青绿运行色 + 品红介入色）。
+
+### 完成内容
+
+1. **S4.1 bash（9373dbc）**：`core/tools/bash.ts` = internal 工具 + `ShellRunner` 端口（core 零平台依赖，node child_process 实现驻 `shell/cli/bash.ts` 经 bootStem 注入，`shellRunner:false` 可关）。治理对齐 pi：**无 ask 无黑名单**——事故半径三机制（硬超时缺省 120s / stdout·stderr 各 50k 截断 / cwd 缺省项目根）+ 描述提示词分担（非交互式、专职工具优先、退出码非零非失败）；不给 shell = 白名单不列键。`config.bash{path,defaultTimeoutMs,maxOutputChars,cwd}`；DEFAULT_USER_TOOLS 内置 `bash:'allow'`。
+2. **S4.2 目录即真相 + tool_set（4b44db6）**：三镜像（tools/agents/strategies）从 config 类型/解析/init 写回整体移除（已核实 agent_class_create 本就不落盘 → 镜像零信息量）；runInit 只在配置文件不存在时写默认模板、**此后纯只读永不回写**；orphan 检测随之消失。`config.extensions: string[]`（core 透传无感知；bootStem `TOOL_SETS` 清单解析，缺省 `["fs"]`、`[]` = 纯 bash、未知 id 告警跳过）；`user.permission`→`user.tools`、`.md` frontmatter `permission`→`tools`（与 AgentClass.tools 齐平，不留兼容读）；`.stem/tool/`→`.stem/tools/`。
+3. **S4.3 webui（a23c8ac）**：OLED 主题（纯黑 #000、边框+留白分层禁灰底卡片、青绿=运行/主操作 + 品红=ask/interrupted/销毁、状态"字形+色+文字"三重编码）；header 动作补 compact/销毁（confirm+recursive，明示语料保留）；summary 归档渲染为分隔条、无效消息不显示但仓库保留；`/api/health`；绑定：裸机 127.0.0.1、容器 STEM_HOST=0.0.0.0。
+4. **S4.4 Docker（25e987f）**：node:24-slim + 非 root + `/data` volume（配置自举 + SQLite）+ HEALTHCHECK（node 内置 fetch，slim 无 curl）；**tsx 移入 dependencies**（兑现"镜像勿按 devDependency 剔除"）；无 key 回落 mock 开箱可跑。
+
+### 架构立场（本轮定形）
+
+- **对外操作面 = bash 单点**；**容器即边界**（挂载 volume = 爆炸半径，不建议裸机暴露 webui）——bash 无 ask 与 Docker 发布同批落地、互为前提。
+- **目录即真相**：`.stem/{tools,agent,context}/` 是唯一注册面，config 纯声明、init 纯只读（除首次自举）。
+- extension 语义收敛为 tool_set 包；shell 保持"官方宿主 + 参考 UI"（最小变体，host/apps 重组推迟到真实需要时）。
+
+### 验证
+
+- 202/202 测试 + typecheck 0；真实 spawn 冒烟（超时强杀/截断路径/缺省 cwd）；extensions 三态冒烟（默认 fs / [] 纯 bash / 未知 id 容错）；webui 冒烟（health / send→mock 回复→context 落库往返 / OLED 令牌渲染 / 持久恢复 interrupted）。
+- 镜像语义迁移踩点：`tools.get()` 未命中抛错而非返回 undefined（materialize 返回 ToolDefinition 用 `name` 字段——冒烟脚本首查 bash 误报即此因）。
+
+### 遗留
+
+- `agent_class_create` 类落盘回写 `.stem/agent/*.md`（镜像删除后此闭环更显紧迫）；`templates/` 下拉暂含 user 类实例化（平等化设计内，UI 折叠留后）。
+- Docker 构建需 Windows 侧执行（本 WSL 未开 integration）；国内网络或需 registry mirror。

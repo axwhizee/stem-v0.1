@@ -5,7 +5,7 @@
 // 类名这一格式约束，字段可扩展）：
 //   ---
 //   description: ...           # 可选（缺省 = 文件名）
-//   permission:                # 融合的工具列表 + 权限（工具=权限的键）
+//   permission:                # 融合的工具清单（工具=键、动作=值，键即白名单）
 //     read: allow
 //     edit: ask
 //     bash: deny
@@ -18,7 +18,7 @@
 //
 // 设计要点：
 //   - **不要求 id/name**：文件名即 agent 类 id 与 name（实例化时才命名）。
-//   - **工具与权限融合**：`permission` 的键即工具白名单，避免
+//   - **工具与权限融合**：`tools` 的键即工具白名单，避免
 //     "有权限无工具 / 有工具无权限" 的尴尬；白名单为本地封闭（键即白名单），
 //     祖先显式 deny/ask 仍取严（见 lineage/AccessLedger）。
 //   - **未知字段不丢弃**：全部透传 custom——用户模板与内置类配置面齐平，
@@ -33,7 +33,7 @@ import type { ToolAccess } from '../tools'
 export interface AgentFrontmatter {
   readonly description?: string
   /** 融合的工具访问：工具名 → allow|ask|deny|ignore（键即工具白名单）。 */
-  readonly permission?: Readonly<Record<string, string>>
+  readonly tools?: Readonly<Record<string, string>>
   readonly send_countdown?: number
   /** 上下文管理策略名（缺省 classic；注册期由策略注册表校验）。 */
   readonly context_strategy?: string
@@ -78,8 +78,8 @@ export function parseAgentFile(text: string, filename: string): ParsedAgentFile 
   const id = filename
   const name = filename
   const description = head.description ?? name
-  const toolAccess = normalizePermissions(head.permission, fail)
-  // 融合：工具白名单 = permission 的键（缺省无工具）。
+  const toolAccess = normalizePermissions(head.tools, fail)
+  // 融合：工具白名单 = tools 的键（缺省无工具）。
   const tools = Object.keys(toolAccess)
   const systemPrompt = extractPrompt(text)
   const model = head.model !== undefined ? parseModelString(head.model, fail) : undefined
@@ -112,7 +112,7 @@ export function parseFrontmatter(text: string): Record<string, unknown> {
 }
 
 /** 已知键（其余透传 custom）。 */
-const KNOWN_KEYS: ReadonlySet<string> = new Set(['description', 'permission', 'send_countdown', 'context_strategy', 'model'])
+const KNOWN_KEYS: ReadonlySet<string> = new Set(['description', 'tools', 'send_countdown', 'context_strategy', 'model'])
 
 /** 归一化 YAML 头为 AgentFrontmatter（校验字段类型；未知键收进 extra）。 */
 export function normalizeHead(raw: Record<string, unknown>, fail: (message: string) => never): AgentFrontmatter {
@@ -123,9 +123,9 @@ export function normalizeHead(raw: Record<string, unknown>, fail: (message: stri
   ) {
     fail('send_countdown 必须是非负数字（毫秒）')
   }
-  if (raw.permission !== undefined) {
-    if (raw.permission === null || typeof raw.permission !== 'object' || Array.isArray(raw.permission)) {
-      fail('permission 必须是对象')
+  if (raw.tools !== undefined) {
+    if (raw.tools === null || typeof raw.tools !== 'object' || Array.isArray(raw.tools)) {
+      fail('tools 必须是对象')
     }
   }
   if (raw.context_strategy !== undefined && typeof raw.context_strategy !== 'string') {
@@ -139,8 +139,8 @@ export function normalizeHead(raw: Record<string, unknown>, fail: (message: stri
 
   return {
     ...(raw.description !== undefined ? { description: raw.description as string } : {}),
-    ...(raw.permission !== undefined
-      ? { permission: raw.permission as Readonly<Record<string, string>> }
+    ...(raw.tools !== undefined
+      ? { tools: raw.tools as Readonly<Record<string, string>> }
       : {}),
     ...(raw.send_countdown !== undefined ? { send_countdown: raw.send_countdown as number } : {}),
     ...(raw.context_strategy !== undefined ? { context_strategy: raw.context_strategy as string } : {}),
@@ -170,7 +170,7 @@ function normalizePermissions(
 ): Readonly<Record<string, ToolAccess>> {
   const result: Record<string, ToolAccess> = {}
   for (const [tool, action] of Object.entries(raw ?? {})) {
-    if (!ACTIONS.includes(action)) fail(`permission.${tool} 非法（允许 allow/ask/deny/ignore）`)
+    if (!ACTIONS.includes(action)) fail(`tools.${tool} 非法（允许 allow/ask/deny/ignore）`)
     result[tool] = action as ToolAccess
   }
   return result

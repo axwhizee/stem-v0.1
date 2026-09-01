@@ -5,71 +5,108 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>stem · WebUIShell</title>
 <style>
+  /* ============ OLED 友好主题：纯黑底 + 边框分层（无灰底卡片） + 双色语义 ============ */
   :root {
-    --bg: #0f1115; --panel: #171a21; --panel2: #1e222b; --border: #2a2f3a;
-    --text: #e6e9ef; --muted: #8b93a5; --accent: #4f8cff; --danger: #e5534b;
-    --user-bubble: #2b4a7a; --agent-bubble: #232833; --tool-bg: #1a1d26;
+    --bg: #000000;            /* OLED 纯黑 */
+    --surface: #060708;       /* 极深面板（≈黑，靠边框分层） */
+    --border: #1c2026;        /* 主分层边框 */
+    --border-strong: #2e3540; /* 焦点/强调边框 */
+    --text: #eef1f3;
+    --muted: #6b7480;
+    --accent: #3df5c8;        /* 青绿 = 正常/运行/主操作 */
+    --accent-dim: rgba(61, 245, 200, .16);
+    --alert: #ff2ec8;         /* 品红 = 需介入（ask / interrupted / 危险操作） */
+    --alert-dim: rgba(255, 46, 200, .16);
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
-  body { background: var(--bg); color: var(--text); font: 14px/1.5 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; display: flex; }
-  aside { width: 280px; min-width: 280px; background: var(--panel); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-  aside h1 { font-size: 15px; padding: 14px 16px; border-bottom: 1px solid var(--border); }
+  body { background: var(--bg); color: var(--text); font: 14px/1.55 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; display: flex; }
+  ::selection { background: var(--accent-dim); }
+  button { background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
+  button:hover { border-color: var(--border-strong); color: var(--accent); }
+  button.alert:hover { color: var(--alert); border-color: var(--alert); }
+
+  /* —— 左栏：agent 列表（边框分层，不用阴影卡片） —— */
+  aside { width: 280px; min-width: 280px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+  aside h1 { font-size: 14px; letter-spacing: .06em; padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 600; }
   aside h1 small { color: var(--muted); font-weight: normal; }
-  #agentList { flex: 1; overflow-y: auto; padding: 8px; }
-  .agent { padding: 8px 10px; border-radius: 8px; cursor: pointer; margin-bottom: 4px; }
-  .agent:hover { background: var(--panel2); }
-  .agent.active { background: var(--panel2); outline: 1px solid var(--accent); }
-  .agent .name { font-weight: 600; }
-  .agent .meta { color: var(--muted); font-size: 12px; }
-  .agent .status { float: right; font-size: 11px; color: var(--muted); }
-  .agent .status.thinking { color: var(--accent); }
-  #createBox { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
-  #createBox h3 { font-size: 12px; color: var(--muted); font-weight: 600; }
-  #createBox select, #createBox input, #createBox button { background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 13px; }
-  #createBox button { background: var(--accent); color: #fff; cursor: pointer; border: none; }
+  #agentList { flex: 1; overflow-y: auto; }
+  .agent { padding: 10px 14px; cursor: pointer; border-bottom: 1px solid #0e1013; border-left: 2px solid transparent; }
+  .agent:hover { background: #090b0d; }
+  .agent.active { border-left-color: var(--accent); background: #090b0d; }
+  .agent .name { font-weight: 600; font-size: 13px; }
+  .agent .meta { color: var(--muted); font-size: 11px; font-family: ui-monospace, monospace; }
+  .agent .status { float: right; font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+  /* 状态 = 字形 + 颜色 双重编码（黑白极端对比下不依赖颜色） */
+  .agent .status.thinking, .agent .status.holding { color: var(--accent); }
+  .agent .status.interrupted { color: var(--alert); }
+  .agent .status.idle { color: var(--muted); }
+  #createBox { padding: 12px 14px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+  #createBox h3 { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .08em; }
+  #createBox select, #createBox input { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 13px; }
+  #createBox select:focus, #createBox input:focus { outline: none; border-color: var(--accent); }
+  #createBox button { border-color: var(--accent); color: var(--accent); }
+  #createBox button:hover { background: var(--accent-dim); }
+
+  /* —— 主区 —— */
   main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; }
+  #header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; background: var(--surface); }
   #header .name { font-weight: 600; }
-  #header .meta { color: var(--muted); font-size: 12px; }
-  #header button { background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 12px; margin-left: auto; }
-  #timeline { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 10px; }
-  .msg { max-width: 78%; padding: 8px 12px; border-radius: 10px; white-space: pre-wrap; word-break: break-word; }
-  .msg.user { align-self: flex-end; background: var(--user-bubble); }
-  .msg.assistant { align-self: flex-start; background: var(--agent-bubble); }
-  .msg.tool { align-self: stretch; background: var(--tool-bg); border: 1px solid var(--border); font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); white-space: pre-wrap; }
-  .msg.system { align-self: stretch; text-align: center; color: var(--muted); font-size: 12px; background: none; }
-  .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 4px; }
-  .msg.streaming::after { content: "▍"; color: var(--accent); animation: blink 1s infinite; }
+  #header .meta { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
+  #header .actions { margin-left: auto; display: flex; gap: 8px; }
+  #timeline { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+
+  /* 消息 = 扁平左边框制，无圆角气泡堆叠 */
+  .msg { max-width: 82%; padding: 8px 12px; white-space: pre-wrap; word-break: break-word; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+  .msg.user { align-self: flex-end; border-left: none; border-right: 2px solid var(--border-strong); }
+  .msg.assistant { align-self: flex-start; border-left: 2px solid var(--border-strong); }
+  .msg.tool { align-self: stretch; font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); border-left: 2px solid #12151a; background: #040506; }
+  .msg.system { align-self: stretch; text-align: center; color: var(--muted); font-size: 12px; background: none; border: none; }
+  .msg.meta { align-self: stretch; text-align: center; font-size: 12px; color: var(--accent); background: none; border: none; border-top: 1px dashed #12332a; border-bottom: 1px dashed #12332a; border-radius: 0; padding: 4px; }
+  .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 4px; font-family: ui-monospace, monospace; }
+  .msg.streaming::after { content: "▍"; color: var(--accent); animation: blink 1s step-end infinite; }
   @keyframes blink { 50% { opacity: 0; } }
-  #composer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; }
-  #composer textarea { flex: 1; resize: none; height: 44px; background: var(--panel2); color: var(--text); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 14px; }
-  #composer button { width: 72px; background: var(--accent); color: #fff; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; }
-  #permission { position: fixed; right: 20px; top: 20px; width: 320px; background: var(--panel); border: 1px solid var(--accent); border-radius: 10px; padding: 14px; box-shadow: 0 8px 30px rgba(0,0,0,.4); display: none; z-index: 10; }
-  #permission .title { font-weight: 600; margin-bottom: 6px; }
-  #permission .body { color: var(--muted); font-size: 13px; margin-bottom: 10px; }
-  #permission button { border: none; border-radius: 6px; padding: 6px 12px; cursor: pointer; margin-right: 8px; font-size: 13px; }
-  #permission .once { background: var(--accent); color: #fff; }
-  #permission .always { background: var(--panel2); color: var(--text); border: 1px solid var(--border); }
-  #permission .reject { background: var(--danger); color: #fff; }
+
+  #composer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; background: var(--surface); }
+  #composer textarea { flex: 1; resize: none; height: 46px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 12px; font-size: 14px; font-family: inherit; }
+  #composer textarea:focus { outline: none; border-color: var(--accent); }
+  #composer button { border-color: var(--accent); color: var(--accent); padding: 4px 18px; font-size: 14px; }
+  #composer button:hover { background: var(--accent-dim); }
+
+  /* —— ask 弹窗 = 品红（需介入语义） —— */
+  #permission { position: fixed; right: 20px; top: 20px; width: 340px; background: var(--surface); border: 1px solid var(--alert); border-radius: 6px; padding: 14px; display: none; z-index: 10; }
+  #permission .title { font-weight: 600; margin-bottom: 6px; color: var(--alert); }
+  #permission .body { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  #permission .row { display: flex; gap: 8px; }
+  #permission .once { border-color: var(--accent); color: var(--accent); }
+  #permission .reject { border-color: var(--alert); color: var(--alert); }
+
+  /* 连接状态点（header 右端） */
+  #conn { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  #conn.on { background: var(--accent); box-shadow: 0 0 6px var(--accent-dim); }
 </style>
 </head>
 <body>
 <aside>
-  <h1>stem <small>· WebUIShell</small></h1>
+  <h1>STEM <small>· WebUIShell</small></h1>
   <div id="agentList"></div>
   <div id="createBox">
-    <h3>创建 agent（以 user0 身份）</h3>
+    <h3>创建 AGENT（以 user0 身份）</h3>
     <select id="createClass"></select>
     <input id="createPrompt" placeholder="首条 user prompt…" />
-    <button id="createBtn">创建</button>
+    <button id="createBtn">+ 实例化</button>
   </div>
 </aside>
 <main>
   <div id="header">
     <span class="name" id="curName">-</span>
     <span class="meta" id="curMeta"></span>
-    <button id="stopBtn">中断</button>
+    <span class="actions">
+      <button id="compactBtn" title="执行 classic compact（手动压缩上下文）">⊂ compact</button>
+      <button id="stopBtn" title="中断当前轮（可恢复）">⏸ 中断</button>
+      <button id="killBtn" class="alert" title="销毁实例（级联子树）">✕ 销毁</button>
+      <span id="conn" title="事件流连接"></span>
+    </span>
   </div>
   <div id="timeline"></div>
   <div id="composer">
@@ -78,11 +115,13 @@
   </div>
 </main>
 <div id="permission">
-  <div class="title">工具访问确认</div>
+  <div class="title">⚠ 工具访问确认</div>
   <div class="body" id="permBody"></div>
-  <button class="once" id="permOnce">单次批准</button>
-  <button class="always" id="permAlways">始终批准</button>
-  <button class="reject" id="permReject">拒绝</button>
+  <div class="row">
+    <button class="once" id="permOnce">单次批准</button>
+    <button class="always" id="permAlways">始终批准</button>
+    <button class="reject" id="permReject">拒绝</button>
+  </div>
 </div>
 <script>
 'use strict'
@@ -94,9 +133,10 @@ let pendingAccess = null
 
 // ---------- 渲染 ----------
 
-function agentStatusClass(status) {
-  return status === 'thinking' || status === 'holding' ? ' thinking' : ''
-}
+/** 状态字形映射：色 + 字形 + 文字三重编码（OLED 黑白主题不依赖颜色传达状态）。 */
+const STATUS_GLYPH = { idle: '○', thinking: '◐', holding: '◕', interrupted: '▲' }
+const statusText = (s) => `${STATUS_GLYPH[s] ?? '·'} ${s}`
+const statusClass = (s) => (s === 'thinking' || s === 'holding' ? ' thinking' : s === 'interrupted' ? ' interrupted' : ' idle')
 
 async function loadAgents() {
   const agents = await fetch('/api/agents').then((r) => r.json())
@@ -106,8 +146,8 @@ async function loadAgents() {
     const el = document.createElement('div')
     el.className = 'agent' + (a.id === currentAgentId ? ' active' : '')
     el.innerHTML =
-      `<div class="name">${esc(a.displayName)}<span class="status${agentStatusClass(a.status)}">${esc(a.status)}</span></div>` +
-      `<div class="meta">${esc(a.id)} · <${esc(a.classRef)}>${a.parentId ? '' : ' · 根'}</div>`
+      `<div class="name">${esc(a.displayName)}<span class="status${statusClass(a.status)}">${esc(statusText(a.status))}</span></div>` +
+      `<div class="meta">${esc(a.id)} · &lt;${esc(a.classRef)}&gt;${a.parentId ? '' : ' · 根'}</div>`
     el.onclick = () => selectAgent(a.id)
     list.appendChild(el)
   }
@@ -122,12 +162,12 @@ function renderTimeline(messages) {
   timeline.innerHTML = ''
   liveBubble = null
   for (const m of messages) {
-    if (!m.valid) continue
-    if (m.role === 'system') { timeline.appendChild(msgEl('system', m.content)); continue }
-    if (m.role === 'tool') { timeline.appendChild(msgEl('tool', '🔧 ' + m.content)); continue }
-    const text = m.content
+    if (!m.valid) continue // markInvalid（compact 归档）消息不渲染——但保留在仓库（可审计）
+    if (m.tag === 'summary') { timeline.appendChild(msgEl('meta', '— 上下文摘要（compact 归档，原文保留于仓库）—')); continue }
+    if (m.role === 'system') continue // system 提示词不上时间线
+    if (m.role === 'tool') { timeline.appendChild(msgEl('tool', '⚙ ' + m.content)); continue }
     const isUser = m.role === 'user'
-    const el = msgEl(isUser ? 'user' : 'assistant', text, isUser ? '你' : (m.from ? '来自 ' + m.from : currentAgentId))
+    const el = msgEl(isUser ? 'user' : 'assistant', m.content, isUser ? '你' : (m.from ? '来自 ' + m.from : currentAgentId))
     timeline.appendChild(el)
   }
   timeline.scrollTop = timeline.scrollHeight
@@ -145,11 +185,9 @@ function msgEl(cls, text, who) {
 
 function openStream() {
   const es = new EventSource('/api/events')
-  es.onmessage = (e) => {
-    const ev = JSON.parse(e.data)
-    handleEvent(ev)
-  }
-  es.onerror = () => { es.close(); setTimeout(openStream, 2000) }
+  es.onopen = () => $('conn').classList.add('on')
+  es.onmessage = (e) => handleEvent(JSON.parse(e.data))
+  es.onerror = () => { $('conn').classList.remove('on'); es.close(); setTimeout(openStream, 2000) }
 }
 
 function handleEvent(ev) {
@@ -172,13 +210,13 @@ function handleEvent(ev) {
   if (ev.type === 'status') loadAgents()
 }
 
-// ---------- 访问确认 ----------
+// ---------- 访问确认（ask 消息化） ----------
 
 function showPermission(content) {
   const m = content.match(/<access_request id="([^"]+)" accessKey="([^"]+)" agentId="([^"]+)">/)
   if (!m) return
   pendingAccess = { requestId: m[1], accessKey: m[2], agentId: m[3] }
-  $('permBody').textContent = `agent ${m[3]} 正在申请使用工具「${m[2]}」`
+  $('permBody').textContent = `agent ${m[3]} 申请使用工具「${m[2]}」（授权者：族谱根 user0 = 你）`
   $('permission').style.display = 'block'
 }
 async function replyAccess(reply) {
@@ -199,7 +237,7 @@ async function selectAgent(id) {
   const agents = await fetch('/api/agents').then((r) => r.json())
   const a = agents.find((x) => x.id === id)
   $('curName').textContent = a ? a.displayName : id
-  $('curMeta').textContent = a ? `${a.id} · <${a.classRef}> · ${a.status}` : ''
+  $('curMeta').textContent = a ? `${a.id} · <${a.classRef}> · ${statusText(a.status)}` : ''
   await loadAgents()
   await loadContext(id)
 }
@@ -226,6 +264,7 @@ async function loadTemplates() {
   const sel = $('createClass')
   sel.innerHTML = ''
   for (const t of templates) {
+    if (t.panel) continue // 面板类（user/策略 role）不可实例化对话
     const opt = document.createElement('option')
     opt.value = t.name
     opt.textContent = t.name
@@ -237,6 +276,22 @@ $('sendBtn').onclick = send
 $('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } })
 $('createBtn').onclick = createAgent
 $('stopBtn').onclick = async () => { if (currentAgentId) await fetch('/api/interrupt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId }) }) }
+$('compactBtn').onclick = async () => {
+  if (!currentAgentId) return
+  const r = await fetch('/api/context_action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId, action: 'compact' }) })
+  const d = await r.json()
+  if (d.result) { await loadContext(currentAgentId) }
+}
+$('killBtn').onclick = async () => {
+  if (!currentAgentId || currentAgentId === 'user0') return
+  if (!confirm(`销毁 ${currentAgentId}？（级联销毁其子树；消息语料保留于仓库）`)) return
+  await fetch('/api/terminate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId, recursive: true }) })
+  currentAgentId = ''
+  await loadAgents()
+  const agents = await fetch('/api/agents').then((r) => r.json())
+  const first = agents.find((a) => a.id !== 'user0')
+  if (first) await selectAgent(first.id)
+}
 
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
 

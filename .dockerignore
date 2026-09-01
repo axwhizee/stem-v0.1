@@ -1,0 +1,15 @@
+# 参考源码（git 子树级别的大小，绝不进镜像）
+reference/
+# 仓库与开发杂项
+.git/
+.gitignore
+node_modules/
+docs/
+tmp/
+prototype/
+*.md
+# 本地状态（容器里由 /data volume 承载）
+**/.stem/*.db
+**/.stem/*.db-journal
+**/.stem/*.db-wal
+**/.stem/*.db-shm

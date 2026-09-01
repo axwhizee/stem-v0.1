@@ -1,6 +1,6 @@
 ---
 description: 代码审查员（用户自定义 agent 示例）：审阅代码并指出问题。
-permission:
+tools:
   read: allow
   glob: allow
   grep: allow

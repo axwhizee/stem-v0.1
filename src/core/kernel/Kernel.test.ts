@@ -197,7 +197,7 @@ describe('Kernel 邮局模式', () => {
     // user 类清单显式声明管理工具 = user0 生效权限（族谱台账物化，白名单语义）。
     const { kernel, tools } = await createKernelHarness(gateway, {
       userClass: {
-        permission: {
+        tools: {
           agent_class_create: 'allow',
           agent_class_list: 'allow',
           agent_instantiate: 'allow',

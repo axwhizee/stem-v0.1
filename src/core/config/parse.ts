@@ -8,7 +8,7 @@
 import { parse as parseJsonc } from 'jsonc-parser'
 import type { ParseError } from 'jsonc-parser'
 import type { ToolAccess } from '../tools'
-import type { ConfigError, StemConfig, StemContextConfig, StemUserClass } from './types'
+import type { ConfigError, StemBashConfig, StemConfig, StemContextConfig, StemUserClass } from './types'
 
 /** 合法工具访问动作（四态）。 */
 const ACTIONS: readonly ToolAccess[] = ['allow', 'deny', 'ask', 'ignore']
@@ -57,9 +57,8 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
   const maxSteps = validateNumber(raw.maxSteps, fail, 'maxSteps')
   const user = raw.user !== undefined ? validateUser(raw.user, fail) : undefined
   const context = raw.context !== undefined ? validateContext(raw.context, fail) : undefined
-  const tools = raw.tools !== undefined ? normalizeTools(raw.tools, fail) : undefined
-  const agents = raw.agents !== undefined ? normalizeAgents(raw.agents, fail) : undefined
-  const strategies = raw.strategies !== undefined ? normalizeStrategies(raw.strategies, fail) : undefined
+  const bash = raw.bash !== undefined ? validateBash(raw.bash, fail) : undefined
+  const extensions = raw.extensions !== undefined ? validateExtensions(raw.extensions, fail) : undefined
   const custom =
     raw.custom !== undefined && raw.custom !== null && typeof raw.custom === 'object'
       ? (raw.custom as Readonly<Record<string, unknown>>)
@@ -72,9 +71,8 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
     ...(maxSteps !== undefined ? { maxSteps } : {}),
     ...(user !== undefined ? { user } : {}),
     ...(context !== undefined ? { context } : {}),
-    ...(tools !== undefined ? { tools } : {}),
-    ...(agents !== undefined ? { agents } : {}),
-    ...(strategies !== undefined ? { strategies } : {}),
+    ...(bash !== undefined ? { bash } : {}),
+    ...(extensions !== undefined ? { extensions } : {}),
     ...(custom !== undefined ? { custom } : {}),
   }
 }
@@ -148,7 +146,7 @@ function validateUser(value: unknown, fail: (message: string) => never): StemUse
   return {
     ...(raw.description !== undefined ? { description: raw.description as string } : {}),
     ...(raw.systemPrompt !== undefined ? { systemPrompt: raw.systemPrompt as string } : {}),
-    ...(raw.permission !== undefined ? { permission: validatePermissionRecord(raw.permission, fail, 'user.permission') } : {}),
+    ...(raw.tools !== undefined ? { tools: validatePermissionRecord(raw.tools, fail, 'user.tools') } : {}),
     ...(raw.contextStrategy !== undefined ? { contextStrategy: raw.contextStrategy as string } : {}),
     ...(raw.model !== undefined ? { model: validateModelRef(raw.model, fail, 'user.model') } : {}),
     ...(raw.sendCountdown !== undefined ? { sendCountdown: validateNumber(raw.sendCountdown, fail, 'user.sendCountdown') } : {}),
@@ -186,47 +184,30 @@ function validateContext(value: unknown, fail: (message: string) => never): Stem
   }
 }
 
-function normalizeTools(raw: unknown, fail: (message: string) => never): StemConfig['tools'] {
-  if (!Array.isArray(raw)) fail('tools 必须是数组')
-  return raw.map((item, index) => {
-    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
-      fail(`tools[${index}] 必须是对象`)
-    }
-    const entry = item as Record<string, unknown>
-    if (typeof entry.id !== 'string') fail(`tools[${index}].id 必须是字符串`)
-    if (typeof entry.file !== 'string') fail(`tools[${index}].file 必须是字符串`)
-    return {
-      id: entry.id,
-      file: entry.file,
-      kind: entry.kind === 'user' ? 'user' : 'user',
-      enabled: entry.enabled === false ? false : true,
-    }
-  })
+/** bash 工具配置块（path/defaultTimeoutMs/maxOutputChars/cwd）。 */
+function validateBash(value: unknown, fail: (message: string) => never): StemBashConfig | undefined {
+  if (value === undefined) return undefined
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('bash 必须是对象')
+  }
+  const raw = value as Record<string, unknown>
+  if (raw.path !== undefined && typeof raw.path !== 'string') fail('bash.path 必须是字符串')
+  if (raw.cwd !== undefined && typeof raw.cwd !== 'string') fail('bash.cwd 必须是字符串')
+  return {
+    ...(raw.path !== undefined ? { path: raw.path as string } : {}),
+    ...(raw.defaultTimeoutMs !== undefined ? { defaultTimeoutMs: validateNumber(raw.defaultTimeoutMs, fail, 'bash.defaultTimeoutMs') } : {}),
+    ...(raw.maxOutputChars !== undefined ? { maxOutputChars: validateNumber(raw.maxOutputChars, fail, 'bash.maxOutputChars') } : {}),
+    ...(raw.cwd !== undefined ? { cwd: raw.cwd as string } : {}),
+  }
 }
 
-function normalizeAgents(raw: unknown, fail: (message: string) => never): StemConfig['agents'] {
-  if (!Array.isArray(raw)) fail('agents 必须是数组')
-  return raw.map((item, index) => {
-    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
-      fail(`agents[${index}] 必须是对象`)
-    }
-    const entry = item as Record<string, unknown>
-    if (typeof entry.id !== 'string') fail(`agents[${index}].id 必须是字符串`)
-    if (typeof entry.file !== 'string') fail(`agents[${index}].file 必须是字符串`)
-    return { id: entry.id, file: entry.file }
-  })
-}
-
-function normalizeStrategies(raw: unknown, fail: (message: string) => never): StemConfig['strategies'] {
-  if (!Array.isArray(raw)) fail('strategies 必须是数组')
-  return raw.map((item, index) => {
-    if (item === null || typeof item !== 'object' || Array.isArray(item)) {
-      fail(`strategies[${index}] 必须是对象`)
-    }
-    const entry = item as Record<string, unknown>
-    if (typeof entry.id !== 'string') fail(`strategies[${index}].id 必须是字符串`)
-    if (typeof entry.file !== 'string') fail(`strategies[${index}].file 必须是字符串`)
-    return { id: entry.id, file: entry.file }
+/** extensions：宿主 tool_set 包 id 字符串数组（core 不解释 id 语义）。 */
+function validateExtensions(value: unknown, fail: (message: string) => never): readonly string[] | undefined {
+  if (value === undefined) return undefined
+  if (!Array.isArray(value)) fail('extensions 必须是字符串数组')
+  return (value as unknown[]).map((item, index) => {
+    if (typeof item !== 'string' || item === '') fail(`extensions[${index}] 必须是非空字符串`)
+    return item
   })
 }
 
