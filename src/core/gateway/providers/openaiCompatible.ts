@@ -233,7 +233,9 @@ function handleChunk(
         if (!isRecord(tc)) continue
         const index = typeof tc.index === 'number' ? tc.index : pending.size
         const existing = pending.get(index) ?? { id: undefined, name: '', argsBuffer: '' }
-        if (typeof tc.id === 'string') existing.id = tc.id
+        // 真实网关（dashscope 实测）尾分片会带 `id:""`——空串不得覆盖首片真 id，
+        // 否则 flush 期 `!call.id` 全部跳过 = 工具链整体静默失效。
+        if (typeof tc.id === 'string' && tc.id !== '') existing.id = tc.id
         const fn = isRecord(tc.function) ? tc.function : {}
         if (typeof fn.name === 'string') existing.name += fn.name
         if (typeof fn.arguments === 'string') existing.argsBuffer += fn.arguments

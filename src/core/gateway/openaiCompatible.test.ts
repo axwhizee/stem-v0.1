@@ -221,6 +221,45 @@ describe('createOpenAiCompatibleGateway', () => {
     }
   })
 
+  test('回归（dashscope 实测形状）：尾分片 id:"" 不得覆盖真 id，reasoning_content 混排不影响聚合', async () => {
+    const mock = await startMockSse({
+      script: (): MockResponse => ({
+        kind: 'stream',
+        chunks: [
+          { choices: [{ index: 0, delta: { content: '', reasoning_content: '用户想跑 echo' }, finish_reason: null }] },
+          {
+            choices: [
+              {
+                index: 0,
+                delta: { tool_calls: [{ index: 0, id: 'call_5d65', type: 'function', function: { name: 'bash', arguments: '' } }], content: '', reasoning_content: '' },
+                finish_reason: null,
+              },
+            ],
+          },
+          // 尾分片携带空 id / 空 name（dashscope 行为）——旧解析器空串覆盖致工具链全灭。
+          { choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: '', type: 'function', function: { arguments: '{"command": "echo OK"}' } }], content: '', reasoning_content: '' }, finish_reason: null }] },
+          { choices: [{ index: 0, delta: { tool_calls: [{ function: { arguments: '' }, index: 0, id: '', type: 'function' }], content: '' }, finish_reason: null }] },
+          { choices: [{ delta: {}, index: 0, finish_reason: 'tool_calls', logprobs: null }] },
+          { choices: [], usage: { prompt_tokens: 319, completion_tokens: 51 } },
+        ],
+      }),
+    })
+    try {
+      const gateway = createOpenAiCompatibleGateway({ baseUrl: mock.url })
+      const events = await collect(gateway, baseRequest)
+      const calls = events.filter((e) => e.type === 'tool-call')
+      assert.equal(calls.length, 1)
+      const call = calls[0]
+      assert.ok(call && call.type === 'tool-call')
+      assert.equal(call.id, 'call_5d65')
+      assert.equal(call.name, 'bash')
+      assert.deepEqual(call.input, { command: 'echo OK' })
+      assert.ok(events.some((e) => e.type === 'reasoning-delta'))
+    } finally {
+      await mock.close()
+    }
+  })
+
   test('消息序列化：assistant tool_calls 与 tool 结果正确回传', async () => {
     const mock = await startMockSse({ requiredApiKey: 'test-key' })
     try {
