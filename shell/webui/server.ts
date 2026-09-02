@@ -70,10 +70,17 @@ async function main(): Promise<void> {
           return sendJson(res, { ok: true })
         }
         if (path === '/api/instantiate') {
-          const agentId = await system.pilot.instantiate(
-            { className: String(body.className), userPrompt: String(body.userPrompt) },
-            PROJECT_ROOT,
-          )
+          const opts: Parameters<typeof system.pilot.instantiate>[0] = {
+            className: String(body.className),
+            userPrompt: String(body.userPrompt),
+          }
+          // 模型三环·环一：出生显式（"提供商/模型" 全严格式；缺省 = 落继承链）
+          if (typeof body.model === 'string' && body.model !== '') {
+            const model = parseModel(body.model)
+            if (model === undefined) return sendJson(res, { error: 'model 必须是 "提供商/模型" 格式' }, 400)
+            opts.model = model
+          }
+          const agentId = await system.pilot.instantiate(opts, PROJECT_ROOT)
           return sendJson(res, { ok: true, agentId })
         }
         if (path === '/api/terminate') {

@@ -118,6 +118,7 @@
   <div id="createBox">
     <h3>实例化后代（user0 = 根）</h3>
     <select id="createClass"></select>
+    <select id="createModel" title="出生显式模型（模型三环·环一）；缺省 = 类基因>父继承>家学"></select>
     <input id="createPrompt" placeholder="首条 user prompt…" />
     <button id="createBtn">生 · 实例化</button>
   </div>
@@ -307,6 +308,13 @@ let modelRefs = []
 async function loadModels() {
   const data = await fetch('/api/models').then((r) => r.json())
   modelRefs = data.refs ?? []
+  // 实例化面板的出生模型选择（环一入口）：候选 = 注册表白名单；空值 = 继承链
+  const cm = $('createModel')
+  if (cm) {
+    cm.innerHTML = ''
+    cm.add(new Option('模型：继承链（类基因>父继承>家学）', ''))
+    for (const ref of modelRefs) cm.add(new Option('出生显式 · ' + ref, ref))
+  }
 }
 
 function renderModelRow(agent) {
@@ -376,7 +384,10 @@ async function send() {
 async function createAgent() {
   const className = $('createClass').value
   const userPrompt = $('createPrompt').value.trim() || '你好，请做一个简短的自我介绍。'
-  const r = await fetch('/api/instantiate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ className, userPrompt }) })
+  const body = { className, userPrompt }
+  const model = $('createModel').value // 空 = 不显式（落类基因>父继承>家学链）
+  if (model) body.model = model
+  const r = await fetch('/api/instantiate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   const data = await r.json()
   if (data.agentId) { $('createPrompt').value = ''; selectAgent(data.agentId) }
 }
