@@ -16,7 +16,7 @@
 | 类型 | 卷 | 义务 |
 |---|---|---|
 | **实况卷** | AGENTS.md · docs/architecture.md · docs/api.md · docs/dev-guide.md · docs/llm-playbook.md · 本卷 · README | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
-| **历史卷** | docs/log.md · docs/evolution-plan.md · prompts.md（阶段 plan 卷如 test-plan 落地即随批退役） | 承载"当时发生了什么/定了什么"。**只追加不回改**（偏差记 log，plan 卷是执行依据非实况） |
+| **历史卷** | docs/log.md · prompts.md（plan 卷如 brain-plan/test-plan 落地即随批退役，沿革由 log 承载） | 承载"当时发生了什么/定了什么"。**只追加不回改**（偏差记 log，plan 卷是执行依据非实况） |
 
 **plan 卷生命周期**（用户裁决）：阶段计划卷（`*-plan.md`）是实施期的执行依据；
 **实施完成即随下一个功能提交删除**——全部裁决与沿革已追加在 log.md，残留计划

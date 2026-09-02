@@ -82,7 +82,7 @@
   三类基因源并存、文档脱节、视图层 user0 特判、pilot 双通道、Runtime 单层模型解析、
   opencodeLlm 的 process.env 违规；产出 = 逐条"特判→吸收机制→风险→裁决"报告）。
   🧩 常态化心跳整理 = 唯一 gap：**S5.3 策略自调度薄层**（`StrategyApi.schedule`，TimerFactory
-  已在 ContextManager 手里，只差递进）→ S5.4 ltm-stm-mix 策略（方案冻结 = evolution-plan §5）。
+  已在 ContextManager 手里，只差递进）→ brain_enhanced 三层记忆策略（方案冻结 = docs/brain-plan.md，待实施）。
 - **依赖链**：先人启动跑顺（场景 4 的回路 + 本审计轮），再交给心跳——整理协议本身先被进化。
 - **自检**：S6.3 报告落盘；S5.3 后用"空闲期自动归纳出 impression 标签"验证节律活着。
 

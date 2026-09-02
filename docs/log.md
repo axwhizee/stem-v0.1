@@ -995,3 +995,7 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 ### 追记二：evolution-plan §5 整卷重写（brain_enhanced）+ test-plan 卷退役
 
 用户提出 brain-simu/增强版三层记忆构思（上下文层/笔记层文件空间/睡眠子 agent 固化单一长期记忆文件注入头部）+ 四点理论（缺的是记忆生理非智力；高频闭环；有损压缩+睡眠归纳；权衡应可自进化）。据此将 evolution-plan §5 由原 dreaming/ltm-stm-mix（LTM 住消息带）整卷重写为 **brain_enhanced 方案（S7 候选）**：L0 组装=memory 头注入+笔记目录条+精准区滚动；L1 `.stem/mem/<agentId>/notes/`（compact 升级分篇落文件+指针）；L2 MEMORY.md 睡眠拍全量重写（memorist 零工具子实例、一拍一生死、provenance 对冲有损毒性）；权衡旋钮 `custom.mem` 滑位谱（simu↔classic 同一基因面）；S7.1-7.3 批次与验收。裁决记录：记忆住文件不住消息带、睡眠工字面零工具、memory_note 主动工具 v1 不做。验收方案卷 test-plan.md 落地退役（plan 卷纪律），五处悬空引用改指 log 记录。llm-playbook 卷成文同批提交。
+
+### 追记三：brain-plan 成卷（模型主权增量）+ evolution-plan 退役 + AGENTS 瘦身
+
+用户补充构思关键增量——**上下文层可由模型自由修改**（主动决定哪些内容整理进笔记层并被剔除）。据此：旧 evolution-plan.md（S5/S6 内容已全落地）随 test-plan 先例退役删除，新 plan 卷 **docs/brain-plan.md** 整卷承载 brain_enhanced 方案：三层形状升级为 L0 加 `<watermark>` 水位条、L1 写入方重排（**模型主动整理 = write+context_remove 既有组合，零新增工具**为主通道/compact 卸载降为保底/睡眠副产品）、误删兜底论证（remove=markInvalid 归档不删 + 睡眠输入恒含 invalid——判断权下放、无损性上收）、三通道分工表、custom.mem 增 watermark 位、S7.2 验收含主动整理链路。基因层进化 exemplar 方案随旧卷进 git 史。AGENTS.md 瘦身 183→108 行：设计原则压至指令形、结构树细注释下沉 architecture、原"核心架构要点"整段替换为核心概念速查表（每条一二级 + arch 节号指针）+ contributor 纪律指针；操作命令全保留。悬空引用四处连动清（agentSerialize/LineageTree 注释、scenarios、contributor 历史卷行）。

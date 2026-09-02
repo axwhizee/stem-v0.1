@@ -1,7 +1,7 @@
 // ============================================================
 // core/init/agentSerialize.ts —— agent 类序列化器（agentParse 的逆函数）
 //
-// S5.2 进化书写面的先决件（方案 docs/evolution-plan.md §4.2）：
+// 进化书写面的先决件（方案史见 docs/log.md S5.2 阶段与 git 史）：
 // 类注册工具的落盘 = serializeAgentClass → `.stem/agent/<name>.md`。
 //
 // **往返律**（验收标准）：parse(serialize(cls), name) ≡ normalize(cls)
