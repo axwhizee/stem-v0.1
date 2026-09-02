@@ -6,12 +6,24 @@
 // ============================================================
 
 import { readFile, readdir, stat } from 'node:fs/promises'
-import { join, isAbsolute, normalize, resolve } from 'node:path'
+import { join, isAbsolute, normalize, relative, resolve } from 'node:path'
 
 /** 解析输入路径：绝对路径直接用；相对路径基于 workspace 根。 */
 export function resolvePath(root: string, input: string): string {
   const path = isAbsolute(input) ? input : join(root, input)
   return normalize(path)
+}
+
+/**
+ * glob/include 匹配：对"相对搜索根的路径 + 文件名"分别试——
+ * walk 产出绝对路径，直接 test 锚定正则（^note\.txt$）恒 false
+ * （验收现场 bug）。单星号语义仍限单段（嵌套目录用双星号递归或直写相对路径）。
+ */
+export function matchGlobPath(re: RegExp, searchRoot: string, file: string): boolean {
+  const rel = relative(searchRoot, file).replace(/\\/g, '/')
+  if (re.test(rel)) return true
+  const base = rel.slice(rel.lastIndexOf('/') + 1)
+  return re.test(base)
 }
 
 /** 二进制检测：含 NUL 字节即视为二进制。 */

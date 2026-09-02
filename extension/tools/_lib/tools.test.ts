@@ -79,6 +79,16 @@ describe('host 文件工具', () => {
     assert.match(result.text, /const hello = 2/)
   })
 
+  test('grep include：纯文件名/相对路径均命中（匹配基准 = 相对搜索根，验收 P5 回归）', async () => {
+    const tool = createGrepTool(root)
+    const byName = await tool.execute({ pattern: 'hello', include: 'a.ts' }, ctx)
+    assert.match(byName.text, /src/, 'basename 兜底应命中 src/a.ts')
+    const byRel = await tool.execute({ pattern: 'hello', include: 'src/*.ts' }, ctx)
+    assert.match(byRel.text, /a\.ts/)
+    const miss = await tool.execute({ pattern: 'hello', include: 'zzz/*.ts' }, ctx)
+    assert.match(miss.text, /未找到/)
+  })
+
   test('glob：模式匹配文件', async () => {
     const tool = createGlobTool(root)
     const result = await tool.execute({ pattern: '**/*.ts' }, ctx)

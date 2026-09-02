@@ -7,7 +7,7 @@
 
 import { readFile } from 'node:fs/promises'
 import type { ToolCapability } from '../../../src/core/tools'
-import { globToRegExp, inspect, isBinary, resolvePath, walkTextFiles } from '../_lib/fs-util'
+import { globToRegExp, inspect, isBinary, matchGlobPath, resolvePath, walkTextFiles } from '../_lib/fs-util'
 
 export interface GrepMatch {
   readonly path: string
@@ -50,7 +50,7 @@ export function createGrepTool(root: string): ToolCapability {
       const matches: GrepMatch[] = []
       for (const file of files) {
         if (matches.length >= limit) break
-        if (includeRe && !includeRe.test(file)) continue
+        if (includeRe && !matchGlobPath(includeRe, dir, file)) continue
         let buffer: Buffer
         try {
           buffer = await readFile(file)

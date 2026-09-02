@@ -148,7 +148,11 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   // bash 工具（internal；宿主注入 ShellRunner 才装配——core 零平台依赖）。
   if (deps.shellRunner) {
     await tools.register(
-      createBashTool({ runner: deps.shellRunner, ...(config.bash !== undefined ? { settings: config.bash } : {}) }),
+      createBashTool({
+        runner: deps.shellRunner,
+        // cwd 缺省 = 空间根（事故半径三机制之"默认 cwd"；工具参数相对路径以此为基准）。
+        settings: { ...(config.bash ?? {}), cwd: config.bash?.cwd ?? deps.config.paths.projectRoot },
+      }),
     )
   }
 

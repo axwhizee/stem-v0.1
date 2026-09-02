@@ -6,7 +6,7 @@
 // ============================================================
 
 import type { ToolCapability } from '../../../src/core/tools'
-import { globToRegExp, inspect, resolvePath, walkTextFiles } from '../_lib/fs-util'
+import { globToRegExp, inspect, matchGlobPath, resolvePath, walkTextFiles } from '../_lib/fs-util'
 
 export function createGlobTool(root: string): ToolCapability {
   return {
@@ -32,7 +32,7 @@ export function createGlobTool(root: string): ToolCapability {
 
       const regex = globToRegExp(pattern)
       const files = await walkTextFiles(dir)
-      const matched = files.filter((f) => regex.test(f)).slice(0, limit)
+      const matched = files.filter((f) => matchGlobPath(regex, dir, f)).slice(0, limit)
 
       if (matched.length === 0) return { text: '未找到匹配文件' }
       return { text: `找到 ${matched.length} 个文件:\n${matched.join('\n')}` }

@@ -192,6 +192,8 @@ async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId
       content: typeof m.message.content === 'string' ? m.message.content : JSON.stringify(m.message.content),
       ...(m.from !== undefined ? { from: m.from } : {}),
       ...(m.tag !== undefined ? { tag: m.tag } : {}),
+      // 工具轨迹透传（审计证据面：assistant 行发起过哪些调用必须可见）。
+      ...(((m.message as { toolCalls?: unknown }).toolCalls) !== undefined ? { toolCalls: (m.message as { toolCalls?: unknown }).toolCalls } : {}),
       tokens: m.tokens,
       turn: m.turn,
       indexInTurn: m.indexInTurn,

@@ -108,3 +108,19 @@ test('工具固有属性：internal / bash 键 / 必填 command', () => {
   assert.match(tool.description, /非交互式/)
   assert.match(tool.description, /专用工具/)
 })
+
+test('相对 cwd 参数：以 settings.cwd（宿主接线=空间根）为基准解析，不随宿主进程 cwd 漂（验收 P5 回归）', async () => {
+  const { runner, calls } = fakeRunner({})
+  const tool = createBashTool({ runner, settings: { cwd: '/space/root' } })
+  await tool.execute({ command: 'wc', cwd: '.' }, ctx)
+  assert.equal(calls[0]?.cwd, '/space/root')
+  await tool.execute({ command: 'ls', cwd: 'sub/dir' }, ctx)
+  assert.equal(calls[1]?.cwd, '/space/root/sub/dir')
+})
+
+test('settings.cwd 缺省（纯 core 测试环境）：参数原样透传交 runner 兜底', async () => {
+  const { runner, calls } = fakeRunner({})
+  const tool = createBashTool({ runner })
+  await tool.execute({ command: 'ls', cwd: '.' }, ctx)
+  assert.equal(calls[0]?.cwd, '.')
+})

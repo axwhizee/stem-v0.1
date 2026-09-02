@@ -16,6 +16,7 @@
 //   registry 兜底 execution_failed。
 // ============================================================
 
+import { isAbsolute, resolve as resolvePath } from 'node:path'
 import type { ToolCapability, ToolContext, ToolResult } from './types'
 
 // ---------- ShellRunner 端口（宿主注入） ----------
@@ -114,7 +115,11 @@ export function createBashTool(deps: {
     execute: async (input, ctx): Promise<ToolResult> => {
       const args = (input ?? {}) as BashInput
       const command = String(args.command)
-      const effectiveCwd = typeof args.cwd === 'string' && args.cwd !== '' ? args.cwd : cwd
+      // 相对参数以 settings.cwd（宿主接线 = 空间根）为基准解析——不依赖
+      // 宿主进程 cwd（验收现场 bug：cwd="." 曾解析到 webui 启动目录）。
+      const rawCwd = typeof args.cwd === 'string' && args.cwd !== '' ? args.cwd : cwd
+      const effectiveCwd =
+        rawCwd !== undefined && cwd !== undefined && !isAbsolute(rawCwd) ? resolvePath(cwd, rawCwd) : rawCwd
       const effectiveTimeout = typeof args.timeoutMs === 'number' ? args.timeoutMs : timeoutMs
       const result = await deps.runner.run({
         command,
