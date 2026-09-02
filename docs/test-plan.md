@@ -88,11 +88,33 @@
 
 | # | 结果 | 证据/备注 |
 |---|------|-----------|
-| 1 | ✔ 通过 | haiku.md 热重启装载→instantiate(jn2c)→真模型三行俳句逐字吻合人格（tools={} 零调用）、assistant 行 tokens=117 真实值、回信以 `<sender id="jn2c">` 落 user0 信箱 |
-| 9(1/2环) | ✔ 通过 | birth model=max → origin=explicit 落行跨重启；/api/set_model 热切 flash。**发现并修复**：webui /api/instantiate 不透传 model（三环·环一用户面不可达）→ feat(webui) 补齐（API+侧栏下拉） |
-| 4 | ✔ 通过（换主体后） | worker 类（fs5+bash 显式 allow）五步作业全中：write/read/grep/glob/bash + **并行三工具轮**。**发现并修复两处**：(a) P5 工具相对路径基准不统一——grep/glob 的 include/pattern 对绝对路径做锚定 test 恒不中、bash cwd="." 随宿主进程漂（= 首测 assistant 乱走真因之一：占位类继承根表**无 fs 键**，属设计事实非 bug，用例主体改 worker）；(b) webui contextOf 手抄字段丢 toolCalls 工具轨迹（审计面缺）→ 透传修复。三处回归锚（tools.test include/glob、bash.test 相对与缺省 cwd、305/305）|
-| 5 | ✔ 通过 | wc -c 输出回库、默认 cwd=空间根（pwd 实证）；14 项非零退出码 = 正常结果语义单测锚 |
+| 2 | ✔ 通过 | triple 实例真模型驱动 agent_class_create→ask→once 批准→scribe.md 落盘→模板表在场（update2 编排 6/6）|
+| 3 | ✔ 通过（判据修正） | 铁律实为「逐键序不升 + 新键=自我限定放行」（原表"加新键被拒"系误读，已按实况更正）：降序 allow→deny 批准生效落盘；**升序 deny→allow 被拒且发生在审批之前**（不产生申请信）错误回模型可行动 |
+| 4 | ✔ 通过（换主体后） | worker 类五步作业：write/read/grep/glob/bash 全中 + 并行三工具轮。**首测 assistant 乱走真因**：占位类完整继承根表而根表**无 fs 键**（root 最小权限面，设计事实非 bug）。连带修 P5（见 bug 清单）|
+| 5 | ✔ 通过 | wc -c 输出回库、默认 cwd=空间根（pwd 实证）；非零退出码=正常结果语义（bash.test 锚）|
+| 6 | ✔ 通过 | ask3 编排四局：once 一次性（R2 再问）→always 豁免（R3 零新增，**(agent,key) 粒度**）→websearch 另键照常问→reject 反馈进上下文且未执行；信箱计数人工实证 |
+| 7 | ✔ 通过 | creator 真模型调度：agent_instantiate（**带 model 参=环一工具面**）→孙辈挂树→context_wait 填充「12」为 tool 结果（非信件）→agent_descendants 汇总。孙答复核正确 |
+| 8 | ✔ 通过（含意外增益） | websearch×3 多工具轮中**第二轮请求遭 opencode 网关自然断流**→轮自然 interrupted→send 恢复→227 字真实总结——天然场景比设计脚本更硬。手工 interrupt 路径 P6 SIGTERM 实证（行归一 interrupted）|
+| 9 | ✔ 通过 | 环一：birth model=max→explicit 落行跨重启（webui 面修复后触达）；环二：/api/set_model 热切；环三：agent_inspect origin 四态谱系（848r/simple-math-01/haiku=home 全谱观察）；不级联子女 offline1 锚 + 本轮家学下传保 home 实证 |
+| 10 | ✔ 通过 | skill() 列清单→hello-guide 正文→三行复述要点全对——custom 装载器 + 目录形态资产双证，零系统机制 |
+| 11 | ✔ 通过 | webfetch example.com markdown 抽取 + websearch「干细胞 缩写」→SC（真实检索内容进总结）；指令遵守各一次即停 |
+| 12 | ✔ 通过 | dashboard 账目：2ehw tool=5416（websearch 大结果**差分归位真实值**≫估算量级特征）、user0 面板行保持估算口径、byDay 总账自洽（27418/253）、byTag 空（无 compact）与窗口配置一致 |
+| 13 | ✔ 通过 | SSE 全程记录器（断线自续）460 次 status 迁移**零非法**、12859 stream、56 letter、无 thinking 卡死 |
+| 14 | ✔ 通过 | 终检：18 实例全恢复、零 thinking、explicit 双层跨重启（setModel+工具 birth 双通道）、turn 六样本精确续接、8 类文件真相存续（含模型所写 scribe）——**场景 4 自检同步达成** |
+| 15 | ✔ 通过 | dashboard 与 webui 全程并开：只读姿态、跨进程 DB 镜像（deptA 语料直查）、token 页账目作终账依据——观察不侵入运行进程 |
+| 16 | ○ 未做 | docker 形态（可选）——待用户点头 |
 
-| # | 结果 | 证据/备注 |
-|---|------|-----------|
-| 1-16 | — | 待执行（用例 4/5/7 预期需按 6.1 校准） |
+**场景清单（docs/scenarios.md 自检合入）**：场景 1 ✔（跨重启记忆+回信归位+观测回放面）；场景 2 ✔ **tester 教科书轨迹**（并行跑测+定位→最小 edit→复跑绿→诚实汇报，未动断言，外部复核 GREEN）；场景 3 ✔（三层树+部门墙 telemetry 只覆盖辖区+级联裁撤+归档可审计，6/6）；场景 4 ✔（书写→落盘→重启→新出生）；场景 5/6 排期中/远景（不测）。
+
+### 6.3 Bug 清单（本轮挖出并全部修复）
+
+| # | 级别 | 症状 | 根因/修复 | commit |
+|---|---|---|---|---|
+| P6a | **P0** | webui 被 UnhandledPromiseRejection 击落×2 | terminate 竞态窗口（行删在箱注销前）孤儿 promise 击落宿主：dispose 只置中断标志即关存储退出（进行轮状态/账目被吞）+ 全系统 12 处裸 void promise | fix(kernel) dispose drain + fix(core) forget 安全阀 |
+| P5 | P1 | grep「未找到匹配」/ bash 相对 cwd 漂到仓库根 | include/pattern 对绝对路径锚定 test 恒不中；bash cwd 参数直传 spawn 随宿主进程。统一以空间根为基准 + 三路回归锚 | fix(tools) |
+| P3 | P1 | webui context API 丢工具轨迹 | contextOf 手抄字段漏 toolCalls——审计面补齐 | fix(tools) 同批 |
+| P9 | P1 | 轮账目重启丢（行恒 turn=0） | 轮末统计引用直改不落库（persisted 注释的设计意图被实现时序落空：收尾快照在统计**之前**发生）；recordTurnEnd 显式通道 + 双回归锚 | fix(kernel) recordTurnEnd |
+| P10 | P2 | webui 实例化面板不可选出生模型 | API 面 + UI 双漏（pilot 原生能力未触达）| feat(webui) |
+| — | 卫生 | up.sh 起服务混入操作命令挂死 / nvm PATH 不跨调用踩坑 | 常驻操作全部脚本化（幂等 up.sh：双 fork 脱组+探活+记录器）；Windows npx 兜底乱码=PATH 未带 | test 件 |
+
+**遗留观察（非 bug，记录）**：① 模型自由度高——占位类无 fs 时乱走 explore（systemPrompt 纪律可缓解：worker/tester 人格全稳）；② 家学 flash 偶发断流（网关侧）——中断自愈路径恰好因此获得实战验证；③ config.user.tools 无 fs 键 = root 最小面设计，需要文件工具走专职工人类。

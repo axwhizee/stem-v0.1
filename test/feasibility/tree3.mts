@@ -25,7 +25,7 @@ await post('/api/send', { to: org, text: '建两个孙辈并等待结果后汇�
 await waitTurn(org, base + 1)
 const agents = (await get('/api/agents')) as Array<{ id: string; parentId: string | null; classRef: string }>
 const grand = agents.filter((a) => a.parentId === org)
-ok('孙辈两枚挂组织下（树三层成形）', grand.length === 2, JSON.stringify(grand.map((g) => [g.id, g.parentId])))
+ok('组织下孙辈成形（>=2，模型可自发多派）', grand.length >= 2 && grand.every((g) => g.parentId === org), JSON.stringify(grand.map((g) => [g.id, g.parentId])))
 // 部门墙：让组织跑 telemetry_query 只看自身+后代；确认旁支（如 ramx/skii）不在结果里
 base = await turnOf(org)
 await post('/api/send', { to: org, text: '调用 telemetry_query（types=["tool.call"]，limit=80），把输出里出现过的所有 agentId 名单原样列出来。' })
@@ -41,7 +41,7 @@ await sleep(3000)
 const after = (await get('/api/agents')) as Array<{ id: string; status: string }>
 ok('terminate 级联：组织与孙辈退出活跃清单（归档语义）', ![org, ...grand.map((g) => g.id)].some((gid) => after.some((a) => a.id === gid)), JSON.stringify(after.filter((a) => a.id === org).map((a) => a.status)))
 for (const g of grand.slice(0, 2)) {
-  const dash = await fetch(`http://127.0.0.1:4421/api/messages?agentId=${g.id}`)
+  const dash = await fetch(`http://127.0.0.1:4421/api/messages?agentId=${g.id}&archived=1`)
   const dj = (await dash.json().catch(() => null)) as { rows?: unknown[] } | null
   ok(`裁撤后 ${g.id} 语料在 DB 可审计（dashboard 直查）`, (dj?.rows ?? []).length > 2, JSON.stringify(dj)?.slice(0, 120))
 }

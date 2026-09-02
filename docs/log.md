@@ -979,3 +979,11 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - **internal 类层清账**：退役 S2 时代 demo 遗留（`builtin/SimpleChat.json`/`Coder.json` 与 tmp 空间 `user-reviewer.md`），立 **`Assistant.json` 占位类**——不写 tools 键（undefined = 完整继承父生效档案）、不设 model（落四级解析链）、systemPrompt `You are a helpful assistant.`：internal 只保底一张白纸，示例性角色归 extension/custom 层。连带：`AgentClass.tools` 类型可选化（`checkToolsConvergence` 对继承形无类层基线放行——扩张真实兜底在台账物化；类清单展示区分 `inherit` 与封闭 `-`）、CLI 默认对话目标与 harness 默认类、封闭语义测试位（tools={} 三处）改局部自定义 closed 类、tokenUsage 的 coder 本为局部 register 免疫。typecheck 0 + 301/301 + 可行性离线双档 29+9 绿。
 - 离线档 2 本轮暴露两枚测试数据脆弱点（修正入档 contributor §6.3）：compact 检查点在"下一封 user 信抵达"，两轮消息无触发时机——测试需第三轮探针；mock 固定 `prompt_tokens` 令差分恒负命中回落护栏，通过与否系于估算基线（类 systemPrompt 一变即漂）——改阶梯递增走真实归位通道。
 - **文档纪律重构（用户裁决：实况卷禁补丁式更新）**：新建 `docs/contributor.md` 归口工程纪律——§1 文档维护纪律（实况卷/历史卷二分、补丁式更新三禁 + 反例实录、改动→对拍表、事实优先）、§2-§5 分层/命名/错误/权限纪律（code-style 有效面按当前实况系统重写）、§6-§9 测试/提交/环境陷阱/自检清单。`docs/code-style.md` **退役删除**（VSCode 时代愿景卷：ContextAssetPool/MessageBus/adapters 组合根/oc_* 前缀/三态权限全废，补丁不可救）；AGENTS.md 整卷审视重写——修 panel 叙事（user0 面板性 = 根接线 `assemble:false`，`panel` 字段属策略 role，双入径写清；`Kernel/types.ts` 源码注释同步）、原则 1"无特判"精化为"无权限/身份特判（面板性系结构性身份）"、DEFAULT_USER_TOOLS 描述以表为准、extension 住户/结构树/快速命令（test:feas/run-docker）同步、三纪律段迁出留指针。`shell/cli/main.ts` 头注释旧叙事（bus.send/临时面板）改写为 pilot 扮演实况。
+
+## 阶段：v1.0 全量验收（opencode 网关，2026-09-02）
+
+15/16 用例过（16 docker 待点头），scenarios 场景 1-4 自检全落地。执行场 `test/space-v10/`（tmp 用户资产零触碰），操作件 `test/feasibility/tools/`（幂等 up.sh：双 fork 脱组 + 探活 + SSE 记录器自续），编排脚本 ask3/update2/tree3 归档 `test/feasibility/`。全程判据/证据/人工盯守记录见 docs/test-plan.md §6.2-6.3。
+
+- **验收战果 = 五个实况 bug**（初步档 mock 与单测各自掩盖的面，全部真端网/真进程挖出）：dispose 与进行轮的退出竞态 + 12 处裸 void 孤儿 promise（P6，两度击落 webui）；轮账目引用直改不落库致重启清零（P9）；grep/bash 相对路径基准漂移（P5）；webui context 丢工具轨迹（P3）；实例化面板漏 birth 模型通道（P10）。逐一修复带回归锚，基线 310 单测 + 离线双档 + ask3/update2/tree3 全绿。
+- **行为面收获**：tester 场景闭环教科书级（并行跑测定位→最小修复→复跑→诚实汇报，外部复核）；assistant 占位类乱走暴露"根表无 fs 键"设计事实（root 最小权限面——用例主体必须是专职工人，systemPrompt 纪律决定模型稳定性）；家学模型自然断流恰证中断自愈路径。
+- 踩坑追加：`setsid` 内 npx 无 PATH（用绝对 node --import tsx）；up.sh 式脚本化起服务（操作命令与常驻彻底分离，混链必挂）；Windows npx 兜底乱码报错 = WSL PATH 未带；drvfs 偶发 NotFound 重试即复；dashboard messages 参数是 `archived=1`；terminate 竞态族（not_found/terminated）静默语义进 forget 白名单。
