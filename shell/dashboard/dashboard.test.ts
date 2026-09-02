@@ -185,6 +185,13 @@ test('资源清单：纯内存标本装配 = 矩阵真实结果（三态分层 +
     assert.equal(layers.get('user'), 'internal')
     assert.equal(layers.get('simple-chat'), 'internal')
     assert.equal(layers.get('probe-agent'), 'custom')
+    // 策略维度（标本注册表实况）：内置 classic/none 必须可见，classic 有异步 process + 动作面。
+    const strat = new Map(inv.strategies.map((s) => [s.name, s]))
+    assert.equal(strat.get('classic')?.layer, 'internal')
+    assert.equal(strat.get('classic')?.hasProcess, true)
+    assert.ok((strat.get('classic')?.actions.length ?? 0) > 0, 'classic 应有 actions 面（compact）')
+    assert.equal(strat.get('none')?.layer, 'internal')
+    assert.equal(strat.get('none')?.hasProcess, false)
     assert.deepEqual(inv.initIssues, [])
   } finally {
     await rm(dir, { recursive: true, force: true })

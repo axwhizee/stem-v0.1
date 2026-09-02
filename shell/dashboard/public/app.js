@@ -123,6 +123,12 @@ async function renderInventory() {
     <table><tr><th>id</th><th>访问键</th><th>user0</th><th>说明</th></tr>${toolsByKind.internal.map(toolRow).join('')}</table>
     <h4>类模板（族谱基因面）</h4>
     <table><tr><th>类</th><th>基因模型</th><th class="num">tools 键</th><th>说明</th></tr>${classes}</table>
+    <h4>上下文策略（记忆机制清单）</h4>
+    <table><tr><th>策略</th><th>process</th><th>actions</th><th>说明</th></tr>${
+      (inv.strategies ?? []).map((s) => `<tr><td><span class="badge-l ${s.layer}">${s.layer}</span>${esc(s.name)}</td>
+      <td>${s.hasProcess ? '<span class="g-accent">异步许可</span>' : '<span class="dim">纯组装</span>'}</td>
+      <td class="dim">${s.actions.join(', ') || '—'}</td><td class="dim">${esc(truncate(s.note ?? '', 80))}</td></tr>`).join('') || '<tr><td colspan=4 class="dim">无</td></tr>'
+    }</table>
     <h4>providers（网关注册表）</h4>
     <table><tr><th>名称</th><th>端点</th><th>密钥</th><th>白名单</th></tr>${providers || '<tr><td colspan=4 class="dim">无</td></tr>'}</table>`
 }

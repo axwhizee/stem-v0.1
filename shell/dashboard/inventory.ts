@@ -8,7 +8,9 @@
 // ============================================================
 
 import { bootStem } from '../cli/platform'
+import { existsSync } from 'node:fs'
 import { BUILTIN_TEMPLATES } from '../../src/core/kernel'
+import { createBuiltinStrategyRegistry } from '../../src/core/context'
 import type { AgentClass } from '../../src/core/kernel'
 import type { ToolCapability } from '../../src/core/tools'
 import type { StemSystem } from '../../src/core/init'
@@ -32,10 +34,21 @@ export interface InventoryClass {
   readonly panel: boolean
 }
 
+export interface InventoryStrategy {
+  readonly name: string
+  readonly layer: 'internal' | 'extension' | 'custom'
+  readonly note?: string
+  /** 是否实现了 process（异步重活许可，compact 类策略标志）。 */
+  readonly hasProcess: boolean
+  /** 动作面（runContextAction 可调）。 */
+  readonly actions: readonly string[]
+}
+
 export interface Inventory {
   readonly projectRoot: string
   readonly tools: InventoryTool[]
   readonly classes: InventoryClass[]
+  readonly strategies: InventoryStrategy[]
   readonly providers: Record<string, { baseUrl: string; keyEnv?: string; models?: readonly string[]; keyPresent: boolean }>
   readonly homeModel?: string
   readonly extensions: unknown
@@ -76,6 +89,21 @@ async function assemble(projectRoot: string): Promise<Holder> {
     panel: c.panel === true,
   }))
   const env = process.env
+  // 策略层判定：内置集从注册表构造器派生（不硬编码名单）；目录命中 = custom/extension
+  const registry = system.kernel.contextManager.strategies
+  const builtinStrategies = new Set(createBuiltinStrategyRegistry().names())
+  const extContextRoot = new URL('../../extension/context', import.meta.url).pathname
+  const strategies: InventoryStrategy[] = registry.names().map((name: string) => {
+    const mod = registry.resolve(name)
+    const custom = existsSync(`${projectRoot}/.stem/context/${name}.ts`) || existsSync(`${projectRoot}/.stem/context/${name}`)
+    return {
+      name,
+      layer: custom ? 'custom' : (!builtinStrategies.has(name) && existsSync(`${extContextRoot}/${name}`) ? 'extension' : 'internal'),
+      ...(mod?.note !== undefined ? { note: mod.note.slice(0, 120) } : {}),
+      hasProcess: mod?.process !== undefined,
+      actions: Object.keys(mod?.actions ?? {}),
+    }
+  })
   const providers: Inventory['providers'] = {}
   for (const [name, p] of Object.entries(system.config.providers ?? {})) {
     providers[name] = {
@@ -88,6 +116,7 @@ async function assemble(projectRoot: string): Promise<Holder> {
     projectRoot,
     tools,
     classes,
+    strategies,
     providers,
     ...(system.config.user?.model !== undefined ? { homeModel: `${system.config.user.model.provider}/${system.config.user.model.id}` } : {}),
     extensions: system.config.extensions ?? null,
