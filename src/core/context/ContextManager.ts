@@ -25,6 +25,7 @@ import type { Repository } from './Repository'
 import type { AgentDelivery, AssembleInput, AssembleResult, MailDelivery, RepositoryState } from './types'
 import { legalize } from './legalize'
 import type { ContextStrategyModule, StrategyApi, StrategyAgentSpec, ContextSettings, StrategyRegistry } from './strategies'
+import { forget } from '../logging'
 import { createBuiltinStrategyRegistry, DEFAULT_CONTEXT_SETTINGS } from './strategies'
 
 export interface ContextManagerOptions {
@@ -263,7 +264,7 @@ export class DefaultContextManager implements ContextManager {
           message: { role: 'tool', content: letter.content, toolCallId: pending.toolCallId },
         })
         // 唤醒等待者（context_wait 填充就绪 → 快递员送信）。
-        void this.courier.notifyReady(pending.ownerId)
+        forget(this.courier.notifyReady(pending.ownerId), 'cm:notifyReady:fill', this.onLog)
         return
       }
     }
@@ -456,7 +457,7 @@ export class DefaultContextManager implements ContextManager {
    */
   private async wake(box: InternalBox): Promise<void> {
     if (!box.assemble || box.strategy.process === undefined) {
-      void this.courier.notifyReady(box.agentId)
+      forget(this.courier.notifyReady(box.agentId), 'cm:notifyReady', this.onLog)
       return
     }
     if (box.processing) {
@@ -482,7 +483,7 @@ export class DefaultContextManager implements ContextManager {
     } finally {
       box.processing = false
     }
-    void this.courier.notifyReady(box.agentId)
+    forget(this.courier.notifyReady(box.agentId), 'cm:notifyReady', this.onLog)
   }
 
   /** 构造策略运行时 API（agent 作用域）。 */
@@ -532,7 +533,7 @@ export class DefaultContextManager implements ContextManager {
       const text = contentOf(stored.message)
       if (text.startsWith('<sender id=')) continue // 已打戳
       const stamped: ChatMessage = { role: 'user', content: `<sender id="${stored.from}">${text}</sender>` }
-      void this.repository.updateMessage(box.agentId, stored.id, stamped)
+      forget(this.repository.updateMessage(box.agentId, stored.id, stamped), 'cm:stamp', this.onLog)
     }
   }
 

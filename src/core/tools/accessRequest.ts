@@ -25,6 +25,7 @@
 //   - getRoot：解析申请者的族谱根（lineage.getRoot），用于 reply 授权校验。
 // ============================================================
 
+import { forget } from '../logging'
 import type { LogSink } from '../logging'
 import type {
   AccessAssertInput,
@@ -119,7 +120,7 @@ export class DefaultAccessAskBus implements AccessAskBus {
     }
     await new Promise<void>((resolve, reject) => {
       this.pending.set(info.id, { info, resolve, reject })
-      void this.askRoot(info)
+      forget(Promise.resolve(this.askRoot(info)), 'ask:askRoot', this.onLog)
     })
   }
 

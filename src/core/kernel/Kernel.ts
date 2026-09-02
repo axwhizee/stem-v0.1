@@ -31,7 +31,7 @@ import type {
 import { DefaultRepository, DefaultCourier, DefaultContextManager, PersistedRepository } from '../context'
 import type { ContextManager, MessageStore } from '../context'
 import type { Logger } from '../logging'
-import { InMemoryLogger } from '../logging'
+import { forget, InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
 import type { AccessAskBus, AccessResolver, ToolAccess } from '../tools'
 import { DefaultAccessAskBus, formatAccessRequest } from '../tools'
@@ -252,25 +252,25 @@ export class Kernel {
 
     // 工具自动记录 → 仓库（触发/成功/失败），不依赖 runtime 手动发送。
     this.tools?.setRecordSink?.((record, ctx) => {
-      void this.contextManager.appendToolRecord(ctx.agentId, record)
+      forget(this.contextManager.appendToolRecord(ctx.agentId, record), 'kernel:appendToolRecord', (event) => this.emitLog(event))
       if (record.status === 'success' && record.result) {
         if (record.result.metadata?.contextWait) return // context_wait：等待填充，不 append
-        void this.contextManager.appendHistory(ctx.agentId, {
+        forget(this.contextManager.appendHistory(ctx.agentId, {
           role: 'tool',
           content: record.result.text,
           toolCallId: record.invocation.id,
-        })
+        }), 'kernel:appendToolHistory', (event) => this.emitLog(event))
       } else if (record.status === 'error') {
         const error = record.error
         const message =
           error !== undefined && 'message' in error
             ? `[ToolError ${error.kind}] ${error.message}`
             : '[ToolError execution_failed] 工具执行失败'
-        void this.contextManager.appendHistory(ctx.agentId, {
+        forget(this.contextManager.appendHistory(ctx.agentId, {
           role: 'tool',
           content: message,
           toolCallId: record.invocation.id,
-        })
+        }), 'kernel:appendToolError', (event) => this.emitLog(event))
       }
     })
     // 工具调用日志；访问确认 → AccessAskBus；族谱权限查询 → 台账。
@@ -306,7 +306,7 @@ export class Kernel {
     for (const instance of this.restoredInstances) {
       const template = this.templates.getSync(instance.classRef)
       const isRoot = instance.parentId === null
-      void this.contextManager.register({
+      forget(this.contextManager.register({
         agentId: instance.id,
         sendCountdownMs: isRoot ? template?.sendCountdown ?? 0 : template?.sendCountdown,
         assemble: !isRoot && template?.panel !== true,
@@ -321,8 +321,8 @@ export class Kernel {
               this.events.emit({ type: 'letter', agentId: delivery.agentId, letters: delivery.letters, at: Date.now() })
             }
           : (delivery) => this.handleDelivery(delivery),
-        ...(isRoot ? {} : { onHold: (id: string) => void this.runtime.notifyHold(makeAgentID(id)) }),
-      })
+        ...(isRoot ? {} : { onHold: (id: string) => forget(this.runtime.notifyHold(makeAgentID(id)), 'kernel:notifyHold', (event) => this.emitLog(event)) }),
+      }), 'kernel:registerContext', (event) => this.emitLog(event))
     }
   }
 
@@ -450,7 +450,7 @@ export class Kernel {
       onDelivery: isPanel
         ? () => {}
         : (delivery) => this.handleDelivery(delivery),
-      ...(isPanel ? {} : { onHold: (id: string) => void this.runtime.notifyHold(makeAgentID(id)) }),
+      ...(isPanel ? {} : { onHold: (id: string) => forget(this.runtime.notifyHold(makeAgentID(id)), 'kernel:notifyHold', (event) => this.emitLog(event)) }),
     })
 
     // 上下文传递：父 agent 指定的仓库消息 id 列表，深拷贝导入新实例上下文空间。
@@ -652,7 +652,8 @@ export class Kernel {
 
   private handleDelivery(delivery: MailDelivery): void {
     if (delivery.kind === 'agent') {
-      void this.runtime.processDelivery(delivery)
+      // P6：runDelivery 入口前置查询可抛对象错误——孤儿 promise 曾击落进程。
+      forget(this.runtime.processDelivery(delivery), 'kernel:processDelivery', (event) => this.emitLog(event))
     }
   }
 

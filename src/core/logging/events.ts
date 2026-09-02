@@ -156,6 +156,14 @@ export interface AgentMessageSent {
   readonly payloadSize: number
 }
 
+/** fire-and-forget 兜底针点（forget() 产物；缺陷信号非崩溃——P6 教训）。 */
+export interface KernelOrphanError {
+  readonly type: 'kernel.orphan.error'
+  readonly at: number
+  readonly site: string
+  readonly error: string
+}
+
 /** 访问请求记录（评估动作 + 是否挂起确认）。 */
 export interface AccessAsked {
   readonly type: 'access.asked'
@@ -203,6 +211,7 @@ export interface ContextCompacted {
 }
 
 export type LogEvent =
+  | KernelOrphanError
   | ToolInvoked
   | ApiRequestRecorded
   | ContextAssembled

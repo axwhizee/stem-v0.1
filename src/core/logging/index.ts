@@ -4,6 +4,7 @@
 
 export type {
   LogEvent,
+  KernelOrphanError,
   ToolInvoked,
   ApiRequestRecorded,
   ContextAssembled,
@@ -22,3 +23,4 @@ export type {
 
 export type { LogSink, LogFilter, Logger } from './Logger'
 export { InMemoryLogger, eventInvolvesAgent } from './Logger'
+export { forget } from './forget'
