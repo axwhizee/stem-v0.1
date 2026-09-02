@@ -32,7 +32,7 @@ describe('Kernel 邮局模式', () => {
   test('简单对话闭环：user0 发消息 → agent 回复 → user0 收到发送者戳消息', async () => {
     const gateway = new FakeGateway(() => textEvents('hello'))
     const { kernel, deliveries } = await createKernelHarness(gateway)
-    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
 
     await kernel.sendUserMessage(agentId, 'hi')
     const delivery = (await deliveries.next())!
@@ -49,7 +49,7 @@ describe('Kernel 邮局模式', () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
     const { kernel, deliveries, timers } = await createKernelHarness(gateway)
     const agentId = await kernel.instantiateAgent(
-      { className: makeAgentClassID('simple-chat'), parentId: makeAgentID(USER_ID), userPrompt: 'hello' },
+      { className: makeAgentClassID('assistant'), parentId: makeAgentID(USER_ID), userPrompt: 'hello' },
       '/proj',
     )
 
@@ -70,7 +70,7 @@ describe('Kernel 邮局模式', () => {
   test('邮局累积：cooldown 期间多封信合并为一次送信', async () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
     const { kernel, deliveries, timers } = await createKernelHarness(gateway)
-    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
 
     // 首信（立即送信）
     await kernel.sendUserMessage(agentId, 'first')
@@ -182,8 +182,9 @@ describe('Kernel 邮局模式', () => {
       parameters: { type: 'object', properties: {} },
       execute: () => ({ text: 'now' }),
     })
-    // 用 simple-chat（tools 白名单为空数组 → 无工具）
-    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    // 局部封闭类（tools={} → 本地全 deny；internal 占位 assistant 是「继承」形，非封闭）
+    await kernel.templates.register({ name: makeAgentClassID('closed'), description: 'closed', systemPrompt: 's', tools: {} })
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('closed'), '/proj')
     await deliveries.next() // 首信回复
 
     await kernel.sendUserMessage(agentId, 'what time')
@@ -239,8 +240,9 @@ describe('Kernel 邮局模式', () => {
     )
     assert.match(inst.text, /已创建 agent/)
 
-    // 白名单隔离：封闭清单类（simple-chat tools={}）的 agent 调管理工具 → deny
-    const closedAgent = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    // 白名单隔离：封闭清单类（tools={}）的 agent 调管理工具 → deny
+    await kernel.templates.register({ name: makeAgentClassID('closed'), description: 'closed', systemPrompt: 's', tools: {} })
+    const closedAgent = await kernel.getOrCreateAgent(makeAgentClassID('closed'), '/proj')
     await assert.rejects(
       () =>
         tools.execute(
@@ -260,7 +262,7 @@ describe('Kernel 邮局模式', () => {
     const { kernel, tools, timers, deliveries } = await createKernelHarness(gateway)
     await kernel.registerSystemTools(tools)
 
-    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
     await deliveries.next() // 首信回复
     await kernel.sendUserMessage(agentId, 'hi')
     timers.flushAll()
@@ -325,7 +327,7 @@ describe('Kernel 邮局模式', () => {
       yield { type: 'finish', reason: 'stop' }
     })
     const { kernel, timers } = await createKernelHarness(gateway)
-    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
 
     // 等待 agent 进入 thinking（processDelivery 已开始，gateway 挂起等 signal）。
     await waitForStatus(kernel, agentId, 'thinking')

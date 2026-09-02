@@ -38,8 +38,7 @@ import { DefaultAccessAskBus, formatAccessRequest } from '../tools'
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
-import simpleChatTemplate from './builtin/SimpleChat.json'
-import coderTemplate from './builtin/Coder.json'
+import assistantTemplate from './builtin/Assistant.json'
 import { DefaultTemplateRegistry } from './TemplateRegistry'
 import type { TemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
@@ -58,10 +57,13 @@ import type { UserClassConfig } from './userClass'
 import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentSpaceID, ProjectRef } from './types'
 import { makeAgentClassID, makeAgentID } from './types'
 
-/** 内置示例模板（S7 矩阵 internal 层：core 自带 `kernel/builtin/*.json`，非硬编码角色）。 */
+/**
+ * 内置模板（S7 矩阵 internal 层：core 自带 `kernel/builtin/*.json`）。
+ * assistant = 占位类：不写 tools 键（undefined）= 实例完整继承父档案
+ * （族谱台账语义），模型不设 = 落四级解析链——internal 只保底一张白纸。
+ */
 export const BUILTIN_TEMPLATES: readonly AgentClass[] = [
-  simpleChatTemplate as unknown as AgentClass,
-  coderTemplate as unknown as AgentClass,
+  assistantTemplate as unknown as AgentClass,
 ]
 
 /** 用户面板固定 id。 */

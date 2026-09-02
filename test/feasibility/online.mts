@@ -69,7 +69,7 @@ async function waitLetter(marker: string, timeoutMs = 90_000): Promise<string> {
 try {
   // ---------- W1 真 LLM 轮 ----------
   console.log('W1 真网关端到端（coder 小任务）')
-  const coderId = await sys.pilot.instantiate({ className: makeAgentClassID('coder'), userPrompt: '只回答一个数字：2+3 等于几？不要调用任何工具。', agentId: 'on-coder' }, dir)
+  const coderId = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: '只回答一个数字：2+3 等于几？不要调用任何工具。', agentId: 'on-coder' }, dir)
   await waitIdle('W1')
   const w1 = await sys.pilot.exportContext(coderId)
   ok('真 LLM 轮闭合且答案含 5', w1.includes('"assistant"') && /5/.test(w1), w1.slice(-300))
@@ -138,7 +138,7 @@ try {
     }
     throw new Error(`waitIdle2 超时 ${label}`)
   }
-  const cid = await sys2.pilot.instantiate({ className: makeAgentClassID('simple-chat'), userPrompt: '请用 200 字介绍光合作用。', agentId: 'on-compact' }, wdir)
+  const cid = await sys2.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: '请用 200 字介绍光合作用。', agentId: 'on-compact' }, wdir)
   await waitIdle2('W6-a')
   await sys2.kernel.sendMessage('user0', cid, '很好，再用 200 字介绍呼吸作用。')
   await waitIdle2('W6-b')

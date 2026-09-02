@@ -69,7 +69,7 @@ try {
   ok('inventory tools/classes 正常', (inv.tools?.length ?? 0) > 8 && (inv.classes?.length ?? 0) >= 4, JSON.stringify({ t: inv.tools?.length, c: inv.classes?.length }))
 
   console.log('H3 webui 真网关实例化 → LLM 轮 → DB 镜像')
-  const inst = await post(4321, '/api/instantiate', { className: 'simple-chat', userPrompt: '只回复两个字：收到' })
+  const inst = await post(4321, '/api/instantiate', { className: 'assistant', userPrompt: '只回复两个字：收到' })
   const agentId = String(inst.json?.agentId ?? '')
   ok('instantiate 200 返回 id', inst.status === 200 && agentId.length > 0, JSON.stringify(inst))
   let corpus = ''

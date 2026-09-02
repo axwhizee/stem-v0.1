@@ -79,7 +79,7 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     // ---------- 生命周期 A ----------
     const lettersA: string[] = []
     const systemA = await boot(d, gatewayReplying('你好，我是助手。'), stateStore, lettersA)
-    const childId = await systemA.pilot.instantiate({ className: 'simple-chat', userPrompt: '你好' }, '/proj')
+    const childId = await systemA.pilot.instantiate({ className: 'assistant', userPrompt: '你好' }, '/proj')
     await systemA.pilot.sendMessage(childId, '在吗')
     await settle()
     assert.ok(lettersA.some((t) => t.includes('我是助手')), 'A：首轮对话回复送达')
@@ -131,7 +131,7 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     const agentsC = await systemC.pilot.listAgents()
     assert.equal(agentsC.length, 1, 'C：仅剩 user0（child 归档）')
     assert.equal(systemC.kernel.repository.has(childId), false)
-    const newId = await systemC.pilot.instantiate({ className: 'simple-chat', userPrompt: 'hi' }, '/proj')
+    const newId = await systemC.pilot.instantiate({ className: 'assistant', userPrompt: 'hi' }, '/proj')
     await systemC.pilot.sendMessage(newId, '在吗')
     await settle()
     const freshIds = systemC.kernel.repository.list(newId).map((m) => m.id)
@@ -150,13 +150,13 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     // ---------- 生命周期 A：显式出生 + 运行改写 ----------
     const systemA = await boot(d, gatewayReplying('a'), stateStore, [])
     const parentId = await systemA.pilot.instantiate(
-      { className: 'simple-chat', userPrompt: '父', model: { provider: 'fake', id: 'birth-p' } },
+      { className: 'assistant', userPrompt: '父', model: { provider: 'fake', id: 'birth-p' } },
       '/proj',
     )
     assert.deepEqual(systemA.kernel.lineage.modelOf(parentId), { ref: { provider: 'fake', id: 'birth-p' }, origin: 'explicit' })
     const parentInstance = systemA.kernel.instances.getSync(makeAgentID(parentId))!
     const childId = await systemA.kernel.instantiateInSpace(
-      { className: makeAgentClassID('simple-chat'), parentId: parentInstance.id, userPrompt: '子' },
+      { className: makeAgentClassID('assistant'), parentId: parentInstance.id, userPrompt: '子' },
       parentInstance.spaceId,
     )
     // 子女出生快照：继承父的显式层。

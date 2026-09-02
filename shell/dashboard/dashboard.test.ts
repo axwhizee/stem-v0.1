@@ -180,10 +180,10 @@ test('资源清单：纯内存标本装配 = 矩阵真实结果（三态分层 +
     assert.equal(custom.visibleToUser0, false) // 未进 user0 白名单 = deny 不可见
     assert.ok(inv.tools.some((t) => t.id === 'bash' && t.kind === 'internal' && t.visibleToUser0))
     assert.ok(!inv.tools.some((t) => t.id === 'read'), 'extensions.tools=[] → extension 五件套不装')
-    // 类清单分层：internal（user/simple-chat/coder）+ custom 扫描。
+    // 类清单分层：internal（user/assistant 占位）+ custom 扫描。
     const layers = new Map(inv.classes.map((c) => [c.name, c.layer]))
     assert.equal(layers.get('user'), 'internal')
-    assert.equal(layers.get('simple-chat'), 'internal')
+    assert.equal(layers.get('assistant'), 'internal')
     assert.equal(layers.get('probe-agent'), 'custom')
     // 策略维度（标本注册表实况）：内置 classic/none 必须可见，classic 有异步 process + 动作面。
     const strat = new Map(inv.strategies.map((s) => [s.name, s]))

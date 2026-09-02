@@ -1,9 +1,9 @@
 // ============================================================
-// shell/main.ts —— 临时 shell 层（core 调试/检验用）
+// shell/cli/main.ts —— 参考 CLI shell（bootStem 装配，终端扮演 user0）
 //
-// 面板角色：注册为 user0（接入总线 + 邮局，与 agent 一视同仁）。
-// 用户输入 → bus.send → 邮局 → 送信 → Runtime 处理 → 自动寄信
-// → user0 信箱收信汇总 → 本 shell 展示。
+// 交互模型：user0 是面板（根接线 assemble:false，自身不跑 LLM 轮）——
+// 用户输入 = 以 user0 身份向当前实例投递信件；实例回信到达 user0 信箱，
+// 经事件流汇总展示。ask 审批同样走信件（access_request → 确认 → access_reply）。
 //
 // 运行（S6/R11 opencode-style：`stem [path]`——在项目里直接启动，项目目录即空间）：
 //   npm run shell                    # cwd 即空间
@@ -92,7 +92,7 @@ async function createShell(): Promise<ShellState> {
   state.config = system.config
   for (const issue of system.init.issues) console.log(`  [init] ${formatInitIssue(issue)}`)
 
-  state.currentAgentId = await system.kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), DEFAULT_PROJECT, {
+  state.currentAgentId = await system.kernel.getOrCreateAgent(makeAgentClassID('assistant'), DEFAULT_PROJECT, {
     userPrompt: '你好，请做一个简短的自我介绍。',
   })
 
@@ -226,7 +226,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
     case '/templates': {
       const list = await state.kernel.templates.list()
       for (const t of list)
-        console.log(`  ${t.name}  tools=${Object.keys(t.tools).length > 0 ? Object.entries(t.tools).map(([k, v]) => `${k}:${v}`).join(',') : '-'}${t.contextStrategy ? `  strategy=${t.contextStrategy}` : ''}  ${t.description}`)
+        console.log(`  ${t.name}  tools=${t.tools === undefined ? 'inherit' : Object.keys(t.tools).length > 0 ? Object.entries(t.tools).map(([k, v]) => `${k}:${v}`).join(',') : '-'}${t.contextStrategy ? `  strategy=${t.contextStrategy}` : ''}  ${t.description}`)
       return false
     }
     case '/agents': {
@@ -287,7 +287,7 @@ function truncate(text: string, max: number): string {
 async function main(): Promise<number> {
   const state = await createShell()
   console.log('====================================================')
-  console.log(' stem core 调试 shell（临时面板 user0）')
+  console.log(' stem CLI shell（扮演 user0 根面板）')
   console.log(` gateway: ${state.source}`)
   console.log(` 配置: ${DEFAULT_PROJECT}/.stem/stem.jsonc（唯一配置文件）`)
   console.log(` 注册用户工具: ${state.init.tools.length > 0 ? state.init.tools.map((t) => t.id).join(', ') : '-'}`)

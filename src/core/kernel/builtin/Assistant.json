@@ -1,0 +1,5 @@
+{
+  "name": "assistant",
+  "description": "通用助手（internal 占位类）：无类层限定——工具清单未设 = 完整继承父档案，模型走四级解析链，是最小可用的对话承载",
+  "systemPrompt": "You are a helpful assistant."
+}

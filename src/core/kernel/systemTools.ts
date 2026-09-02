@@ -94,7 +94,7 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
       }
       await kernel.registerAgentClass(cls, { persist: true, by: ctx.agentId })
       return {
-        text: `已创建 agent 类 ${args.name}（tools=${Object.keys(cls.tools).length} 条规则，${kernel.hasClassStore() ? '已落盘 .stem/agent/，重启后仍生效' : '仅内存注册——宿主未启用类回写通道'}）`,
+        text: `已创建 agent 类 ${args.name}（tools=${cls.tools === undefined ? '未设=继承父档案' : Object.keys(cls.tools).length + ' 条规则'}，${kernel.hasClassStore() ? '已落盘 .stem/agent/，重启后仍生效' : '仅内存注册——宿主未启用类回写通道'}）`,
       }
     },
   }
@@ -210,12 +210,14 @@ const MODEL_ORIGIN_LABELS: Record<ModelOrigin, string> = {
  * 新键放行（键即白名单 = 自我限定，实际能力仍由族谱台账收敛兜底，扩张不可达）。
  */
 export function checkToolsConvergence(
-  current: Readonly<Record<string, ToolAccess>>,
+  current: Readonly<Record<string, ToolAccess>> | undefined,
   patch: Readonly<Record<string, ToolAccess>>,
 ): string[] {
   const violations: string[] = []
   for (const [key, next] of Object.entries(patch)) {
-    const prev = current[key]
+    // current undefined = 类层不设限（继承父档案形）——无类层比较基线，逐键放行；
+    // 扩张不可达的真实保证在族谱台账物化（子永宽不过父的生效面）。
+    const prev = current?.[key]
     if (prev === undefined || next === prev) continue
     if (accessRank(next) > accessRank(prev)) {
       violations.push(`${key}: ${prev} → ${next}（扩张被拒）`)
@@ -237,7 +239,7 @@ function agentClassList(kernel: Kernel): ToolCapability {
       const classes = await kernel.templates.list()
       const lines = classes.map(
         (c) =>
-          `${c.name}  tools=${Object.keys(c.tools).length > 0 ? Object.entries(c.tools).map(([t, a]) => `${t}:${a}`).join(',') : '-'}${c.contextStrategy ? `  strategy=${c.contextStrategy}` : ''}${c.model ? `  model=${c.model.id}` : ''}`,
+          `${c.name}  tools=${c.tools === undefined ? 'inherit' : Object.keys(c.tools).length > 0 ? Object.entries(c.tools).map(([t, a]) => `${t}:${a}`).join(',') : '-'}${c.contextStrategy ? `  strategy=${c.contextStrategy}` : ''}${c.model ? `  model=${c.model.id}` : ''}`,
       )
       return { text: lines.length > 0 ? `agent 类列表:\n${lines.join('\n')}` : '（暂无 agent 类）' }
     },

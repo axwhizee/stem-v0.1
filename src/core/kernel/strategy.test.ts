@@ -111,7 +111,7 @@ describe('上下文策略框架（组装权 / note / fail-fast）', () => {
   test('runStrategyAction：未知动作 → context_action_unknown（策略专有接口边界）', async () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
     const { kernel } = await createKernelHarness(gateway)
-    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
     // classic 只有 compact；其它动作名报未知（并携带可用列表）。
     await assert.rejects(
       () => kernel.contextManager.runStrategyAction(agentId, 'does-not-exist'),
@@ -136,7 +136,7 @@ describe('classic compact 端到端（扮演 agent + worker 配对）', () => {
         compact: { enabled: true, threshold: 0.5, keepRecentTurns: 1, replyTimeoutMs: 60_000 },
       },
     })
-    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
     await deliveries.next() // 首信回复
     timers.flushAll()
 
@@ -200,7 +200,7 @@ describe('classic compact 端到端（扮演 agent + worker 配对）', () => {
     const { kernel, deliveries, timers } = await createKernelHarness(gateway, {
       contextSettings: { window: 100_000, compact: { enabled: false, threshold: 0.8, keepRecentTurns: 1, replyTimeoutMs: 60_000 } },
     })
-    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj')
+    const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
     // 每轮后 flush 打破冷却（手动计时器模式），驱动 3 轮对话。
     await deliveries.next()
     timers.flushAll()

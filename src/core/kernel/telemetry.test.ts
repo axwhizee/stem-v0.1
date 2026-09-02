@@ -88,7 +88,8 @@ describe('telemetry_query（可见域 = 树位置函数）', () => {
 
   test('封闭清单类的 agent 够不到观测面（internal 默认隐藏 + 白名单封闭）', async () => {
     const { kernel, tools } = await setup()
-    const closed = await kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/other')
+    await kernel.templates.register({ name: makeAgentClassID('closed'), description: 'closed', systemPrompt: 's', tools: {} })
+    const closed = await kernel.getOrCreateAgent(makeAgentClassID('closed'), '/other')
     await assert.rejects(
       () => tools.execute({ id: 'tq2', name: 'telemetry_query', input: {} }, { agentId: closed, spaceId: 'space-1' }),
       (e: unknown) => (e as { kind: string }).kind === 'access_denied',

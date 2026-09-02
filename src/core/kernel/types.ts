@@ -55,8 +55,12 @@ export interface AgentClass {
   /** 类名，唯一（注册时查重；即模板键）。 */
   readonly name: AgentClassID
   readonly description: string
-  /** 该类实例可用的工具清单（融合白名单+访问）：Record<访问键, ask|deny|allow|ignore>。 */
-  readonly tools: Readonly<Record<string, ToolAccess>>
+  /**
+   * 该类实例可用的工具清单（融合白名单+访问）：Record<访问键, ask|deny|allow|ignore>。
+   * 空 Record = 本地封闭（无工具）；**未设 = 完整继承父生效档案**（族谱台账律，
+   * internal 占位类 assistant 即此形）。
+   */
+  readonly tools?: Readonly<Record<string, ToolAccess>>
   /** 该类的专属系统提示词（模板承载，实例化注册到邮局）。 */
   readonly systemPrompt: string
   /** 上下文管理策略（默认 classic；实例化时写入上下文属性）。 */
@@ -66,8 +70,10 @@ export interface AgentClass {
   /** 送信倒计时（毫秒，默认 1000）；实例化时传给邮局。 */
   readonly sendCountdown?: number
   /**
-   * true = 模块扮演面板（不组装、不跑 LLM 轮，信件由扮演模块消费）：
-   * user0（pilot 扮演）与策略 role（context 模块扮演）共用此形态。
+   * true = 模块扮演面板（不组装、不跑 LLM 轮，信件由扮演模块消费）——
+   * 策略 role（context 模块扮演）经此字段声明。**面板性双入径**：根实例
+   * （user0，parentId=null）不经此字段，由 kernel 根接线 `assemble:false`
+   * 获得同一形态（pilot 扮演）——面板性皆结构性事实，非类特权。
    */
   readonly panel?: boolean
   /** 用户自定义元数据。 */

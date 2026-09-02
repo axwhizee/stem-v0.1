@@ -29,12 +29,16 @@ const stream = (text: string, model: string, promptTokens: number) => ({
     { choices: [{ index: 0, delta: {}, finish_reason: 'stop' }], usage: { prompt_tokens: promptTokens, completion_tokens: 18 } },
   ],
 })
+let echoRound = 0
 const script = (body: Record<string, unknown>) => {
   const msgs = (body.messages ?? []) as Array<{ role: string; content: unknown }>
   const lastUser = [...msgs].reverse().find((m) => m.role === 'user')
   const text = typeof lastUser?.content === 'string' ? lastUser.content : ''
   if (body.model === 'summarizer') return stream(`SUMMARY_WORKER_OK(${msgs.length} 条被摘要)`, 'summarizer', 80)
-  return stream(`TURN:${text.slice(0, 24)}`, String(body.model), 300)
+  // input 阶梯递增（保证相邻差分 Δ=input(n)−input(n−1)−out(n−1) 为正——
+  // 真实 usage 归位通道畅通；固定值会命中负差回落护栏 = 测试数据敏感性陷阱）。
+  echoRound += 1
+  return stream(`TURN:${text.slice(0, 24)}`, String(body.model), 120 + 220 * echoRound)
 }
 
 const mock = await startMockSse({ script })
@@ -72,16 +76,19 @@ try {
 
   // ---------- C2 compact 自动触发 ----------
   console.log('C2 classic compact 自动触发（wake 链内）')
-  const id = await sys.pilot.instantiate({ className: makeAgentClassID('coder'), userPrompt: 'ROUND-ONE 长文本 '.padEnd(120, '字'), agentId: 'cmp-1' }, dir)
+  const id = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: 'ROUND-ONE 长文本 '.padEnd(120, '字'), agentId: 'cmp-1' }, dir)
   await waitIdle('C2-round1')
   await sys.kernel.sendMessage('user0', id, 'ROUND-TWO 长文本 '.padEnd(120, '字'))
   await waitIdle('C2-round2')
+  // compact 检查点在"下一封 user 信抵达"（wake 链内、组装前）——需要第三轮做触发探针。
+  await sys.kernel.sendMessage('user0', id, 'ROUND-THREE 长文本 '.padEnd(120, '字'))
+  await waitIdle('C2-round3')
   const corpus = await sys.pilot.exportContext(id)
   const summaryReq = mock.requests.filter((r) => r.body?.model === 'summarizer')
   ok('摘要 worker 正规往返（summarizeModel 生效）', summaryReq.length >= 1, JSON.stringify(mock.requests.map((r) => r.body?.model)))
   ok('summary 合成行入库（tag=summary + worker 回执）', corpus.includes('SUMMARY_WORKER_OK'))
   ok('归档可逆：markInvalid 行保留（valid:false 在库）', /"valid":false/.test(corpus), corpus.slice(-200))
-  ok('系统未卡死：压缩后照常回轮', corpus.includes('ROUND-TWO'))
+  ok('系统未卡死：压缩后照常回轮', corpus.includes('ROUND-THREE'))
   const turnCount = (await sys.pilot.inspect(id)).turnCount
   ok('turnCount 计数器续接（未被 compact 重置）', turnCount >= 2, JSON.stringify(turnCount))
 

@@ -105,8 +105,8 @@ export async function createKernelHarness(
   return { kernel, timers, deliveries, tools }
 }
 
-export function simpleChatId() {
-  return makeAgentClassID('simple-chat')
+export function assistantId() {
+  return makeAgentClassID('assistant')
 }
 
 export { USER_ID }

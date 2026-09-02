@@ -142,7 +142,7 @@ describe('createStemSystem（系统装配组合根）', () => {
     assert.equal(system.kernel.lineage.effectiveAccess(USER_ID, 'agent_instantiate'), 'deny', '未列出 = 白名单封闭')
     // config.context 已映射（缺省参数兜底不炸；compact 动作可执行）。
     const result = await system.kernel.contextManager.runStrategyAction(
-      await system.kernel.getOrCreateAgent(makeAgentClassID('simple-chat'), '/proj'),
+      await system.kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj'),
       'compact',
     )
     assert.match(result, /轮数不足|已压缩|无历史消息/)
@@ -162,7 +162,7 @@ describe('createStemSystem（系统装配组合根）', () => {
       },
     })
     const agentId = await system.pilot.instantiate(
-      { className: makeAgentClassID('simple-chat'), userPrompt: '你好' },
+      { className: makeAgentClassID('assistant'), userPrompt: '你好' },
       '/proj',
     )
     await system.pilot.sendMessage(agentId, '在吗')
