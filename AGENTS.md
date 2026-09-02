@@ -95,8 +95,11 @@ shell/                     # 宿主层（node/CLI + Web），实现 core 注入�
   │                        #   runner）+ gateway.ts（providers 路由两段式）+ fs 工具集（read/write/
   │                        #   edit/grep/glob，tool_set）+ storage/（SQLite 端口实现，v2 根伪空间归并）
   │                        #   + CLI 命令（stem [path] 空间定位）
-  └── webui/               # WebUIShell：HTTP + SSE 浏览器交互层（OLED 主题；agent 侧栏/timeline/
-                           #   composer/ask 弹窗/compact/销毁；/api/health）
+  └── webui/               # WebUIShell：HTTP + SSE 浏览器交互层（OLED 主题；S6 批 2 第一视角：
+                           #   view.js 纯函数核心[汉字三态字形/routeLetters 信箱归位/computeTreeRows
+                           #   git 风族谱行序/deriveActions 能力事实驱动，双端共用可 node 直测] +
+                           #   SVG 泳道族谱侧栏（行=id·最近任务·状态字，点行直达）+ header 模型行
+                           #   （origin 徽标 + /api/models 候选即切）+ 审面板 + 空桌引导；/api/health）
 extension/                 # 可选功能扩展（tool_set 包落位；config.extensions 选择、宿主解析注入）
 templates/                 # 内置 AgentClass 模板（JSON，name 即 id，tools 为 Record）
 test-support/              # 测试支撑：kernelHarness.ts（内存 + FakeGateway + 手动计时器）+

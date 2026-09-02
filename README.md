@@ -153,7 +153,7 @@ docker run -d -p 4321:4321 -v stem-data:/data --name stem stem:1.0
 镜像 = `node:24-slim` + 非 root + HEALTHCHECK（`/api/health`）。**`/data` volume 承载
 `.stem/`（配置自举 + SQLite 个体层持久）——容器即 bash 的安全边界，挂载目录就是爆炸半径**。
 
-shell 内可交互：直接输入对话；`/new` 创建实例、`/agents` 查看族谱、`/templates` 查看模板、`/tools` 查看工具、`/config` 看配置、`/compact` 手动压缩上下文、`/stop` 中断当前 agent、`/help` 帮助、`/exit` 退出。web 端为浏览器交互（agent 侧栏 / timeline / composer / 权限弹窗）。
+shell 内可交互：直接输入对话；`/new` 创建实例、`/agents` 查看族谱、`/templates` 查看模板、`/tools` 查看工具、`/config` 看配置、`/compact` 手动压缩上下文、`/stop` 中断当前 agent、`/help` 帮助、`/exit` 退出。web 端为第一视角浏览器交互（SVG 泳道族谱侧栏 / 信箱按 sender 归位时间线 / 模型行 origin 徽标即切 / 「审」权限面板；视图逻辑住 `view.js` 纯函数、node 直测）。
 
 ## 关键前提
 

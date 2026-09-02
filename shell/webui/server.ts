@@ -40,22 +40,14 @@ async function main(): Promise<void> {
     userHooks: [demoTemplatesHook],
   })
 
-  // 首次启动：除 user0 外无任何 agent 时创建一个 simple-chat（供直接对话）。
-  const existing = await system.pilot.listAgents()
-  if (existing.every((a) => a.id === 'user0')) {
-    await system.pilot.instantiate(
-      { className: 'simple-chat', userPrompt: '你好，请做一个简短的自我介绍。' },
-      PROJECT_ROOT,
-    )
-  }
-
   const server = createServer(async (req, res) => {
     try {
       const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
       const path = url.pathname
 
-      // —— 静态页 ——
-      if (req.method === 'GET' && path === '/') return sendHtml(res)
+      // —— 静态页（index + 视图纯函数模块） ——
+      if (req.method === 'GET' && path === '/') return sendStatic(res, 'index.html', 'text/html; charset=utf-8')
+      if (req.method === 'GET' && path === '/view.js') return sendStatic(res, 'view.js', 'text/javascript; charset=utf-8')
       // —— 健康检查（docker HEALTHCHECK / 反探活） ——
       if (req.method === 'GET' && path === '/api/health') {
         const agents = await system.pilot.listAgents()
@@ -66,6 +58,7 @@ async function main(): Promise<void> {
       // —— 观察（仪表盘） ——
       if (req.method === 'GET' && path === '/api/agents') return sendJson(res, await listAgents(system))
       if (req.method === 'GET' && path === '/api/templates') return sendJson(res, await system.kernel.templates.list())
+      if (req.method === 'GET' && path === '/api/models') return sendJson(res, listModels(system))
       if (req.method === 'GET' && path.startsWith('/api/agents/') && path.endsWith('/context')) {
         const agentId = decodeURIComponent(path.slice('/api/agents/'.length, -'/context'.length))
         return sendJson(res, await contextOf(system, agentId))
@@ -154,6 +147,10 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
   const agents = await system.pilot.listAgents()
   return agents.map((a) => {
     const binding = system.kernel.lineage.modelOf(a.id as string)
+    // S6 批 2：侧栏行摘要 = 最近一条 user 信剥 <sender>（view.js truncate 渲染）。
+    const lastUser = [...system.kernel.repository.list(a.id)].reverse().find((m) => m.message.role === 'user')
+    const rawContent = typeof lastUser?.message.content === 'string' ? lastUser.message.content : ''
+    const sender = /^<sender id="([^"]+)">/.exec(rawContent)?.[1] ?? ''
     return {
       id: a.id,
       displayName: a.displayName,
@@ -161,10 +158,22 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
       parentId: a.parentId,
       status: a.status,
       turnCount: a.turnCount,
-      // S6：生效模型 + 解析命中层（header 模型行/谱系徽标数据源，批 2 消费）。
+      // S6：生效模型 + 解析命中层（header 模型行/origin 徽标数据源）。
       ...(binding !== undefined ? { model: `${binding.ref.provider}/${binding.ref.id}`, modelOrigin: binding.origin } : {}),
+      ...(rawContent !== '' ? { lastPrompt: rawContent.replace(/^<sender id="[^"]+">/, '').replace(/<\/sender>$/, ''), lastPromptFrom: sender } : {}),
     }
   })
+}
+
+/** 模型候选（header 下拉）：providers 白名单展开；models 空 = 该 provider 全启用。 */
+function listModels(system: StemSystem): { refs: string[]; openEnded: string[] } {
+  const refs: string[] = []
+  const openEnded: string[] = []
+  for (const [name, provider] of Object.entries(system.config.providers ?? {})) {
+    if (provider.models !== undefined && provider.models.length > 0) refs.push(...provider.models.map((m) => `${name}/${m}`))
+    else openEnded.push(name)
+  }
+  return { refs, openEnded }
 }
 
 async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId: string; messages: unknown[] }> {
@@ -184,15 +193,15 @@ async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId
   }
 }
 
-function sendHtml(res: ServerResponse): void {
-  readFile(new URL('./index.html', import.meta.url))
+function sendStatic(res: ServerResponse, file: string, contentType: string): void {
+  readFile(new URL('./' + file, import.meta.url))
     .then((buf) => {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' })
+      res.writeHead(200, { 'Content-Type': contentType })
       res.end(buf)
     })
     .catch(() => {
       res.writeHead(500)
-      res.end('index.html 读取失败')
+      res.end(`${file} 读取失败`)
     })
 }
 

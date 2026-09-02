@@ -877,3 +877,37 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - **模型与权限同门面**：R6"全参数统一解析律"落地——tools（收敛格代数）与 model（取先链）都是族谱位置的函数，树物化、kernel 算输入、工具走 canReach，无第二套通道。
 - **config = 真相的完整兑现**：无兜底常量、无静默丢弃、无死键（summarizeModel 补全消费位）；首启模板是数据不是代码。
 - **空间语义终极化**：`.stem` = 世界（一进程一空间一库）；opencode-style `stem [path]`；单实例靠约定。
+
+---
+
+## 阶段：S6 批 2 —— 第一视角 git 风 WebUI（2026-09-02）
+
+**执行依据**：`docs/s6-plan.md` §2；批 1（a237a50）的 /api/set_model、model+origin 数据面在此消费。
+
+### 完成内容
+
+1. **view.js 视图纯函数核心（新文件，零 DOM 双端共用）**：浏览器 `<script type="module">` import + server `/view.js` 静态路由（text/javascript）+ node:test 直测（view.d.ts 供 TS 严格面）。四组纯函数——
+   - **字形表（R8）**：状态 静/思/持/断 + 动作 停/缩/毁/生/送/审/工/摘/我/模，验收矩阵含"全部单汉字"实现级断言；三态视觉 token `.ico[data-state]`：off=斜纹遮罩 / ready=白边框 / active=荧光（accent 光晕），旧几何字符 ⏸✕○◐▲▍⚙⊂⚠ 全清零，流式光标改 border-right 动画；
+   - **routeLetters（R9 第一视角）**：信箱按 `<sender>` 反查归位——常规窗"我（根来信）右侧/兄弟来信左侧/assistant 它自己"；根窗反相（assistant=人类经 pilot 的发言右侧、user=后代回信左侧）；access_request 不占正文流（归「审」面板）；summary 出「摘」中缝、tool 出「工」行、invalid（compact 归档）跳过——"user0 退出会话流"由数据归位实现，无 agent 特判；
+   - **computeTreeRows（git 风侧栏）**：DFS 先序行序 + 泳道列（lane=深度）+ 背景竖线 passThrough（**"兄续弟断"**：有下一兄弟的节点其泳道贯穿 (自身行, 兄弟行) 开区间——纯函数测试逮到初版两处语义 bug【竖线错漏延伸段/子行断点】后改为此算法）；溢出折叠：同父 >6 → 留 5 + 「…+n 兄弟（共 m 实例）」、深 >4 → 「…+n 后代」；顶层支系双色轮替、根行「我」灰显空心点；SVG 每行一段（lines + path join + circle）；
+   - **deriveActions（seed #5 消判）**：按钮三态全部由族谱事实驱动——根（parentId=null）毁/停/缩/送遮罩（无祖先可销毁/面板无 LLM 轮/非对话窗口），普通后代送=荧光；UI 里**不再出现任何 user0 字符串判断**。
+2. **server.ts**：删首启自动 simple-chat 的 demo bootstrap（**seed #1 清**，空桌引导接管）；`/api/agents` 增 `lastPrompt`（剥 `<sender>` 的最近 user 信，UI truncate 30）；新 `/api/models`（providers 白名单展开候选，models 空 → openEnded）；`/view.js` 静态路由（sendHtml 泛化 sendStatic）。
+3. **index.html 重写**：侧栏=树（行=id · 最近任务 · 状态字，点行直达"树即列表"）；header 模型行（值下拉即切 `/api/set_model` + origin 徽标 显式/类基因/父继承/家学）；composer 空桌引导 + 选中才荧光"送"；ask=「审」面板；创建盒「生」。
+
+### 验证
+
+- **278/278 测试**（+14：view.js 纯函数矩阵——字形/剥壳截断/routeLetters 三态归位/树行序·穿越线·双折叠·多根防御/动作三态）+ typecheck 0。
+- **webui 端点冒烟（mockSse 匿名 provider 真起服务）**：`/view.js` 200 text/javascript；index 零几何字形残留（正则断言）；**空桌**（首启仅 user0，不再自动造对话对象）；`/api/models` 候选展开；instantiate 双后代 → lastPrompt/model+home 徽标 → setModel=explicit → 换模续谈送达。
+- 视觉级（泳道绘制观感/三态对比度）属浏览器人工验收项，纯函数层已把可测语义全部锁死。
+
+### 追记：S6 批 1+2 合体的 Docker 老卷实跑（2026-09-02）
+
+新镜像直接对 **S5 时代旧卷 `stem-data`** 开火（v1 库 + 含顶层 `model` 的旧 config——正是升级验收场景）：
+
+1. **R12 实弹**：旧 config 起容即拒（`未知配置键 "model"：顶层 model 已拆除…家学锚点 = user.model`，退出干净无栈噪）；按文案迁移（providers.alibaba=dashscope compatible-mode + key_env + 白名单 / user.model 家学）后正常启动。
+2. **v2 归并迁移（真卷）**：`user_version 1→2`，spaces 双行（伪 `user0` + 真 `/data`）归并为单行 space-2(/data)，user0/i8di 实例行 spaceId 收敛，10 条历史语料保留。
+3. **两段式反证**：`gateway: providers: alibaba`（key 命中零告警；密钥仅 `-e ALIBABA_API_KEY` 透传 env 名，命令行/文件零明文）。
+4. **老 agent 复活续谈**：i8di（S5 era demo，重启恢复 interrupted→持话）真网关回"好你"——正确倒读一周前语境，语料连续性实证。
+5. **模型三环**：新后代家学出生(home) → set_model → 徽标 explicit → **docker restart 后 explicit 仍随实例行存活**（s6-plan 批 2 验收项"setModel 值重建后存活"）+ turns 计数器续接 + 零重放 + 重启后续答"一"。
+
+容器现行（http://localhost:4321）：新 WebUI（族谱侧栏/第一视角/模型行）直接可浏览。踩坑一枚（非产品）：冒烟脚本按不存在的 `m.at` 字段判新回复致假阴性——webui context 端点无 at 字段，判"新回复"应以消息数增长为准。
