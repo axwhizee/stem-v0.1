@@ -5,10 +5,9 @@
 // terminate（含 recursive 级联）用"前后快照差"找出全部被删 id，
 // 逐个 store.delete，杜绝级联漏删。
 //
-// 已知边界（原型期可接受）：Runtime 经引用直改 turnCount/totalCost
-// 不经过本装饰器；每轮收尾必有一次 updateStatus（thinking→holding），
-// 全字段快照在那一刻收敛落库——最多丢失"进行中的一轮"的记账零头，
-// 消息本体不受影响。
+// 轮末账目走显式通道 recordTurnEnd（累加 + snap 落行）——旧「引用直改
+// 等下次状态快照收敛」的已知边界已修复：实测收尾快照在循环内先于统计
+// 发生，账目系统性滞后一整轮、强杀进程即丢；全字段快照仍随任何写操作收敛。
 // ============================================================
 
 import type { AgentID, AgentInstance, AgentSpace } from './types'
@@ -63,6 +62,11 @@ export class PersistedInstanceManager implements InstanceManager {
 
   async updateStatus(agentId: AgentID, status: AgentInstance['status']): Promise<void> {
     await this.inner.updateStatus(agentId, status)
+    this.snap(agentId)
+  }
+
+  async recordTurnEnd(agentId: AgentID, stats: { readonly turns: number; readonly cost: number }): Promise<void> {
+    await this.inner.recordTurnEnd(agentId, stats)
     this.snap(agentId)
   }
 

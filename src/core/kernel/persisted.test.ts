@@ -43,6 +43,18 @@ describe('PersistedInstanceManager write-through', () => {
     assert.equal(row?.classRef, cls.name)
   })
 
+  test('recordTurnEnd 账目累加即落行（重启不丢的回归锚）', async () => {
+    const { manager, store } = makePersisted()
+    const created = await manager.instantiate({
+      className: cls.name, parentId: null, userPrompt: '', spaceId: makeAgentSpaceID('s'), agentId: 'a1',
+    })
+    await manager.recordTurnEnd(created.id, { turns: 1, cost: 0.25 })
+    await manager.recordTurnEnd(created.id, { turns: 1, cost: 0.5 })
+    const row = rowOf(store, 'a1')
+    assert.equal(row?.turnCount, 2, '行快照应含两轮累加')
+    assert.equal(row?.totalCost, 0.75)
+  })
+
   test('terminate recursive：级联子体一并从 store 消行（杜绝漏删）', async () => {
     const { manager, store } = makePersisted()
     await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '', spaceId: makeAgentSpaceID('s'), agentId: 'root' })

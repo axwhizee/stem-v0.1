@@ -223,9 +223,9 @@ export class DefaultRuntime implements Runtime {
         session = [...session, ...results]
       }
 
-      // 统计与状态（最终保持 holding，等待快递员下一次送信）
-      instance.turnCount += 1
-      instance.totalCost += this.estimateCost(usage)
+      // 统计走显式通道（累加即写穿落行——轮终态 holding 在循环内已置，
+      // 引用直改会滞后一整轮；随后保持 holding 等待快递员下一次送信）
+      await this.deps.instances.recordTurnEnd(instance.id, { turns: 1, cost: this.estimateCost(usage) })
 
       // 最终回复：寄给创建者（= 族谱父；发原始文本，发送者戳由管理员打标签时统一生成）。
       const finalText = allText.join('')

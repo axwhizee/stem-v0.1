@@ -54,6 +54,9 @@ export interface InstanceManager {
   /** 同步快照（供 LineageTree 扫描 children/descendants）。 */
   readonly listAllSync: () => readonly AgentInstance[]
   readonly updateStatus: (agentId: AgentID, status: AgentStatus) => Promise<void>
+  /** 轮末账目（turnCount/totalCost 的唯一累加通道——经装饰器即写穿落行，
+   *  杜绝「引用直改不落库」的记账滞后；Runtime 每轮收尾调用一次）。 */
+  readonly recordTurnEnd: (agentId: AgentID, stats: { readonly turns: number; readonly cost: number }) => Promise<void>
   readonly takeover: (agentId: AgentID, patch: Partial<AgentInstancePatch>) => Promise<void>
   /**
    * 运行改写模型显式层（S6/R14 set_model 通道）：实例行 model 就地更新
@@ -170,6 +173,12 @@ export class DefaultInstanceManager implements InstanceManager {
   async updateStatus(agentId: AgentID, status: AgentStatus): Promise<void> {
     const instance = await this.get(agentId)
     instance.status = status
+  }
+
+  async recordTurnEnd(agentId: AgentID, stats: { readonly turns: number; readonly cost: number }): Promise<void> {
+    const instance = await this.get(agentId)
+    instance.turnCount += stats.turns
+    instance.totalCost += stats.cost
   }
 
   async takeover(agentId: AgentID, patch: Partial<AgentInstancePatch>): Promise<void> {

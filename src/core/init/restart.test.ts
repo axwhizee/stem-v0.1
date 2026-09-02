@@ -101,6 +101,10 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     assert.equal(systemB.kernel.repository.list(childId).length, contextCountA)
     // 状态归一化：轮尾 holding → interrupted（进程已死语义，可恢复）。
     assert.equal(systemB.kernel.instances.getSync(makeAgentID(childId))?.status, 'interrupted')
+    // 账目续接回归锚：A 完成的一轮（turn=1）经 recordTurnEnd 显式通道落行——
+    // 旧实现轮末统计引用直改不落库，重启即清零（实测 DB 行滞后一整轮）。
+    //（A 共两轮：instantiate 首信一跑 + '在吗' 追问一跑）
+    assert.equal(systemB.kernel.instances.getSync(makeAgentID(childId))?.turnCount, 2, 'B：turnCount 应续接 A 的两轮记账')
     // 零重放：重启接线不产生任何新信件（lastSentIds 已由恢复行预置）。
     await settle()
     assert.equal(lettersB.length, 0, `B：重启后不应重放旧信，实际 ${lettersB.length} 封`)
