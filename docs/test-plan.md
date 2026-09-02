@@ -26,8 +26,8 @@
   export ALIBABA_API_KEY="$(timeout 15 powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('ALIBABA_API_KEY','User')" | tr -d '\r\n')"   # websearch 后端必需
   ```
 - **网关定稿**（用户裁决）：`opencode-go / qwen3.8-flash`（非免费但小额；执行前 `curl -s https://opencode.ai/zen/go/v1/models -H "Authorization: Bearer $OPENCODE_API_KEY"` 探 **`(free)` 后缀变体**，命中即改用之）。
-- **测试前置改动**（开跑第一步）：`tmp/.stem/stem.jsonc` ① providers 增 `"opencode-go": { "base_url": "https://opencode.ai/zen/go/v1", "key_env": "OPENCODE_API_KEY" }`；② `user.model` 从 alibaba/qwen3.8-flash 切到 **opencode-go 选定模型**；ALIBABA provider 保留（websearch 用）。extensions 已点名五件套+web 两件+creator；user0 整表含 skill/web 两键。
-- **纪律**：用例限量、单轮短回复为主、绝不让 agent 挂机；测试产生的实验 agent/类文件在报告后询问用户是否清理（tmp DB 是用户资产，默认不清）。
+- **测试前置改动**（开跑第一步）：`test/space-demo/.stem/stem.jsonc` ① providers 增 `"opencode-go": { "base_url": "https://opencode.ai/zen/go/v1", "key_env": "OPENCODE_API_KEY" }`；② `user.model` 从 alibaba/qwen3.8-flash 切到 **opencode-go 选定模型**；ALIBABA provider 保留（websearch 用）。extensions 已点名五件套+web 两件+creator；user0 整表含 skill/web 两键。
+- **纪律**：用例限量、单轮短回复为主、绝不让 agent 挂机；测试产生的实验 agent/类文件在报告后询问用户是否清理（历史沿革：初版方案主场 tmp 用户空间，实况改用独立验收空间 test/space-v10（tmp 资产零触碰））。
 
 ## 2. 用例矩阵（P0 = v1.0 门槛，P1 = 应过）
 
@@ -35,7 +35,7 @@
 
 | # | P | 用例 | 步骤梗概 | 通过判据 |
 |---|---|------|---------|---------|
-| 1 | P0 | custom 类装载与对话 | 写 `tmp/.stem/agent/haiku.md`（description+tools:{}+正文；基因 model 不设）→ instantiate → send | 家学 origin=home；回复符合人格 |
+| 1 | P0 | custom 类装载与对话 | 写 `test/space-v10/.stem/agent/haiku.md`（实况：验收在 space-v10）（description+tools:{}+正文；基因 model 不设）→ instantiate → send | 家学 origin=home；回复符合人格 |
 | 2 | P0 | 工具面建类（进化书写 + ask-once） | send user0「创建类…」（agent_class_create=ask）→ /api/events 见 access_request → /api/access once → 类文件落盘 `.stem/agent/` → instantiate 新类 | 审批闭环；重启后类仍在（文件真相） |
 | 3 | P0 | 类更新收敛检查 | agent_class_update 给新类**加**工具键 → 期望被拒（逐键只许收敛）；改 systemPrompt → ask 后生效 | 拒加键的报错文案可行动 |
 | 4 | P0 | fs 五件套任务 | write（ask 审批）落文件 → read 回读 → edit 改一处 → grep/glob 命中 | 内容逐字正确；tool 行入箱 |
@@ -59,12 +59,12 @@
 ## 4. 历史踩坑清单（防重蹈，全部来自实测）
 
 - `pkill -f <模式>` 模式串若出现在当前命令行会**自噬 shell**（用 `[r]` 拆字符或精确 pid）；杀 setsid 进程要 `pgrep -f` 找 pid 直杀。
-- webui/dashboard 空间定位是**裸位置参数**（`server.ts tmp`），无 `--` 前缀（曾生成 `--/` 垃圾目录）。
+- webui/dashboard 空间定位是**裸位置参数**（`server.ts test/space-v10`），无 `--` 前缀（曾生成 `--/` 垃圾目录）。
 - `/api/agents/:id/context` 条目**无 `at` 字段**；判"新回复"以消息行数增长为准。
 - 轮询等待：先等**进入** thinking 再等**离开**（否则上轮 holding 瞬间即退，竞态假阴性——T3 冒烟实锤）。
 - SQLite 保留字：`AS all` 语法错；`AS at` 可用。窗口函数 rn=1 = 尾行，非"尾 user 行"。
 - nvm PATH 不跨工具调用，每条命令自带 export。
-- `config.user.tools` 整表替换：新工具键要手动补进 tmp 表（已含 web 两件 + skill）。
+- `config.user.tools` 整表替换：新工具键要手动补进根表（已含 web 两件 + skill）。
 - 提交身份 `git -c user.name="OwlCat" -c user.email="owlcat@local"`；`TODO.md/prompts.md` 不入库；reference/ 噪音忽略。
 
 ## 5. 报告与出口

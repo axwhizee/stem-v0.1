@@ -7,7 +7,7 @@
 //
 // 运行（S6/R11 opencode-style：`stem [path]`——在项目里直接启动，项目目录即空间）：
 //   npm run shell                    # cwd 即空间
-//   npm run shell -- tmp             # 指定目录（仓库演示空间）
+//   npm run shell -- test/space-demo   # 指定目录（仓库演示空间）
 //   ALIBABA_API_KEY=<key> npm run shell   # 真实网关（config providers 声明的 key_env）
 //
 // 命令：

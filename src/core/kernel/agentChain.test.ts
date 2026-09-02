@@ -18,7 +18,7 @@ import type { LLMRequest, LLMEvent } from '../gateway'
 import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentID } from './types'
 import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
-import { createKernelHarness } from '../../../test-support/kernelHarness'
+import { createKernelHarness } from '../../../test/support/kernelHarness'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 

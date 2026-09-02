@@ -20,7 +20,7 @@ import type { AgentClass } from './types'
 import type { AssembleInput, AssembleResult } from '../context'
 import { DefaultStrategyRegistry, createBuiltinStrategyRegistry } from '../context'
 import type { ContextStrategyModule } from '../context'
-import { createKernelHarness } from '../../../test-support/kernelHarness'
+import { createKernelHarness } from '../../../test/support/kernelHarness'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 

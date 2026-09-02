@@ -118,10 +118,11 @@ extension/                 # 矩阵 extension 层：tools/agent/context 目录�
                            #   （可工厂形），附属脚本自由放置；config.extensions 分键点名启用；
                            #   住户：tools fs 五件套 + websearch/webfetch + _lib/ 共享辅助；agent creator）
 test/                      # 跨模块可行性冒烟（非 node:test；npm run test:feas，见 contributor §6.2）
-test-support/              # 测试支撑：kernelHarness.ts（内存 + FakeGateway + 手动计时器）+
+test/                      # 测试工作区：support/（kernelHarness 内存+FakeGateway+手动计时器）+
                            #   mockSse 兼容再导出（产品无 mock 回落——离线冒烟 = mockSse 作匿名
                            #   provider 入测试 config）
-tmp/                       # 测试项目空间（.stem/ 配置 + 用户 tools/agent 示例）
+                           #   演示空间 test/space-demo/（.stem/ 配置 + custom 工具示例）；
+                           #   验收现场 test/space-v10/（opencode 网关执行场）
 docs/                      # 设计文档（实况卷/历史卷二分见 contributor §1）：
                            #   实况卷 architecture.md（实际架构，以此为准）/ api.md（接口清单，对拍冻结）/
                            #   dev-guide.md（扩展点全景+食谱）/ contributor.md（工程纪律）/

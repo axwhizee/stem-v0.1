@@ -9,7 +9,7 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../gateway'
-import { createKernelHarness } from '../../../test-support/kernelHarness'
+import { createKernelHarness } from '../../../test/support/kernelHarness'
 import { formatTelemetryRow } from './systemTools'
 import { USER_ID } from './Kernel'
 import { makeAgentClassID, makeAgentID, type AgentClass } from './types'

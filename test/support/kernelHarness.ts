@@ -1,14 +1,14 @@
 // ============================================================
-// test-support/kernelHarness.ts —— kernel 集成测试辅助
+// test/support/kernelHarness.ts —— kernel 集成测试辅助
 //
 // 提供：手动倒计时（同步触发）、用户收信等待队列、标准 kernel 构造。
 // ============================================================
 
-import { Kernel, makeAgentClassID, USER_ID } from '../src/core/kernel'
-import type { UserDelivery } from '../src/core/context'
-import type { ContextSettings, StrategyRegistry } from '../src/core/context'
-import { DefaultToolCapabilityRegistry } from '../src/core/tools'
-import type { FakeGateway } from '../src/core/gateway'
+import { Kernel, makeAgentClassID, USER_ID } from '../../src/core/kernel'
+import type { UserDelivery } from '../../src/core/context'
+import type { ContextSettings, StrategyRegistry } from '../../src/core/context'
+import { DefaultToolCapabilityRegistry } from '../../src/core/tools'
+import type { FakeGateway } from '../../src/core/gateway'
 
 export function manualTimers() {
   const pending = new Set<() => void>()

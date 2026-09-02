@@ -115,7 +115,7 @@
 
 ### ④ user 工具（`kind=user`，`.stem/tools/*.ts`）
 
-用户默认导出 `ToolCapability` 即注册（示例：`tmp/.stem/tools/user_hello.ts`）；**目录即真相**——放进 `.stem/tools/` 自动加载，config 无镜像字段（S4.2 起 tools/agents/strategies 三镜像注册表已删除）。
+用户默认导出 `ToolCapability` 即注册（示例：`test/space-demo/.stem/tools/user_hello.ts`）；**目录即真相**——放进 `.stem/tools/` 自动加载，config 无镜像字段（S4.2 起 tools/agents/strategies 三镜像注册表已删除）。
 
 ### ⑤ extension（tool_set 包挂载点，`extension/tools/`）
 
@@ -136,7 +136,7 @@ npm run typecheck           # tsc --noEmit 类型检查（唯一 lint/typecheck�
 npm test                    # 全量单测（264）
 npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑
 npm run shell               # CLI shell：**cwd 即空间**（opencode-style；无 key 也可起，用到才硬错）
-npm run shell -- tmp        # 指定目录（本仓库演示空间）
+npm run shell -- test/space-demo   # 指定目录（仓库演示空间）
 ALIBABA_API_KEY=<key> npm run shell   # 真实网关（密钥只走 env：config providers.<p>.key_env 声明变量名）
 npm run web                 # WebUIShell（OLED 主题，127.0.0.1:4321；同样支持 `npm run web -- <目录>`）
 npm run build               # 与 typecheck 相同（tsc --noEmit）

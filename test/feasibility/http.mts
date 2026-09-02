@@ -1,7 +1,7 @@
 // ============================================================
 // test/feasibility/http.mts —— 机制可行性 HTTP/SSE 档（双服务并开）
 //
-// spawn webui(:4321) + dashboard(:4421) 于 tmp 空间（独立进程、真实 DB 直读），
+// spawn webui(:4321) + dashboard(:4421) 于验收空间 space-v10（独立进程、真实 DB 直读），
 // 验证：health / instantiate 真轮 / letter 信箱投递 / SSE 事件流格式 /
 // 仪表盘清单（今日策略维度修复回归）/ 清理只读门禁 403 / terminate 收尾。
 // 需 ALIBABA_API_KEY（真网关一轮小任务）。运行：
@@ -24,7 +24,7 @@ if (!process.env.ALIBABA_API_KEY) {
 // （防御性）清除可能存在的代理 env，保证 loopback 直连。
 for (const k of ['HTTP_PROXY', 'HTTPS_PROXY', 'ALL_PROXY', 'http_proxy', 'https_proxy', 'all_proxy']) delete process.env[k]
 const REPO = new URL('../..', import.meta.url).pathname
-const SPACE = `${REPO}/tmp`
+const SPACE = `${REPO}/test/space-v10`
 
 const procs: Array<{ kill: () => void }> = []
 async function serve(args: string[], name: string) {

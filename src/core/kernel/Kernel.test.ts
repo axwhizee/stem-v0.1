@@ -11,7 +11,7 @@ import { FakeGateway, textEvents, abortError } from '../gateway'
 import type { LLMRequest } from '../gateway'
 import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentID } from './types'
-import { createKernelHarness } from '../../../test-support/kernelHarness'
+import { createKernelHarness } from '../../../test/support/kernelHarness'
 import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 
 const model = { provider: 'opencode', id: 'test-model' }

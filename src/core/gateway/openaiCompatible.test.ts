@@ -11,8 +11,8 @@ import assert from 'node:assert/strict'
 import { createOpenAiCompatibleGateway } from './providers/openaiCompatible'
 import { GatewayError, isGatewayError } from './types'
 import type { LLMRequest, LLMEvent } from './types'
-import { startMockSse, sseLine } from '../../../test-support/mockSse'
-import type { MockResponse } from '../../../test-support/mockSse'
+import { startMockSse, sseLine } from '../../../test/support/mockSse'
+import type { MockResponse } from '../../../test/support/mockSse'
 
 const baseRequest: LLMRequest = {
   model: { provider: 'opencode', id: 'test-model' },
