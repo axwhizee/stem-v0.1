@@ -24,3 +24,4 @@ prompts.md
 # 含明文密钥的外部参考工具（永不入库；密钥治理见 docs/s7-plan.md §8）
 tmp/ref-tools/websearch.ts
 tmp/ref-tools/deepsearch.ts
+test/space-v10/.artifacts/
