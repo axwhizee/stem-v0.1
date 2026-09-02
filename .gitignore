@@ -20,3 +20,7 @@ prompts.md
 # S6/R11：仓库根直接启动（opencode-style，cwd 即空间）时长出的根空间不入库；
 # tmp/.stem 演示空间是显式跟踪例外（根锚定模式不波及）。
 /.stem/
+
+# 含明文密钥的外部参考工具（永不入库；密钥治理见 docs/s7-plan.md §8）
+tmp/ref-tools/websearch.ts
+tmp/ref-tools/deepsearch.ts

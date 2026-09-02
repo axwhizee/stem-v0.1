@@ -1,5 +1,6 @@
 // ============================================================
-// shell/tools/hostTools.test.ts —— host 外部工具（read/write/edit/grep/glob）
+// extension/tools/_lib/tools.test.ts —— extension 工具五件套集成测试
+// （read/write/edit/grep/glob，真实 fs + mkdtemp 临时空间）
 // ============================================================
 
 import { describe, test, before, after } from 'node:test'
@@ -8,11 +9,11 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import type { ToolContext } from '../../../src/core/tools'
-import { createReadTool } from './read'
-import { createWriteTool } from './write'
-import { createEditTool } from './edit'
-import { createGrepTool } from './grep'
-import { createGlobTool } from './glob'
+import { createReadTool } from '../read/read'
+import { createWriteTool } from '../write/write'
+import { createEditTool } from '../edit/edit'
+import { createGrepTool } from '../grep/grep'
+import { createGlobTool } from '../glob/glob'
 
 let root: string
 const ctx: ToolContext = { agentId: 'a1', spaceId: 's1' }

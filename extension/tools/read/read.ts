@@ -1,5 +1,5 @@
 // ============================================================
-// shell/tools/read.ts —— read 工具（kind=shell，权限 read）
+// extension/tools/read.ts —— read 工具（kind=extension，权限 read）
 //
 // 参考 opencode read：读取文本文件（offset/limit 分页，1-based
 // 起始行，limit ≤2000）或列出目录；二进制文件拒绝文本读取。
@@ -7,7 +7,7 @@
 
 import { readdir } from 'node:fs/promises'
 import type { ToolCapability } from '../../../src/core/tools'
-import { inspect, isBinary, resolvePath } from './fs-util'
+import { inspect, isBinary, resolvePath } from '../_lib/fs-util'
 
 const MAX_READ_LINES = 2000
 const MAX_READ_BYTES = 50 * 1024
@@ -17,7 +17,7 @@ export function createReadTool(root: string): ToolCapability {
     id: 'read',
     description: '读取文本文件内容（支持按行分页，offset 为 1-based 起始行，limit ≤ 2000）或列出目录内容。路径为绝对路径或相对工作区路径。',
     accessKey: 'read',
-    kind: 'shell',
+    kind: 'extension',
     category: 'business',
     parameters: {
       type: 'object',
@@ -60,3 +60,6 @@ export function createReadTool(root: string): ToolCapability {
     },
   }
 }
+
+/** Extension matrix entry (factory form): loader injects projectRoot → tool instance. */
+export default createReadTool

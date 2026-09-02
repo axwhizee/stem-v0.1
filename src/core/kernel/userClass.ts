@@ -51,6 +51,9 @@ export const DEFAULT_USER_TOOLS: Readonly<Record<string, ToolAccess>> = {
   bus_participants: 'allow',
   // 观察面：运行日志查询（telemetry；纯查询无副作用，可见域=树位置函数）。
   telemetry_query: 'allow',
+  // skill 兼容装载器（S7 零系统 skill 机制：约定 id 的 custom 工具
+  // `.stem/tools/skill/skill.ts`；空间未安装 = 键空转无副作用）。
+  skill: 'allow',
   // 上下文面：查看/整理自身与子孙上下文。
   context_overview: 'allow',
   context_export: 'allow',

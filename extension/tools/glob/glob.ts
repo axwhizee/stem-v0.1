@@ -1,19 +1,19 @@
 // ============================================================
-// shell/tools/glob.ts —— glob 工具（kind=shell，权限 glob）
+// extension/tools/glob.ts —— glob 工具（kind=extension，权限 glob）
 //
 // 参考 opencode glob：按 glob 模式递归匹配文件路径
 // （支持 ** / * / ? / {a,b}），返回匹配文件列表。
 // ============================================================
 
 import type { ToolCapability } from '../../../src/core/tools'
-import { globToRegExp, inspect, resolvePath, walkTextFiles } from './fs-util'
+import { globToRegExp, inspect, resolvePath, walkTextFiles } from '../_lib/fs-util'
 
 export function createGlobTool(root: string): ToolCapability {
   return {
     id: 'glob',
     description: '按 glob 模式递归匹配文件路径（支持 ** / * / ? / {a,b}），返回匹配文件列表。',
     accessKey: 'glob',
-    kind: 'shell',
+    kind: 'extension',
     category: 'business',
     parameters: {
       type: 'object',
@@ -39,3 +39,6 @@ export function createGlobTool(root: string): ToolCapability {
     },
   }
 }
+
+/** Extension matrix entry (factory form): loader injects projectRoot → tool instance. */
+export default createGlobTool

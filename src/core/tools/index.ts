@@ -35,10 +35,6 @@ export { restrictAccess } from './access'
 export type { ShellRunOptions, ShellRunResult, ShellRunner, BashToolSettings } from './bash'
 export { createBashTool, formatShellOutput, BASH_DEFAULTS } from './bash'
 
-export type { SkillInfo, SkillRegistry, SkillError } from './SkillRegistry'
-export { DefaultSkillRegistry } from './SkillRegistry'
-export { createSkillTool, parseSkillFile } from './skill'
-
 export type { AccessAskOptions, AccessAskBus } from './accessRequest'
 export { DefaultAccessAskBus, formatAccessRequest } from './accessRequest'
 

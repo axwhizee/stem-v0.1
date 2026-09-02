@@ -10,7 +10,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
-import { bootStem, demoTemplatesHook } from '../cli/platform'
+import { bootStem } from '../cli/platform'
 import type { PilotEvent } from '../../src/core/events'
 import type { StemSystem } from '../../src/core/init'
 
@@ -37,7 +37,6 @@ async function main(): Promise<void> {
   const { system, source } = await bootStem({
     projectRoot: PROJECT_ROOT,
     onEvent: broadcast,
-    userHooks: [demoTemplatesHook],
   })
 
   const server = createServer(async (req, res) => {

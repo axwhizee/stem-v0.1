@@ -114,7 +114,7 @@ test('解析完整 JSONC（注释 + 尾逗号 + 全块）', () => {
     "sendCountdown": 800,
     "user": { "systemPrompt": "你是根。", "tools": { "read": "allow", "bash": "ask" }, "model": "opencode-go/deepseek-v4-flash" },
     "context": { "window": 64000, "compact": { "threshold": 0.9, "keepRecentTurns": 2, "summarizeModel": "opencode-go/deepseek-v4-flash" } },
-    "extensions": ["fs", "vscode"],
+    "extensions": { "tools": ["read", "vscode"], "agent": ["creator"] },
   }`)
   assert.equal(config.autoApprove, false)
   assert.equal(config.maxSteps, 8)
@@ -124,7 +124,7 @@ test('解析完整 JSONC（注释 + 尾逗号 + 全块）', () => {
   assert.deepEqual(config.user?.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
   assert.equal(config.context?.window, 64000)
   assert.equal(config.context?.compact?.threshold, 0.9)
-  assert.deepEqual(config.extensions, ['fs', 'vscode'])
+  assert.deepEqual(config.extensions, { tools: ['read', 'vscode'], agent: ['creator'] })
 })
 
 test('autoApprove 必须是布尔', () => {
@@ -160,10 +160,13 @@ test('bash 块：解析 + 类型校验', () => {
   expectFail('{ "bash": { "defaultTimeoutMs": -1 } }', 'defaultTimeoutMs')
 })
 
-test('extensions：字符串数组', () => {
-  assert.deepEqual(parseConfigText('{ "extensions": [] }').extensions, [])
-  expectFail('{ "extensions": "fs" }', 'extensions')
-  expectFail('{ "extensions": [42] }', 'extensions[0]')
+test('extensions：分键对象（S7 矩阵）+ 旧数组形态拒启指路', () => {
+  assert.deepEqual(parseConfigText('{ "extensions": { "tools": [] } }').extensions, { tools: [] })
+  assert.deepEqual(parseConfigText('{ "extensions": {} }').extensions, {})
+  assert.equal(parseConfigText('{}').extensions, undefined)
+  expectFail('{ "extensions": ["fs"] }', '已退役')
+  expectFail('{ "extensions": { "strategies": [] } }', '未知键')
+  expectFail('{ "extensions": { "tools": [42] } }', 'extensions.tools[0]')
 })
 
 test('配置必须是对象；JSONC 语法错误抛 config_parse_error', () => {
@@ -175,7 +178,8 @@ test('配置必须是对象；JSONC 语法错误抛 config_parse_error', () => {
 
 test('DEFAULT_CONFIG_TEXT 自洽：schema 全量校验通过', () => {
   const config = defaultStemConfig()
-  assert.deepEqual(Object.keys(config).sort(), ['autoApprove', 'context', 'extensions', 'providers', 'sendCountdown', 'user'])
+  // extensions 键在模板中为注释示例（缺省行为 = core 兜底默认表），不占实数据键。
+  assert.deepEqual(Object.keys(config).sort(), ['autoApprove', 'context', 'providers', 'sendCountdown', 'user'])
 })
 
 test('模板含唯一预设 opencode-go + 家学锚点 user.model（零代码常量的数据形态）', () => {

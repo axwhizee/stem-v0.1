@@ -39,8 +39,6 @@ export interface ContextManagerOptions {
   readonly repository: Repository
   /** 快递员（组合根注入）。 */
   readonly courier: Courier
-  /** skill 注册表（可选）：实例化时把 <available_skills> 清单注入 system 消息。 */
-  readonly skills?: { readonly manifest: () => string }
   /** 创建策略扮演 agent（kernel 接线：grant + panel 模板 ensure + 实例化；父 = 宿主）。 */
   readonly spawnRole?: (hostAgentId: string, role: StrategyAgentSpec) => Promise<string>
   /** 创建策略工具 worker（kernel 接线：grant + instantiate；任务 = userPrompt 首信）。 */
@@ -146,7 +144,6 @@ export class DefaultContextManager implements ContextManager {
   private readonly timer: TimerFactory
   private readonly boxes = new Map<string, InternalBox>()
   private readonly courier: Courier
-  private readonly skills?: { readonly manifest: () => string }
   private readonly spawnRole?: (hostAgentId: string, role: StrategyAgentSpec) => Promise<string>
   private readonly spawnWorker?: (roleAgentId: string, task: string, spec: StrategyAgentSpec) => Promise<string>
   private readonly terminateWorker?: (workerId: string, by: string) => Promise<void>
@@ -161,7 +158,6 @@ export class DefaultContextManager implements ContextManager {
     })
     this.repository = options.repository
     this.courier = options.courier
-    this.skills = options.skills
     this.spawnRole = options.spawnRole
     this.spawnWorker = options.spawnWorker
     this.terminateWorker = options.terminateWorker
@@ -207,8 +203,7 @@ export class DefaultContextManager implements ContextManager {
     // 恢复接线跳过仓库开辟（箱已存在，system 行在恢复消息里）；新注册正常开辟。
     if (registration.restore !== true) {
       const base = registration.systemPrompt ?? ''
-      const manifest = this.skills?.manifest() ?? ''
-      const parts = [base, manifest, strategy.note ?? ''].filter((part) => part !== '')
+      const parts = [base, strategy.note ?? ''].filter((part) => part !== '')
       await this.repository.register(registration.agentId, parts.join('\n\n'))
     }
 

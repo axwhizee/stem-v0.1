@@ -31,7 +31,7 @@ RUN npm ci --omit=dev
 COPY src/ ./src/
 COPY shell/ ./shell/
 COPY extension/ ./extension/
-COPY templates/ ./templates/
+
 
 # 非 root：node 镜像自带 user 'node'。/data 必须在切用户**之前**以 root 建好并
 # chown 给 node——root filesystem 下普通用户无权 mkdir（构建期踩点修正）。

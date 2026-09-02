@@ -35,6 +35,16 @@ function makeMemFs(files: Record<string, string> = {}) {
   }
   const fs: InitFs = {
     listFiles: async (dir) => Object.keys(files).filter((f) => f.startsWith(`${dir}/`)),
+    listDirs: async (dir) => {
+      const prefix = `${dir}/`
+      const seen = new Set<string>()
+      for (const f of Object.keys(files)) {
+        if (!f.startsWith(prefix)) continue
+        const seg = f.slice(prefix.length).split('/')[0]
+        if (seg && f !== `${prefix}${seg}`) seen.add(`${prefix}${seg}`)
+      }
+      return [...seen]
+    },
     readText: async (file) => {
       const text = files[file]
       if (text === undefined) throw new Error(`ENOENT: ${file}`)

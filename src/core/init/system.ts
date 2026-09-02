@@ -6,12 +6,12 @@
 // 装配顺序（固定）：
 //   1. 读取唯一配置（.stem/stem.jsonc）；
 //   2. 工具注册表 + Kernel（user 类 = config.user 对象，tools 给出整表替换）；
-//   3. 系统工具（agent_*/bus_*/context_* + access_reply）+ 宿主工具；
-//   4. skill 生态（注册表 + skill 工具，发现走工具 init 生命周期）；
-//   5. init 管线（扫描 .stem/tools + .stem/agent + .stem/context → 注册；目录即真相）；
-//   6. Pilot 初始化（内部实例化根 agent user0，user 类）；
-//   7. 工具 initAll（skill 发现等）；
-//   8. 用户注入钩子（init 末尾，深度扩展自定义）。
+//   3. 系统工具（agent_*/bus_*/context_* + access_reply）+ bash（注入 ShellRunner 才装配）；
+//   4. init 管线：三维资源矩阵统一装载（internal 恒在 → extension 点名 →
+//      custom 自动扫描，S7；后层同名覆盖前层）；
+//   5. Pilot 初始化（内部实例化根 agent user0，user 类）；
+//   6. 工具 initAll 生命周期（projectRoot/fs/log 注入）；
+//   7. 用户注入钩子（init 末尾，深度扩展自定义）。
 // ============================================================
 
 import type { ConfigError, ConfigPaths, ConfigStore, StemConfig } from '../config'
@@ -23,7 +23,7 @@ import { DEFAULT_CONTEXT_SETTINGS } from '../context'
 import type { InstanceStore } from '../kernel'
 import type { ClassStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
-import { createBashTool, DefaultSkillRegistry, DefaultToolCapabilityRegistry, createSkillTool } from '../tools'
+import { createBashTool, DefaultToolCapabilityRegistry } from '../tools'
 import type { ShellRunner } from '../tools'
 import { Kernel } from '../kernel'
 import type { Pilot } from '../pilot'
@@ -58,8 +58,17 @@ export interface StemSystemDeps {
   readonly timer?: TimerFactory
   readonly maxSteps?: number
   readonly estimateCost?: (usage: UsageEvent | undefined) => number
-  /** 宿主工具（kind=shell，如 read/write/edit/grep/glob）。 */
+  /**
+   * 宿主显式注入的工具（kind 自定；测试与深度定制通道）。
+   * 常规 extension 工具不经此口——由 init 管线按 config.extensions 点名从
+   * `extensionRoots.tools` 装载（S7 矩阵）。
+   */
   readonly hostTools?: readonly ToolCapability[]
+  /**
+   * extension 资源根（S7 矩阵；宿主注入仓库 `extension/` 各资源目录绝对路径，
+   * 配合 config.extensions 点名清单装载）。缺省 = 无 extension 层。
+   */
+  readonly extensionRoots?: InitDeps['extensionRoots']
   /**
    * shell 执行端口（宿主注入，典型 = node child_process 实现）。
    * 提供后装配 bash 工具（internal · 最小系统对外操作面，config.bash 供参数）。
@@ -100,9 +109,8 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     } as ConfigError
   }
 
-  // 工具注册表 + skill 生态 + Kernel（user 类 = config.user 全对象；根策略收敛起点）。
+  // 工具注册表 + Kernel（user 类 = config.user 全对象；根策略收敛起点）。
   const tools = new DefaultToolCapabilityRegistry()
-  const skills = new DefaultSkillRegistry()
   const settings = settingsOf(config)
   // 类回写端口装配（S5.2）：注入 classFs 才建 store；序列化在 core、文件 IO 在宿主。
   const classStore: ClassStore | undefined =
@@ -120,7 +128,6 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     userClass: config.user,
     // S6/R11：项目根 = 空间身份（根挂真实空间；.stem 目录即世界）。
     project: deps.config.paths.projectRoot,
-    skills,
     tools,
     defaultCountdownMs: config.sendCountdown,
     autoApprove: config.autoApprove,
@@ -135,7 +142,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
 
   // 系统工具（agent_*/bus_*/context_* + access_reply）。
   await kernel.registerSystemTools(tools)
-  // 宿主工具（shell 内置：read/write/edit/grep/glob 等）。
+  // 宿主显式注入的工具（测试/深度定制通道；常规 extension 工具走 runInit 矩阵装载）。
   for (const tool of deps.hostTools ?? []) await tools.register(tool)
 
   // bash 工具（internal；宿主注入 ShellRunner 才装配——core 零平台依赖）。
@@ -145,14 +152,12 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     )
   }
 
-  // skill 工具（internal，类配置显式暴露；发现走 init 生命周期）。
-  await tools.register(createSkillTool({ skills }))
-
-  // init 管线：扫描 .stem/tools + .stem/agent + .stem/context → 注册进 core（目录即真相，不回写 config）。
+  // init 管线：三维资源矩阵统一装载（extension 点名 + custom 扫描 → 注册；目录即真相，不回写 config）。
   const init = await runInit({
     config: { store: deps.config.store, paths: deps.config.paths },
     fs: deps.fs,
     tools: { loadTool: deps.tools.loadTool },
+    ...(deps.extensionRoots !== undefined ? { extensionRoots: deps.extensionRoots } : {}),
     toolRegistry: tools,
     templateRegistry: kernel.templates,
     strategyRegistry: kernel.contextManager.strategies,
@@ -163,11 +168,10 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   const pilot = await createPilot({ kernel })
   if (deps.onEvent) pilot.subscribe(deps.onEvent)
 
-  // 工具初始化生命周期（skill 发现等）。
+  // 工具初始化生命周期（工具参与系统初始化的唯一 hook；fs/projectRoot/log 注入）。
   await tools.initAll({
     fs: deps.fs,
-    skills,
-    skillDir: skillDirOf(deps.config.paths),
+    projectRoot: deps.config.paths.projectRoot,
     ...(deps.logger !== undefined ? { log: { log: (event) => deps.logger!.log(event) } } : {}),
   })
 
@@ -188,10 +192,6 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   for (const hook of deps.userHooks ?? []) await hook(system)
 
   return system
-}
-
-function skillDirOf(paths: ConfigPaths): string {
-  return `${paths.configDir.replace(/[/\\]+$/, '')}/skills`
 }
 
 /** config.context → 策略运行时 ContextSettings（逐项兜底默认；无配置块 = undefined 走内置）。 */

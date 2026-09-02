@@ -1,5 +1,5 @@
 // ============================================================
-// shell/tools/write.ts —— write 工具（kind=shell，权限 edit）
+// extension/tools/write.ts —— write 工具（kind=extension，权限 edit）
 //
 // 参考 opencode write：全量写入文本文件，父目录自动创建，
 // 不支持 append；权限名与 edit 共享 'edit'。
@@ -8,14 +8,14 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname } from 'node:path'
 import type { ToolCapability } from '../../../src/core/tools'
-import { resolvePath } from './fs-util'
+import { resolvePath } from '../_lib/fs-util'
 
 export function createWriteTool(root: string): ToolCapability {
   return {
     id: 'write',
     description: '写入文本内容到文件（全量覆盖，父目录自动创建）。路径为绝对路径或相对工作区路径。',
     accessKey: 'edit',
-    kind: 'shell',
+    kind: 'extension',
     category: 'business',
     parameters: {
       type: 'object',
@@ -38,3 +38,6 @@ export function createWriteTool(root: string): ToolCapability {
     },
   }
 }
+
+/** Extension matrix entry (factory form): loader injects projectRoot → tool instance. */
+export default createWriteTool

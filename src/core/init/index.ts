@@ -2,8 +2,8 @@
 // core/init/index.ts —— 唯一出口（只 re-export）
 // ============================================================
 
-export type { InitDeps, InitFs, InitToolLoader, InitIssue, InitReport, InitError, ClassFs } from './types'
-export { runInit } from './init'
+export type { InitDeps, InitFs, InitToolLoader, InitIssue, InitReport, InitError, ClassFs, ResourceEntry, DiscoveredEntry } from './types'
+export { runInit, DEFAULT_EXTENSION_TOOLS } from './init'
 export { parseAgentFile, parseFrontmatter, extractPrompt } from './agentParse'
 export type { AgentFrontmatter, ParsedAgentFile } from './agentParse'
 // 类序列化（S5.2 进化书写面：agentParse 的逆 + 落盘路径守卫）

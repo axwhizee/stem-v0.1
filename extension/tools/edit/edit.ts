@@ -1,5 +1,5 @@
 // ============================================================
-// shell/tools/edit.ts —— edit 工具（kind=shell，权限 edit）
+// extension/tools/edit.ts —— edit 工具（kind=extension，权限 edit）
 //
 // 参考 opencode edit：oldString/newString 精确替换（非 diff）。
 // - oldString 必须精确匹配（含空白/缩进）；
@@ -9,7 +9,7 @@
 
 import { writeFile } from 'node:fs/promises'
 import type { ToolCapability } from '../../../src/core/tools'
-import { inspect, readText, resolvePath } from './fs-util'
+import { inspect, readText, resolvePath } from '../_lib/fs-util'
 
 export function createEditTool(root: string): ToolCapability {
   return {
@@ -17,7 +17,7 @@ export function createEditTool(root: string): ToolCapability {
     description:
       '编辑文件：用 newString 精确替换 oldString（必须完全匹配，含空白与缩进）。oldString 不能为空；若匹配多处需设 replaceAll=true。',
     accessKey: 'edit',
-    kind: 'shell',
+    kind: 'extension',
     category: 'business',
     parameters: {
       type: 'object',
@@ -72,3 +72,6 @@ function countOccurrences(text: string, needle: string): number {
   }
   return count
 }
+
+/** Extension matrix entry (factory form): loader injects projectRoot → tool instance. */
+export default createEditTool

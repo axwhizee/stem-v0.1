@@ -9,7 +9,7 @@ import { parse as parseJsonc } from 'jsonc-parser'
 import type { ParseError } from 'jsonc-parser'
 import type { ToolAccess } from '../tools'
 import type { ModelRef } from '../gateway'
-import type { ConfigError, StemBashConfig, StemConfig, StemContextConfig, StemProviderConfig, StemUserClass } from './types'
+import type { ConfigError, StemBashConfig, StemConfig, StemContextConfig, StemExtensionsConfig, StemProviderConfig, StemUserClass } from './types'
 
 /** 合法工具访问动作（四态）。 */
 const ACTIONS: readonly ToolAccess[] = ['allow', 'deny', 'ask', 'ignore']
@@ -295,14 +295,35 @@ function validateBash(value: unknown, fail: (message: string) => never): StemBas
   }
 }
 
-/** extensions：宿主 tool_set 包 id 字符串数组（core 不解释 id 语义）。 */
-function validateExtensions(value: unknown, fail: (message: string) => never): readonly string[] | undefined {
+/**
+ * extensions：按资源目录分键的点名清单（S7 三维资源矩阵）——
+ * { tools: [...], agent: [...], context: [...] }，值 = `extension/<键>/` 下启用条目。
+ * 旧数组形态（S6 tool_set 包）fail-fast 指路迁移。
+ */
+function validateExtensions(value: unknown, fail: (message: string) => never): StemExtensionsConfig | undefined {
   if (value === undefined) return undefined
-  if (!Array.isArray(value)) fail('extensions 必须是字符串数组')
-  return (value as unknown[]).map((item, index) => {
-    if (typeof item !== 'string' || item === '') fail(`extensions[${index}] 必须是非空字符串`)
-    return item
-  })
+  if (Array.isArray(value)) {
+    fail(
+      'extensions 数组形态已退役（S7 三维资源矩阵）：改为按资源目录分键清单，' +
+        '如 { "tools": ["read", "write", "edit", "grep", "glob"] , "agent": ["creator"] }' +
+        '（tools 缺省 = fs 五件套；agent/context 缺省 = 不启用）',
+    )
+  }
+  if (value === null || typeof value !== 'object') fail('extensions 必须是 { tools?, agent?, context? } 对象')
+  const raw = value as Record<string, unknown>
+  const result: Record<string, readonly string[]> = {}
+  for (const key of Object.keys(raw)) {
+    if (key !== 'tools' && key !== 'agent' && key !== 'context') {
+      fail(`extensions.${key} 为未知键（合法：tools / agent / context；.stem/ 用户空间自动扫描，不在此声明）`)
+    }
+    const list = raw[key]
+    if (!Array.isArray(list)) fail(`extensions.${key} 必须是字符串数组`)
+    result[key] = (list as unknown[]).map((item, index) => {
+      if (typeof item !== 'string' || item === '') fail(`extensions.${key}[${index}] 必须是非空字符串`)
+      return item
+    })
+  }
+  return result as StemExtensionsConfig
 }
 
 function configError(e: ConfigError): ConfigError {

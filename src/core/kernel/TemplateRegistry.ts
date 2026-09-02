@@ -12,7 +12,11 @@ import type { AgentClass, AgentClassID, KernelError } from './types'
 import type { ToolAccess } from '../tools'
 
 export interface TemplateRegistry {
-  readonly register: (cls: AgentClass) => Promise<void>
+  /**
+   * 注册类模板（name 即 id）。`replace: true` = 同名覆盖（三维矩阵装载律，
+   * 不走 update 的收敛检查——覆盖是装载行为不是模型书写）；缺省 = 同名抛错。
+   */
+  readonly register: (cls: AgentClass, opts?: { readonly replace?: boolean }) => Promise<void>
   readonly update: (name: AgentClassID, patch: Partial<AgentClass>) => Promise<void>
   readonly remove: (name: AgentClassID) => Promise<void>
   readonly get: (name: AgentClassID) => Promise<AgentClass>
@@ -29,9 +33,9 @@ export class DefaultTemplateRegistry implements TemplateRegistry {
     for (const cls of builtin) this.templates.set(cls.name, cls)
   }
 
-  async register(cls: AgentClass): Promise<void> {
+  async register(cls: AgentClass, opts?: { readonly replace?: boolean }): Promise<void> {
     await this.validate(cls)
-    if (this.templates.has(cls.name)) {
+    if (this.templates.has(cls.name) && opts?.replace !== true) {
       throw error({ kind: 'template_exists', classId: cls.name })
     }
     this.templates.set(cls.name, cls)

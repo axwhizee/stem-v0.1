@@ -2,7 +2,7 @@
 
 > 本文档记录**实际开发过程中明确的系统架构**与各模块内部的实现逻辑（落地后的真实形态，与规划冲突时以本文档为准，并会同步修订）。
 
-**日期**：2026-08-22 · 最后同步 2026-09-01（S4：bash 最小操作面 / extensions tool_set / 目录即真相 / webui OLED / Docker 发布形态）
+**日期**：2026-08-22 · 最后同步 2026-09-02（S7：三维资源矩阵 / 工具三分类 internal·extension·custom / skill 机制废除（SKILL.md 降为 custom 工具约定）/ extensions 分键点名 / fs 五件套落 extension/tools/）
 
 ---
 
@@ -11,8 +11,8 @@
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │ Layer 3  shell/（交互层，最外）—— 平台适配 + UI                          │
-│   cli/   参考 shell：platform(bootStem + TOOL_SETS + bash runner) +     │
-│          gateway + storage(SQLite) + fs 工具集（tool_set 参考实现）     │
+│   cli/   参考 shell：platform(bootStem + extension 根注入 + bash        │
+│          runner) + gateway + storage(SQLite)                            │
 │   webui/ WebUIShell：HTTP + SSE（OLED 主题；/api/health）               │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                       │
@@ -22,12 +22,12 @@
 │   pilot/    Pilot（user0 扮演接口）· events/（PilotEvent + EventHub）    │
 │   lineage/  LineageTree（族谱树：拓扑+能力+可见域）· context/（重建邮局）│
 │   tools/    ToolCapabilityRegistry（init 生命周期）· access · accessRequest│
-│             · bash 工具（ShellRunner 端口）· SkillRegistry · skill       │
+│             · bash 工具（ShellRunner 端口）                           │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 1  Model Gateway (core/gateway/)  ← 纯 TS（OpenAI 兼容泛化）      │
 │   ModelGateway · providers/(openaiCompatible) · FakeGateway            │
 └──────────────────────────────────────────────────────────────────────┘
-   extension/tools/  可选 tool_set 包（config.extensions 选择，宿主解析注入）
+   extension/{tools,agent,context}/  矩阵 extension 层：目录形态资源（config.extensions 分键点名启用）
    横切  Logging (core/logging/) —— 各模块 LogEvent 经注入 LogSink 直达记录器（无总线）
 ```
 
@@ -59,7 +59,7 @@
 | `deny` | ❌ | ❌ `access_denied` |
 | `ignore` | ❌ 默认隐藏 | ✅ 等同 allow（显式 allow 后暴露） |
 
-- **`ignore`（internal 默认隐藏）**：`kind=internal` 的 core 系统工具与 skill 默认 `ignore`，除非清单显式声明；隐藏是可见性控制，越权由 `deny` 负责。
+- **`ignore`（internal 默认隐藏）**：`kind=internal` 的 core 系统工具默认 `ignore`，除非清单显式声明；隐藏是可见性控制，越权由 `deny` 负责。
 - **能力物化（算法 = `lineage/AccessLedger.ts`（树内部实现），S2′）**：生效权限 = 族谱位置的函数，注册两步物化为标准形 `{explicit, fallback}`：
   - **减法（converge，默认）**：自身清单（类 tools + 实例 toolOverride）逐键与父档案显式判定取严（`restrictAccess`，`deny≺ask≺{allow,ignore}`，同级自身值优先）；清单已定义则 `fallback:'deny'`（**键即白名单**：自我限定，未列 = 本地 deny）；清单 undefined = 完整继承父档案（含父封闭）。**祖先匿名封闭不下传**（父 `{read}` 不锁死子新申请 `{write}`），但**祖先显式 deny/ask 锁死全体后代**（缺席≠否决，显式判定才生效）。
   - **加法（grant，系统通道专用）**：整表替换（免除逐个填 deny），未列一律 deny；指定键仍受祖先链**显式 deny 铁律**鉴权（deny 不可被 grant 豁免）。仅策略 spawn / pilot 初始化可达，`agent_instantiate` 工具路径不可设——模型永远只能收敛。
@@ -113,7 +113,7 @@
 ### 关键概念
 
 - **仓库（Repository）**：上下文本体的唯一存储（`message / agentId / at / tokens / valid / from / tag? / turn / indexInTurn`）；任何消息先入库，触发 onChange。
-- **管理员（ContextManager）**：打发送者戳（user 消息用 from 生成 `<sender id>`）、context_wait 判定（命中挂起 → 作为 tool 结果填充）、**策略 process（异步，user_prompt 抵达触发）→ 就绪后唤醒快递员**、组装（按 agent 策略分发 + **legalize**；组装权归管理员——快递员只发不组装）；可选 `skills` 依赖注入 `<available_skills>` 清单；信箱配对 `waitForReply`（模块扮演 agent 的程序化等待原语）。
+- **管理员（ContextManager）**：打发送者戳（user 消息用 from 生成 `<sender id>`）、context_wait 判定（命中挂起 → 作为 tool 结果填充）、**策略 process（异步，user_prompt 抵达触发）→ 就绪后唤醒快递员**、组装（按 agent 策略分发 + **legalize**；组装权归管理员——快递员只发不组装）；信箱配对 `waitForReply`（模块扮演 agent 的程序化等待原语）。
 - **快递员（Courier）**：按 agentId 维护发送倒计时（初始 0 立即送；发送后开始；来信重置）；agent 送信快照经管理员委托（`buildAgentDelivery`）构造，面板（`assemble:false`）信件 diff 自持。
 - **消息 ≠ 上下文**：通信消息直接投递；上下文由管理员按模式组装。
 
@@ -132,7 +132,7 @@
 
 ### 4.1 上下文三模块（`core/context/`）
 
-- **仓库（Repository.ts）**：`register` 时把 systemPrompt（= 人格 + `<available_skills>` 清单 + 策略 note）作为首条 system message；`append` 触发 `onChange(agentId)`。
+- **仓库（Repository.ts）**：`register` 时把 systemPrompt（= 人格 + 策略 note）作为首条 system message；`append` 触发 `onChange(agentId)`。
 - **管理员（ContextManager.ts）**：打戳 / context_wait 判定 / 策略 process 链（触发点 user_prompt 抵达，返回=就绪）/ 组装 `buildAgentDelivery`（策略分发 + `legalize`）/ `waitForReply` 配对 / `runStrategyAction`；`deposit` 经 wake 链唤醒快递员（重入 guard：处理中来信合并补跑；策略失败兜底照常唤醒）；`appendHistory` 不唤醒。面板（`assemble:false`，含 user0 与策略 role）恒绑 none 策略。
 - **快递员（Courier.ts）**：agent 收 `AgentDelivery`（含 `messageIds`，快照来自管理员委托——**只发不组装**）；`assemble:false` 注册（user0 / 模块扮演 role）只汇总 user 信件（`UserDelivery` diff）。
 
@@ -157,8 +157,8 @@
 ### 4.5 ToolCapabilityRegistry（`core/tools/`）
 
 - 注册/查询/materialize（`materialize(agentId)`：经注入的 `AccessResolver` 端口向族谱台账查询生效访问，过滤可见性）/execute（统一访问确认 + 参数校验 + ToolHooks）；不 import lineage/kernel（端口接线由组合根完成）。
-- 工具来源三分类（`ToolKind`）：`internal`（core 系统工具 + bash + skill，默认 ignore）/ `shell`（宿主注入，典型 = `config.extensions` 选装的 tool_set）/ `user`（用户 `.stem/tools/`）。
-- **`initAll(ctx)` 生命周期**：`ToolCapability.init?(ctx: ToolInitContext)`（fs/skills/skillDir/log 注入），装配后调用一次、幂等、工具间禁跨依赖（skill 工具借此扫描 `.stem/skills/`）。
+- 工具来源三分类（`ToolKind`，S7 矩阵）：`internal`（core 系统工具 + bash，默认 ignore）/ `extension`（`extension/tools/<名>/<名>.ts` 目录形态，`config.extensions.tools` 点名启用）/ `custom`（用户 `.stem/tools/` 自动扫描：平铺 + 目录双形态）。
+- **`initAll(ctx)` 生命周期**：`ToolCapability.init?(ctx: ToolInitContext)`（fs/projectRoot/log 注入），装配后调用一次、幂等、工具间禁跨依赖——工具参与系统初始化的唯一 hook。
 
 ### 4.5b bash 工具（`core/tools/bash.ts`，kind=internal，S4.1）
 
@@ -182,9 +182,9 @@
 
 > 系统工具 `kind=internal` → 默认 `ignore`，示例模板在 `tools` 显式 `allow`。`DEFAULT_USER_TOOLS`（S5.2 起）含 `telemetry_query:'allow'`（观测）与 `agent_class_update:'ask'`（书写，与 create 同高危列）。
 
-### 4.7 extension tool_set：fs 五件套（`shell/cli/tools/`，kind=shell）
+### 4.7 extension 工具层：fs 五件套（`extension/tools/`，kind=extension）
 
-由 `config.extensions: string[]` 选择加载：core 只透传 id 数组（语义无感知），宿主装配层（bootStem `TOOL_SETS` 清单）按 id 解析注入；缺省 `["fs"]` 维持默认体验，显式 `[]` = **纯 bash 最小系统**；未知 id 告警跳过不炸启动。参考实现暂驻 shell/cli/tools（本身依赖 node 平台能力），第三方/宿主专属包落 `extension/tools/` 并入清单。
+**一工具一目录、入口与目录同名**（`tools/read/read.ts`；`_lib/` 下划线前缀 = 共享辅助不入库；附属脚本/资源同目录自由放置）。由 `config.extensions.tools` 点名加载（init 管线装载，S7 统一矩阵），缺省 = fs 五件套，显式 `[]` = **纯 bash 最小系统**；点名缺失 → `extension_entry_missing` issue 不炸启动（fail-soft）。入口默认导出允许两形态：`ToolCapability` 对象或**工厂** `(projectRoot) => ToolCapability`（工作区级工具需要空间根做路径沙箱，loader 注入）。fs 五件套（read/write/edit/grep/glob）以工厂形态实现（`createXTool(root)`），路径沙箱基于注入的空间根。
 
 | 工具 | 作用 |
 |---|---|
@@ -220,26 +220,27 @@
 
 **唯一配置文件**：`<projectRoot>/.stem/stem.jsonc`（或 `.stem/stem.json`）。
 
-- 配置项（S6/R12 全量有效原则：**未知顶层键 boot fail-fast**，`custom` 为唯一扩展位；历史键 model/tools/agents/strategies 出现即报错并给迁移指路——S4.2 静默丢弃兼容已废除）：**`providers`（模型提供商注册表：`base_url` 必填 http(s) / `key_env` 密钥环境变量名（**配置文件永不承载明文密钥**；缺省 = 匿名端点）/ `models` 启用白名单——R13；一切模型引用的 provider 必须在此注册）**、`autoApprove`、**`user`（user0 内嵌 agent 类完整对象：description/systemPrompt/tools/contextStrategy/**model（家学锚点，boot 必填硬校验——全链缺省的本体）**/sendCountdown）**、`maxSteps`、**`context`（window/compact：threshold/keepRecentTurns/summarizeModel（摘要 worker 类基因位，已接线）/instruction/replyTimeoutMs）**、**`bash`（path/defaultTimeoutMs/maxOutputChars/cwd）**、**`extensions`（tool_set id 数组，缺省 `["fs"]`）**、`sendCountdown`。**目录即真相**（S4.2）+ **config 即全部配置**（S6/R12）；首启模板 = `config/defaults.ts` 的 `DEFAULT_CONFIG_TEXT`（唯一预设 opencode-go 以模板数据存在，R2；文件缺失时 `defaultStemConfig()` 兼作内存等效——首启装配必有锚）。
+- 配置项（S6/R12 全量有效原则：**未知顶层键 boot fail-fast**，`custom` 为唯一扩展位；历史键 model/tools/agents/strategies 出现即报错并给迁移指路——S4.2 静默丢弃兼容已废除）：**`providers`（模型提供商注册表：`base_url` 必填 http(s) / `key_env` 密钥环境变量名（**配置文件永不承载明文密钥**；缺省 = 匿名端点）/ `models` 启用白名单——R13；一切模型引用的 provider 必须在此注册）**、`autoApprove`、**`user`（user0 内嵌 agent 类完整对象：description/systemPrompt/tools/contextStrategy/**model（家学锚点，boot 必填硬校验——全链缺省的本体）**/sendCountdown）**、`maxSteps`、**`context`（window/compact：threshold/keepRecentTurns/summarizeModel（摘要 worker 类基因位，已接线）/instruction/replyTimeoutMs）**、**`bash`（path/defaultTimeoutMs/maxOutputChars/cwd）**、**`extensions`（S7 分键对象：`{tools?, agent?, context?}` = `extension/<键>/` 下启用的目录形态条目名；tools 缺省 = fs 五件套，agent/context 缺省 = 不启用；旧数组形态 fail-fast 指路）**、`sendCountdown`。**目录即真相**（S4.2）+ **config 即全部配置**（S6/R12）；首启模板 = `config/defaults.ts` 的 `DEFAULT_CONFIG_TEXT`（唯一预设 opencode-go 以模板数据存在，R2；文件缺失时 `defaultStemConfig()` 兼作内存等效——首启装配必有锚）。
 - **系统装配**（`core/init/system.ts`，`createStemSystem(deps)` 组合根）：
   0. （可选 `stateStore` 注入）Kernel 构造内：内存核建好后先从 store 恢复（实例/消息/空间 + 状态归一化 + id 计数器续接 + 族谱树能力相 replay 重放），再套 write-through 装饰器，恢复出的实例在构造末尾统一接线上下文——装配顺序不变，恢复收敛在 Kernel 内；
-  1. 读取配置（不存在 = `defaultStemConfig()` 内存等效，S6/R12；**家学硬校验 config.user.model**）→ 工具注册表 + Kernel（user 类 = config.user 对象，`contextSettings`/`maxSteps`/`skills`/**`project`（项目空间身份，根挂真实空间）**注入；策略注册表内置 classic/none）；
-  2. 系统工具（agent_*/bus_*/context_* + telemetry_query + context_apply + access_reply）→ bash 工具（注入 `shellRunner` 才装配）→ 类回写通道（注入 `classFs` 才建 `ClassStore`：create/update 授权后 serialize → `.stem/agent/<name>.md`，S5.2）→ 宿主工具（bootStem 按 `config.extensions` 解析 tool_set 注入）→ skill 工具；
-  3. `runInit` 管线：扫描 `.stem/tools/*.ts`（默认导出 ToolCapability）+ `.stem/agent/*.md`（自由式 YAML 头 + 正文，未知键透传 custom）+ `.stem/context/*.ts`（默认导出 ContextStrategyModule，可覆盖内置）→ 注册进 registry。**目录即真相：仅配置文件不存在时写默认模板，管线此后纯只读、永不回写**（镜像同步/orphan 检测已整体移除）。
+  1. 读取配置（不存在 = `defaultStemConfig()` 内存等效，S6/R12；**家学硬校验 config.user.model**）→ 工具注册表 + Kernel（user 类 = config.user 对象，`contextSettings`/`maxSteps`/**`project`（项目空间身份，根挂真实空间）**注入；策略注册表内置 classic/none）；
+  2. 系统工具（agent_*/bus_*/context_* + telemetry_query + context_apply + access_reply）→ bash 工具（注入 `shellRunner` 才装配）→ 类回写通道（注入 `classFs` 才建 `ClassStore`：create/update 授权后 serialize → `.stem/agent/<name>.md`，S5.2）；
+  3. `runInit` 管线（S7 统一矩阵装载）：三类资源（tools / agent 类 / context 策略）× 两来源层——**extension 层**按 `config.extensions.<种类>` 点名从 `extensionRoots`（宿主注入仓库 `extension/` 根）装载目录形态资源（`<名>/<名>.<ext>`；工具入口可工厂形态收 projectRoot）；**custom 层**自动扫描 `.stem/` 各目录（平铺兼容 + 目录形态优先）。装载序 internal → extension → custom，**后层同名覆盖前层**（registry/template register replace）。**目录即真相：仅配置文件不存在时写默认模板，管线此后纯只读、永不回写**（镜像同步/orphan 检测已整体移除）。
   4. `createPilot`（pilot 初始化内实例化 user0，挂真实项目空间）→ 订阅事件流；
-  5. `tools.initAll`（skill 扫描 `.stem/skills/*.md`）→ 用户注入钩子（`userHooks`，init 末尾，深度扩展）。
+  5. `tools.initAll`（fs/projectRoot/log 注入）→ 用户注入钩子（`userHooks`，init 末尾，深度扩展）。
 - 返回 `StemSystem { kernel, pilot, tools, config, init, dispose }`；任何 shell 注入平台能力即可装配出完整最小系统。
 
 ### 4.13 shell 层（`shell/cli/` + `shell/webui/`）
 
-- **cli**（参考 shell）：`platform.ts`（`bootStem`：config + 网关 + createStemSystem + `TOOL_SETS` 解析（config.extensions → 宿主工具）+ bash `ShellRunner` 注入 + 示例模板钩子，供任何 shell 复用）+ `gateway.ts`（**providers 路由门面**：逐 provider 装配 + `req.model.provider` 分发，R1 两段式 warn/硬错；产品无 mock，mockSse 降测试/冒烟支撑）+ `storage/`（`createSqliteStateStore`：node:sqlite 实现两端口，默认 `.stem/stem.db`）+ CLI 命令（直接对话 /new /use /agents /templates /tools /config /compact /stop）。
+- **cli**（参考 shell）：`platform.ts`（`bootStem`：config + 网关 + createStemSystem + extension 资源根注入（仓库 extension/ 三目录）+ bash `ShellRunner` 注入，供任何 shell 复用）+ `gateway.ts`（**providers 路由门面**：逐 provider 装配 + `req.model.provider` 分发，R1 两段式 warn/硬错；产品无 mock，mockSse 降测试/冒烟支撑）+ `storage/`（`createSqliteStateStore`：node:sqlite 实现两端口，默认 `.stem/stem.db`）+ CLI 命令（直接对话 /new /use /agents /templates /tools /config /compact /stop）。
 - **webui**（WebUIShell）：`node:http` + SSE，复用 cli 的 platform；REST（send/instantiate/terminate/interrupt/access/context_action + **`/api/health`** = docker HEALTHCHECK 探针）+ 观察（agents/templates/context）+ 单页 UI（**OLED 友好主题**：纯黑底、边框分层无灰底卡片、青绿=运行/品红=介入双色语义、状态"字形+色+文字"三重编码；agent 侧栏 / timeline（summary 归档渲染为分隔条）/ composer / header 动作 compact·中断·销毁 / 权限弹窗 = 渲染 `<access_request>` 消息 + `access_reply`）。绑定地址：裸机缺省 `127.0.0.1`，容器 `STEM_HOST=0.0.0.0`。
 
-### 4.14 extension（`extension/tools/`，tool_set 包挂载点）
+### 4.14 extension/：矩阵 extension 层（三类资源目录形态）
 
-- 可选功能扩展以 **tool_set 包**（一组 ToolCapability）落此，经 `config.extensions` 选择、宿主装配层（bootStem `TOOL_SETS` 清单）解析注入；`registerExtensionTools(registry)` 为约定 seam 签名。
-- 现状（S4.2 最小变体）：fs 参考实现暂驻 `shell/cli/tools/`，本目录承接第三方/宿主专属包（如 VSCode 工具集）；宿主未注入 shellRunner 时纯 bash 即可运行最小系统。
-- skill / MCP 属 core 生态（上下文组装 + 配置目录解析），不在 extension。
+- 仓库级可选扩展的家：`extension/tools/<名>/<名>.ts`、`extension/agent/<名>/<名>.md`、`extension/context/<名>/<名>.ts`——**一资源一目录、入口与目录同名**，附属脚本/资源同目录自由放置；由 `config.extensions.{tools,agent,context}` 分键点名启用（装载与覆盖律见 §4.12 init 管线；S7）。
+- 首住户：fs 五件套（tools/read…glob）、`agent/creator/`（调度者示例类——父子调度 dogfood）；`_lib/` 前缀目录 = 共享辅助代码不参与扫描。
+- 与 custom 层的差别只在**启用方式**（点名 vs 目录即真相）与**归属**（仓库发布物 vs 用户空间），装载管线同构（core/init 统一 loader）。
+- **S7 起无系统级 skill 子系统**：SKILL.md 生态兼容降为 custom 工具约定（`.stem/tools/skill/skill.ts` 装载器 + `<技能名>/SKILL.md` 资产，见 dev-guide 食谱）；MCP 类外部能力同样走工具三分类落位，不设第二通道。
 
 ### 4.15 持久化（个体层 SQLite，write-through）
 

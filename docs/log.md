@@ -911,3 +911,23 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 5. **模型三环**：新后代家学出生(home) → set_model → 徽标 explicit → **docker restart 后 explicit 仍随实例行存活**（s6-plan 批 2 验收项"setModel 值重建后存活"）+ turns 计数器续接 + 零重放 + 重启后续答"一"。
 
 容器现行（http://localhost:4321）：新 WebUI（族谱侧栏/第一视角/模型行）直接可浏览。踩坑一枚（非产品）：冒烟脚本按不存在的 `m.at` 字段判新回复致假阴性——webui context 端点无 at 字段，判"新回复"应以消息数增长为准。
+
+## 阶段：S7 批 1 —— 三维资源矩阵（tools/agent/context × internal/extension/custom）+ skill 机制废除（2026-09-02）
+
+**方案**：`s7-plan.md`（D1-D9 裁决，本轮不含 S5.3 调度/dreaming）。本批 = T1（矩阵落地 + skill 泛化 + 清理）。
+
+### 完成内容
+
+- **装载律统一**：`runInit` 从"三目录平铺扫描"泛化为**三类资源 × 两来源层矩阵**——extension 层按 `config.extensions.{tools,agent,context}` 分键点名从宿主注入的 `extensionRoots` 装载（目录形态唯一 `<名>/<名>.<ext>`）；custom 层扫 `.stem/`（平铺兼容 + 目录形态优先）。装载序 internal → extension → custom，**后层同名 replace 覆盖**（`ToolCapabilityRegistry.register`/`TemplateRegistry.register` 新增 `{replace}` 选项，代码注册路径缺省仍查重防呆）。extension 点名缺失 = `extension_entry_missing` issue（fail-soft）。
+- **工具三分类更名**：`ToolKind = internal | shell | user` → `internal | extension | custom`（registry 默认权限判定只依赖 internal，其余照常落 ask，无逻辑变动）。
+- **fs 五件套迁居**：`shell/cli/tools/` → `extension/tools/{read,write,edit,grep,glob}/<同名>.ts` + `_lib/`（共享 fs-util + 集成测试 `tools.test.ts` 随行）。**实施中暴露的真实缺口**：extension 工具需空间根做路径沙箱而装载时 core 才有 projectRoot——收敛为"**入口 default 允许工厂形态** `(projectRoot) => ToolCapability`"，loader 注入（读工厂签名零特判，custom 层维持纯对象约定）。
+- **skill 机制整体拆除（D1 最彻底案：系统零 skill 概念）**：删 `SkillRegistry.ts` + `skill.ts` + ContextManager `<available_skills>` manifest 注入链 + `skillDirOf` 装配（净减 ~150 行 + 一条 system 组装通路）；`ToolInitContext` 去 skill 专用形 → 通用 `{fs, projectRoot, log}`。兼容双路：① `.stem/tools/skill/skill.ts` custom 装载器（目录形态约定首个实战：入口 + `<技能名>/SKILL.md` 资产同目录自由放置；空参列清单/传名载正文——渐进披露后移一轮，用户裁决"值得"）+ tmp 空间装样例技能一枚；② LLM 手动转化（SKILL.md → 真工具/类人格，文档使用模式零机制）。`DEFAULT_USER_TOOLS` 加 `skill: 'allow'`（约定 id，未安装 = 键空转）。
+- **agent 类三分层归位**：内置示例类 `templates/{SimpleChat,Coder}.json` 从 Kernel 静态 import 迁 `src/core/kernel/builtin/`（internal 层=core 自带；根目录 templates/ 与 tsconfig include、Dockerfile COPY 同步撤）；**`demoTemplatesHook` 整体删除**（tool-assistant 引用的 oc_*/bus_* 混合死配置，S5 拆迁遗留；CLI 内联 oc_* 三演示工具同删），creator 调度者示例改写活工具清单后落 `extension/agent/creator/creator.md` = extension 类层首住户（T4 用例 5 载体）。
+- **config**：`extensions` 从字符串数组 → 分键对象（validateExtensions 重写：键名枚举 + 元素校验 + 旧数组形态 fail-fast 指路迁移文案）；`DEFAULT_CONFIG_TEXT` 模板 extensions 转为注释示例（缺省行为 core 兜底，模板更简）。缺省表 `DEFAULT_EXTENSION_TOOLS` = fs 五件套（D9）。
+- **周边治理**：`tmp/.stem` 配置迁移新形态（+creator 点名 +skill 键）；opencode 参考工具（含明文 dashscope key 的 websearch/deepsearch）挪出扫描目录 `tmp/ref-tools/` + .gitignore 锚定（**该 key 随旧提交已入 git 历史——控制台轮换为硬性事项**，本轮实测确认）；`user_hello.ts` 注释同步。
+
+### 验证
+
+- `typecheck` 0；`npm test` **277/277**（净增 13 用例：extension 点名装载/缺失 issue/agent·context 类目录点名/宿主无根零 issue/平铺+目录双形态与优先序/replace 覆盖律/工厂入口注入/分键 config 校验 + 旧数组拒启/D9 缺省表锚点）。
+- 真装配冒烟（bootStem tmp 纯内存）：三源工具面 21 internal + **5 extension**（工厂收根 + 沙箱行为正确反证）+ 2 custom；`skill()` 清单/`skill({name})` 正文实开；模板五连 = user + simple-chat/coder(internal) + creator(extension 点名) + user-reviewer(custom) 三层齐。
+- 踩坑两枚：① pkill -f 自噬（模式串在当前命令行内，连坐自家 shell）——改用 `[r]` 正则拆分或精确 pid；② fake 目录发现函数返回全路径后又拼一次前缀（双重拼接致 packed 探测全灭），REPL 隔离复现 30 秒定位——**测试 fake 与宿主实现必须同语义**的又一次实证。

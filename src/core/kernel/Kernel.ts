@@ -38,8 +38,8 @@ import { DefaultAccessAskBus, formatAccessRequest } from '../tools'
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
-import simpleChatTemplate from '../../../templates/SimpleChat.json'
-import coderTemplate from '../../../templates/Coder.json'
+import simpleChatTemplate from './builtin/SimpleChat.json'
+import coderTemplate from './builtin/Coder.json'
 import { DefaultTemplateRegistry } from './TemplateRegistry'
 import type { TemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
@@ -58,7 +58,7 @@ import type { UserClassConfig } from './userClass'
 import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentSpaceID, ProjectRef } from './types'
 import { makeAgentClassID, makeAgentID } from './types'
 
-/** 内置示例模板（从 templates/*.json 加载，非硬编码角色）。 */
+/** 内置示例模板（S7 矩阵 internal 层：core 自带 `kernel/builtin/*.json`，非硬编码角色）。 */
 export const BUILTIN_TEMPLATES: readonly AgentClass[] = [
   simpleChatTemplate as unknown as AgentClass,
   coderTemplate as unknown as AgentClass,
@@ -91,8 +91,6 @@ export interface KernelOptions {
    * sendCountdown/model/contextStrategy）；缺省 = 内置默认表（DEFAULT_USER_TOOLS）。
    */
   readonly userClass?: UserClassConfig
-  /** skill 注册表（可选）：实例化 agent 时把 <available_skills> 清单注入 system 消息。 */
-  readonly skills?: import('../tools').SkillRegistry
   /** 工具访问自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
   readonly autoApprove?: boolean
   /**
@@ -225,7 +223,6 @@ export class Kernel {
       defaultCountdownMs: options.defaultCountdownMs,
       repository: this.repository,
       courier: this.courier,
-      skills: options.skills,
       // 策略系统能力面（模块扮演 agent 与工具 worker 的创建/回收，kernel 执行）。
       spawnRole: (hostAgentId, role) => this.spawnRoleAgent(hostAgentId, role),
       spawnWorker: (roleAgentId, task, spec) => this.spawnStrategyWorker(roleAgentId, task, spec),

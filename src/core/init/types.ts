@@ -1,12 +1,12 @@
 // ============================================================
 // core/init/types.ts —— 初始化管线领域类型（纯 TS，零平台依赖）
 //
-// 管线职责（本阶段）：
+// 管线职责（S7 三维资源矩阵）：
 //   1. 读取唯一配置（ConfigStore）；
-//   2. 扫描 `.stem/tools/`、`.stem/agent/`、`.stem/context/` 目录
-//     （**目录即真相**——S4.2 起不再维护 config 镜像注册表）；
-//   3. 注册到 core（工具注册表 + TemplateRegistry + 策略注册表）。
-// 平台能力（fs / 动态 import）全部由宿主注入。
+//   2. 统一装载 tools / agent 类 / context 策略三类资源：
+//      extension 层 = config.extensions 点名 + `extension/<种类>/<名>/` 目录形态；
+//      custom 层 = `.stem/` 自动扫描（目录即真相，平铺 + 目录双形态）；
+//   3. 注册到 core（后层同名覆盖前层；平台能力 fs/import 全由宿主注入）。
 // ============================================================
 
 import type { AgentClass } from '../kernel'
@@ -16,6 +16,8 @@ import type { ToolCapability } from '../tools'
 export interface InitFs {
   /** 列出目录下的文件（相对或绝对路径均可）。 */
   readonly listFiles: (dir: string) => Promise<readonly string[]>
+  /** 列出目录下的直接子目录（三维矩阵目录形态资源发现；缺失目录 = []）。 */
+  readonly listDirs: (dir: string) => Promise<readonly string[]>
   /** 读取文本文件。 */
   readonly readText: (file: string) => Promise<string>
 }
@@ -49,6 +51,15 @@ export interface InitDeps {
   }
   readonly fs: InitFs
   readonly tools: InitToolLoader
+  /**
+   * extension 资源根（S7 矩阵；宿主注入仓库 `extension/` 各资源目录的绝对路径）。
+   * 缺省 = 无 extension 层（config.extensions 点名会逐项记 issue）。
+   */
+  readonly extensionRoots?: {
+    readonly tools?: string
+    readonly agent?: string
+    readonly context?: string
+  }
   /** 工具注册表（注册用户工具）。 */
   readonly toolRegistry: import('../tools').ToolCapabilityRegistry
   /** 模板注册表（注册用户 agent 类）。 */
@@ -59,6 +70,14 @@ export interface InitDeps {
   readonly onLog?: import('../logging').LogSink
 }
 
+/** extension 条目装载中间形状（loadExtensionEntry 产物：文件 + 默认导出/文本）。 */
+export interface ResourceEntry {
+  readonly name: string
+  readonly file: string
+  /** .ts 条目 = 模块 default 导出；.md 条目 = 文件全文。 */
+  readonly module: unknown
+}
+
 /** 初始化过程发现的问题（不致命，记录后继续）。 */
 export type InitIssue =
   | { readonly kind: 'tool_load_failed'; readonly file: string; readonly message: string }
@@ -67,11 +86,14 @@ export type InitIssue =
   | { readonly kind: 'agent_invalid'; readonly file: string; readonly message: string }
   | { readonly kind: 'strategy_load_failed'; readonly file: string; readonly message: string }
   | { readonly kind: 'strategy_invalid'; readonly file: string; readonly message: string }
+  | { readonly kind: 'extension_entry_missing'; readonly file: string; readonly message: string }
 
 /** 扫描发现的目录条目（目录即真相；报告只作展示/日志，不再回写 config）。 */
 export interface DiscoveredEntry {
   readonly id: string
   readonly file: string
+  /** 来源层（extension 点名 / custom 目录即真相；矩阵 internal 层不经本管线）。 */
+  readonly layer: 'extension' | 'custom'
 }
 
 /** 初始化报告。 */

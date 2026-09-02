@@ -34,6 +34,16 @@ function makeDeps(
   }
   const fs: InitFs = {
     listFiles: async (dir) => Object.keys(fsFiles).filter((f) => f.startsWith(dir)),
+    listDirs: async (dir) => {
+      const prefix = dir.endsWith('/') ? dir : `${dir}/`
+      const seen = new Set<string>()
+      for (const f of Object.keys(fsFiles)) {
+        if (!f.startsWith(prefix)) continue
+        const seg = f.slice(prefix.length).split('/')[0]
+        if (seg && f !== `${prefix}${seg}`) seen.add(`${prefix}${seg}`)
+      }
+      return [...seen]
+    },
     readText: async (file) => fsFiles[file] ?? '',
   }
   const loader: InitToolLoader = { loadTool: async () => ({}) }
@@ -73,12 +83,12 @@ describe('createStemSystem（系统装配组合根）', () => {
       ref: { provider: 'fake', id: 'home-model' },
       origin: 'home',
     })
-    // 系统工具 + access_reply + skill 已注册。
+    // 系统工具 + access_reply 已注册；skill 子系统已随 S7 拆除（core 不再有 skill）。
     assert.ok(await system.tools.get('agent_instantiate'))
     assert.ok(await system.tools.get('access_reply'))
-    assert.ok(await system.tools.get('skill'))
-    // 未注入 ShellRunner → bash 不装配（core 零平台依赖）。
     const ids = (await system.tools.list()).map((t) => t.id)
+    assert.ok(!ids.includes('skill'), 'S7：系统级 skill 工具已废除')
+    // 未注入 ShellRunner → bash 不装配（core 零平台依赖）。
     assert.ok(!ids.includes('bash'))
     await system.dispose()
   })

@@ -76,7 +76,7 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
 
     // registry 中可查到用户工具。
     const tool = await toolRegistry.get('my_tool')
-    assert.equal(tool.kind, 'user')
+    assert.equal(tool.kind, 'custom')
     assert.equal(tool.description, '测试工具')
 
     // 模板注册表可查到用户 agent。

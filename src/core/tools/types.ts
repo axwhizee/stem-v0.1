@@ -11,9 +11,10 @@
 //     always 批准记入 per-agent 豁免备忘（只免询问，不破 deny/ignore）；
 //  3. 执行生命周期暴露 ToolHooks（before/after/error），
 //     供 telemetry、审计、限流等横切能力挂载；
-//  4. kind（internal/shell/user）是工具固有属性：internal=core 系统工具
-//     （默认 ignore 隐藏，显式 allow 才暴露），shell=宿主内置工具，
-//     user=用户 `.stem/tools/` 提供的工具。
+//  4. kind（internal/extension/custom）是工具固有属性（三维资源矩阵 S7）：
+//     internal=core 系统工具（默认 ignore 隐藏，显式 allow 才暴露），
+//     extension=扩展资源（config.extensions.tools 点名启用），
+//     custom=用户 `.stem/tools/` 自动扫描装载的工具。
 // ============================================================
 
 /** 工具访问四态（权限融合进 tools 后的原子状态）。 */
@@ -30,21 +31,20 @@ export type ToolAccessRules = readonly ToolAccessRule[]
 
 /** 工具分类：可扩展（未来 mcp 等新增分类自然并入）。 */
 export type ToolCategory =
-  | 'business' // 业务工具（oc_*，实现由 adapters 注入）
+  | 'business' // 业务工具（外部/扩展工具缺省归类）
   | 'system' // 系统管理工具（agent_*，Kernel 提供）
   | 'context' // 上下文资产工具（context_*）
-  | 'skill' // skill 加载（skill，core 生态工具）
   | 'telemetry' // 日志读取（telemetry_*）
   | 'module' // 模块评估/改造（module_*）
   | (string & {})
 
 /**
- * 工具来源（固有属性）：
- *   - internal = core 系统工具（agent_* / context_*，Kernel 提供）；
- *   - shell = 宿主内置工具（shell/tools/，如 read/write/edit/grep/glob）；
- *   - user = 用户提供的工具（`.stem/tools/`，经 init 注册）。
+ * 工具来源（固有属性）——三维资源矩阵（S7）：
+ *   - internal = core 系统工具（agent_* 与 context_* 及 bash，代码注册恒在）；
+ *   - extension = 扩展资源（`extension/tools/<名>/<名>.ts`，config.extensions.tools 显式点名启用）；
+ *   - custom = 用户空间工具（`.stem/tools/`，自动扫描装载，目录即真相）。
  */
-export type ToolKind = 'internal' | 'shell' | 'user'
+export type ToolKind = 'internal' | 'extension' | 'custom'
 
 /** JSON Schema 子集：参数定义（给 LLM 提示 + 运行时校验共用一份）。 */
 export interface ToolPropertySchema {
@@ -77,12 +77,10 @@ export interface ToolInitFs {
 
 /** 工具初始化上下文（系统装配完成后经 registry.initAll 注入）。 */
 export interface ToolInitContext {
-  /** 文件系统能力（宿主注入；skill 工具借此扫描 skill 目录）。 */
+  /** 文件系统能力（宿主注入；需要读文件的自定义工具借此参与初始化）。 */
   readonly fs?: ToolInitFs
-  /** skill 注册表（skill 工具 init 扫描后写入）。 */
-  readonly skills?: import('./SkillRegistry').SkillRegistry
-  /** skill 目录（相对/绝对路径）。 */
-  readonly skillDir?: string
+  /** 当前空间根（含 `.stem/` 的项目根；自定义工具据此定位同目录资源）。 */
+  readonly projectRoot?: string
   /** 日志出口（组合根注入）。 */
   readonly log?: import('../logging').LogSink
 }
@@ -192,14 +190,14 @@ export interface ToolCapability {
   readonly parameters: ToolParametersSchema
   /** 访问键（缺省 = 工具 id；多个工具可共享，如 edit/write → 'edit'）。 */
   readonly accessKey?: string
-  /** 工具来源（固有属性）：internal=core 系统工具；shell=宿主内置；user=用户提供。 */
+  /** 工具来源（固有属性）：internal=core 系统工具；extension=扩展资源；custom=用户空间工具。 */
   readonly kind?: ToolKind
   readonly category?: ToolCategory
   /** 执行器（实现由适配层/Kernel 注入）。 */
   readonly execute: (input: unknown, ctx: ToolContext) => Promise<ToolResult> | ToolResult
   /**
    * 工具初始化钩子（可选）：系统装配完成后调用一次，允许工具参与初始化
-   * （如 skill 工具扫描 skill 目录、可用性检查等）。幂等由工具自身保证。
+   * （可用性检查、装载同目录资源等）。幂等由工具自身保证。
    */
   readonly init?: (ctx: ToolInitContext) => Promise<void> | void
   /** 可选自定义参数校验：返回错误信息或 undefined。 */

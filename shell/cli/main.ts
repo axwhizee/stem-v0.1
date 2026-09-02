@@ -40,7 +40,7 @@ import { DefaultToolCapabilityRegistry, type ToolCapability } from '../../src/co
 import type { AccessReply } from '../../src/core/tools'
 import type { PilotEvent } from '../../src/core/events'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
-import { bootStem, createHostTools, demoTemplatesHook } from './platform'
+import { bootStem } from './platform'
 import type { InitReport } from '../../src/core/init'
 import type { StemConfig } from '../../src/core/config'
 
@@ -62,54 +62,9 @@ interface ShellState {
   config: StemConfig
 }
 
-/** 演示业务工具：回显文本。 */
-const ocEcho: ToolCapability = {
-  id: 'oc_echo',
-  description: '回显一段文本（原样返回）。',
-  category: 'business',
-  parameters: {
-    type: 'object',
-    properties: { text: { type: 'string', description: '要回显的文本' } },
-    required: ['text'],
-  },
-  execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
-}
+/** 演示业务工具已随 S7 清理（oc_* 三件套唯一消费者 tool-assistant 类为死配置）。 */
 
-/** 演示业务工具：返回当前 UTC 时间。 */
-const ocGetTime: ToolCapability = {
-  id: 'oc_get_time',
-  description: '获取当前 UTC 时间。',
-  category: 'business',
-  parameters: { type: 'object', properties: {} },
-  execute: () => ({ text: `当前 UTC 时间: ${new Date().toISOString()}` }),
-}
-
-/** 测试用读取工具：读取指定文件内容（相对路径基于工作区）。 */
-const ocReadFile: ToolCapability = {
-  id: 'oc_read_file',
-  description: '读取指定文件的内容并返回。',
-  category: 'business',
-  parameters: {
-    type: 'object',
-    properties: { path: { type: 'string', description: '文件路径（绝对路径）' } },
-    required: ['path'],
-  },
-  execute: async (input) => {
-    const filePath = (input as { path: string }).path
-    if (!isAbsolute(filePath)) {
-      return { text: `错误：需要绝对路径，收到 ${filePath}` }
-    }
-    try {
-      const content = await readFile(filePath, 'utf8')
-      const summary = content.length > 2000 ? `${content.slice(0, 2000)}\n…（截断）` : content
-      return { text: `文件内容（${filePath}）:\n${summary}` }
-    } catch (error) {
-      return { text: `读取失败: ${error instanceof Error ? error.message : String(error)}` }
-    }
-  },
-}
-
-/** 示例模板注册钩子（从 platform 共享；此处移除本地定义）。 */
+/** 节点 shell 主装配。 */
 async function createShell(): Promise<ShellState> {
   const dialogs = new QueueDialog()
   const display = { streamedAny: false }
@@ -124,15 +79,12 @@ async function createShell(): Promise<ShellState> {
     config: undefined as never,
   }
 
-  // 自治系统装配（platform.bootStem：config + 网关 + createStemSystem + user0 实例化）。
+  // 自治系统装配（platform.bootStem：config + 网关 + createStemSystem + user0 实例化；
+  // extension 工具由 init 管线按 config.extensions 点名装载，custom 走 .stem/ 扫描）。
   const { system, source } = await bootStem({
     projectRoot: DEFAULT_PROJECT,
-    // 宿主工具（oc_* 演示 + read/write/edit/grep/glob）。
-    hostTools: [ocEcho, ocGetTime, ocReadFile, ...createHostTools(DEFAULT_PROJECT)],
     // 统一事件流（PilotEvent）：流式 / 回信 / 访问申请（消息化）。
     onEvent: (event) => handlePilotEvent(state, event),
-    // 用户注入钩子：注册示例模板（init 末尾调用）。
-    userHooks: [demoTemplatesHook],
   })
   state.source = source
   state.kernel = system.kernel
@@ -253,7 +205,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       console.log(`  user 类: ${cfg.user?.tools !== undefined ? `tools=${JSON.stringify(cfg.user.tools)}` : '(内置默认表)'}`)
       console.log(`  context: ${cfg.context !== undefined ? JSON.stringify(cfg.context) : '(默认 window/compact)'}`)
       console.log(`  bash: ${cfg.bash !== undefined ? JSON.stringify(cfg.bash) : '(默认 120s/50k)'}`)
-      console.log(`  extensions: ${JSON.stringify(cfg.extensions ?? ['fs'])}`)
+      console.log(`  extensions: ${JSON.stringify(cfg.extensions ?? { tools: '<default fs five-set>', agent: '[]', context: '[]' })}`)
       console.log(`  注册工具: ${init.tools.length > 0 ? init.tools.map((t) => `${t.id}(${t.file})`).join(', ') : '-'}`)
       console.log(`  注册 agent: ${init.agents.length > 0 ? init.agents.map((a) => `${a.id}(${a.file})`).join(', ') : '-'}`)
       console.log(`  注册策略: ${init.strategies.length > 0 ? init.strategies.map((s) => `${s.id}(${s.file})`).join(', ') : '-'}`)

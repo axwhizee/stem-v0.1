@@ -69,6 +69,17 @@ export function createNodeInitFs(): InitFs {
         throw cause
       }
     },
+    async listDirs(dir: string): Promise<readonly string[]> {
+      try {
+        const entries = await readdir(dir, { withFileTypes: true })
+        return entries
+          .filter((e) => e.isDirectory())
+          .map((e) => join(dir, e.name))
+      } catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return []
+        throw cause
+      }
+    },
     async readText(file: string): Promise<string> {
       return readFile(file, 'utf8')
     },

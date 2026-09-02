@@ -37,8 +37,12 @@ export interface ToolListFilter {
 }
 
 export interface ToolCapabilityRegistry {
-  /** 注册工具（业务/系统/上下文/日志/模块统一入口）。 */
-  readonly register: (tool: ToolCapability) => Promise<void>
+  /**
+   * 注册工具（业务/系统/上下文/日志/模块统一入口）。
+   * `replace: true` = 同名覆盖（三维矩阵装载律：extension/custom 层覆盖前层）；
+   * 缺省 = 同名冲突抛错（代码注册路径的防呆不变）。
+   */
+  readonly register: (tool: ToolCapability, opts?: { readonly replace?: boolean }) => Promise<void>
   readonly unregister: (id: string) => Promise<void>
   readonly get: (id: string) => Promise<ToolCapability>
   readonly list: (filter?: ToolListFilter) => Promise<ToolCapability[]>
@@ -105,9 +109,9 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     this.resolver = resolver
   }
 
-  async register(tool: ToolCapability): Promise<void> {
+  async register(tool: ToolCapability, opts?: { readonly replace?: boolean }): Promise<void> {
     assertToolShape(tool)
-    if (this.tools.has(tool.id)) {
+    if (this.tools.has(tool.id) && opts?.replace !== true) {
       throw toolError({ kind: 'tool_already_registered', tool: tool.id })
     }
     this.tools.set(tool.id, tool)

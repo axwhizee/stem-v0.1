@@ -89,6 +89,16 @@ export interface StemBashConfig {
   readonly cwd?: string
 }
 
+/**
+ * extensions 分键清单（S7 三维资源矩阵）：键 = extension 资源目录名，
+ * 值 = 该目录下启用的条目名（目录形态资源，入口与目录同名）。
+ */
+export interface StemExtensionsConfig {
+  readonly tools?: readonly string[]
+  readonly agent?: readonly string[]
+  readonly context?: readonly string[]
+}
+
 /** 全局配置（`.stem/stem.jsonc` 的内容形状）。 */
 export interface StemConfig {
   /**
@@ -109,10 +119,13 @@ export interface StemConfig {
   /** 全局默认送信倒计时（毫秒；agent 文件/类未指定时使用）。 */
   readonly sendCountdown?: number
   /**
-   * 启用的宿主 tool_set 包 id（如 `["fs"]`；`[]` = 纯 bash 最小系统）。
-   * core 只透传字符串清单，解析加载由宿主装配层完成（缺省由宿主兜底）。
+   * 三维资源矩阵点名清单（S7）：按资源目录分键，值 = `extension/<键>/` 下
+   * 要启用的条目名数组（目录形态资源，入口与目录同名）。
+   * `tools` 缺省 = fs 五件套；`agent`/`context` 缺省 = 不启用；显式 `[]` = 纯 bash 最小系统。
+   * 用户空间 `.stem/` 各目录自动扫描装载，不经本清单（目录即真相）。
+   * core 只透传语义化清单，装载由 init 管线执行（extension 根路径由宿主注入）。
    */
-  readonly extensions?: readonly string[]
+  readonly extensions?: StemExtensionsConfig
   /** 用户自定义扩展配置（透传保留）。 */
   readonly custom?: Readonly<Record<string, unknown>>
 }

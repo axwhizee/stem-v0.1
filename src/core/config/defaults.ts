@@ -34,8 +34,11 @@ export const DEFAULT_CONFIG_TEXT = `{
   "context": { "window": 128000, "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 } },
   // bash 工具（缺省内置：120s 超时 / 50k 截断 / 项目根目录）。
   // "bash": { "defaultTimeoutMs": 120000, "maxOutputChars": 50000 },
-  // 宿主 tool_set 包（["fs"] = read/write/edit/grep/glob；[] = 纯 bash 最小系统）。
-  "extensions": ["fs"],
+  // 三维资源矩阵（S7）：extension/ 下按资源目录分键点名启用（tools 缺省 = fs
+  // 五件套 read/write/edit/grep/glob；[] = 纯 bash 最小系统；agent/context 缺省 = 不启用）。
+  // 用户空间 .stem/ 各目录自动扫描装载（目录即真相），不经此清单。
+  // "extensions": { "tools": ["read", "write", "edit", "grep", "glob", "websearch", "webfetch"],
+  //                 "agent": ["creator"] },
   "sendCountdown": 1000
 }
 `
