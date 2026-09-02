@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>stem · 空间仪表盘</title>
+<link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+<header>
+  <div class="brand">stem<span class="dim">/dashboard</span></div>
+  <div id="env" class="env">…</div>
+</header>
+
+<section id="cards" class="cards"></section>
+
+<nav class="tabs" id="tabs">
+  <button data-tab="tree" class="on">族谱树</button>
+  <button data-tab="tokens">Token 账目</button>
+  <button data-tab="inventory">资源清单</button>
+  <button data-tab="messages">语料浏览</button>
+  <button data-tab="raw">原表</button>
+  <button data-tab="cleanup">清理</button>
+</nav>
+
+<main>
+  <section id="panel-tree" class="panel on">
+    <div class="bar"><button id="tree-refresh">刷新</button><span class="hint">数据源 = DB write-through 实时镜像（含 terminated 墓碑）；缩进即深度，状态字形同 WebUI</span></div>
+    <div id="tree" class="tree"></div>
+  </section>
+
+  <section id="panel-tokens" class="panel">
+    <div class="bar"><button id="tokens-refresh">刷新</button><span class="hint">行级 tokens = 网关真实计量（usage 直记 + 累积差分），估算仅兜底未进网关的行</span></div>
+    <div id="tokens-body"></div>
+  </section>
+
+  <section id="panel-inventory" class="panel">
+    <div class="bar"><button id="inv-refresh">重建标本</button><span class="hint">清单 = bootStem 纯内存标本的装配真实结果（矩阵三态 + user0 生效可见集），所见即所跑</span></div>
+    <div id="inv-body"></div>
+  </section>
+
+  <section id="panel-messages" class="panel">
+    <div class="bar">
+      <select id="msg-agent"><option value="">全部 agent</option></select>
+      <label class="chk"><input type="checkbox" id="msg-arch" /> 含归档</label>
+      <button id="msg-prev">← 前页</button><span id="msg-pos"></span><button id="msg-next">后页 →</button>
+    </div>
+    <div id="msg-body"></div>
+  </section>
+
+  <section id="panel-raw" class="panel">
+    <div class="bar">
+      <select id="raw-table"><option>instances</option><option>messages</option><option>spaces</option></select>
+      <button id="raw-prev">←</button><span id="raw-pos"></span><button id="raw-next">→</button>
+    </div>
+    <div id="raw-body"></div>
+  </section>
+
+  <section id="panel-cleanup" class="panel">
+    <div class="bar"><button id="cl-refresh">刷新预览</button><span id="cl-mode"></span></div>
+    <div id="cl-preview"></div>
+    <div id="cl-actions"></div>
+    <div id="cl-result" class="result hidden"></div>
+    <p class="warn">门禁：本仪表盘默认只读；清理需以 <code>--allow-write</code> 重启并逐项 confirm。若同空间 shell（webui/cli）仍在运行，其内存态会写穿覆盖你的删除——先停实例再动手（一进程=一空间是约定，工具不代做检测）。</p>
+  </section>
+</main>
+
+<script type="module" src="/app.js"></script>
+</body>
+</html>

@@ -14,6 +14,7 @@
     "test:module": "tsx --test",
     "smoke": "tsx prototype/smoke.ts",
     "shell": "tsx shell/cli/main.ts",
+    "dashboard": "node --import tsx shell/dashboard/server.ts",
     "web": "tsx shell/webui/server.ts"
   },
   "devDependencies": {
