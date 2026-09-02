@@ -65,6 +65,11 @@ export class PersistedRepository implements Repository {
     this.repersist(agentId, [id])
   }
 
+  async setTokens(agentId: string, id: string, tokens: number): Promise<void> {
+    await this.inner.setTokens(agentId, id, tokens)
+    this.repersist(agentId, [id])
+  }
+
   restore(agentId: string, messages: readonly StoredMessage[]): void {
     this.inner.restore(agentId, messages)
   }

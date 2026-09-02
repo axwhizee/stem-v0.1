@@ -186,8 +186,16 @@ export class DefaultRuntime implements Runtime {
           toolCalls: toolCalls.length > 0 ? toolCalls.map(toProtocolToolCall) : undefined,
         }
         session = [...session, assistantMessage]
-        // 自动复制 assistant 消息到邮局历史。
-        await this.deps.contextManager.appendHistory(instance.id, assistantMessage)
+        // 自动复制 assistant 消息到邮局历史（output = 本请求生成段的真实 tokens，直记免差分）。
+        await this.deps.contextManager.appendHistory(
+          instance.id,
+          assistantMessage,
+          roundUsage !== undefined ? { tokens: roundUsage.outputTokens } : undefined,
+        )
+        // 累积差分归位：把「相对上次请求的 input 增量」真实值回填到两轮之间的 tool/user 行。
+        if (roundUsage !== undefined) {
+          await this.deps.contextManager.attributeUsage(instance.id, roundUsage)
+        }
 
         // 显式退出条件：无工具调用 → 结束会话。
         if (roundFinish !== 'tool_calls' || toolCalls.length === 0 || !this.deps.tools) break

@@ -38,8 +38,26 @@ describe('PersistedRepository write-through', () => {
     assert.equal(boxes[0]?.messages[4]?.tag, 'summary')
   })
 
-  test('markInvalid / updateMessage 收敛到行（valid 位与正文落库）', async () => {
+  test('setTokens：真实计量回填同步落行 + 恢复往返保真（T3）', async () => {
     const { repository, store } = makePersisted()
+    await seed(repository)
+    const rows = store.loadBoxes()[0]!.messages
+    const toolRow = rows[2]! // assistant 'hi'
+    await repository.setTokens('a1', toolRow.id, 4242)
+    // 写穿：store 行 JSON 整体序列化，tokens 零 schema 迁移。
+    const persisted = store.loadBoxes()[0]!.messages.find((m) => m.id === toolRow.id)
+    assert.equal(persisted?.tokens, 4242)
+    // 恢复往返：新装饰器从 store 重建后真实值存活。
+    const fresh = makePersisted(new MemoryMessageStore())
+    fresh.store.upsert({ ...persisted! })
+    fresh.repository.restoreFromStore()
+    const restored = fresh.repository.list('a1').find((m) => m.id === toolRow.id)
+    assert.equal(restored?.tokens, 4242)
+    // 幂等 no-op：不存在行不抛。
+    await repository.setTokens('a1', 'no-such', 1)
+  })
+
+  test('markInvalid / updateMessage 收敛到行（valid 位与正文落库）', async () => {    const { repository, store } = makePersisted()
     await seed(repository)
     const msgs = repository.list('a1')
     await repository.markInvalid('a1', [msgs[1]!.id])

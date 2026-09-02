@@ -942,3 +942,14 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - **权限与启用**：与 bash 同"对外操作面"权级（无 ask 无黑名单，超时/截断限事故半径）——`DEFAULT_USER_TOOLS` 加 `websearch/webfetch` allow（未安装 = 键空转）；tmp 空间 `extensions.tools` 点名 + user0 整表同步。
 - **可测性设计**：transport 层 fetch 作构造 deps 注入（假帧夹具测 MCP 握手序/错误分层/参数夹取），零全局 mock——extension 工具遵守与 core 相同的"纯逻辑抽纯函数"纪律。
 - **验证**：typecheck 0 + 293/293（新 16 用例）+ **真端点实测**：百炼 MCP 出带来源编号结果、example.com markdown 转换干净（key 经 powershell 读 Windows 用户 env，只进子进程，零打印零落盘）。
+
+
+## 阶段：行级 token 真实计量（累积差分归位，2026-09-02）
+
+估算口径（chars/4）全面升级为网关实测口径；**两标记分工定稿：tag=是什么（strategy 语义标签）、tokens=多大（计量，真实优先估算兜底，来源不设第三标记）**。
+
+- **通道**：gateway usage 事件本已存在（openaiCompatible `include_usage`、FakeGateway 可注入），缺口 = Runtime 只把 usage 折进 totalCost 未落行。补三处：① `Repository.setTokens(agentId, id, tokens)` 静默修订口（不触发 onChange——token 不改上下文形状；PersistedRepository 写穿，DB 行 JSON 整体序列化零 schema 迁移）；② `ContextManager.attributeUsage(agentId, usage)` **累积差分归位**：Δ = input(n) − input(n−1) − output(n−1) = 两轮之间新行（tool/user）的真实增量，按估算占比分摊、末行吸收凑整；assistant 行在 append 时**直记** output（`appendHistory` opts 化 `{tag?, tokens?}`，7 调用点兼容）；③ Runtime 每 step usage 抵达后接线。
+- **护栏三件套**：首轮只记基线（整段 prompt 含 schemas/system 无行级可分性，估算保留）；差分非正（compact 重组跳变）该批回落估算；基线纯内存 Map——重启/compact 后首轮重记自愈，零持久化负担。
+- **红利自动生效**：compact threshold（estimatedTokens 求和读行 tokens）与 `context_overview`/webui `/context`（条目新增 tokens 字段）随真实口径升级；totalCost 通道不变（既有 estimateCost(usage) 语义即真实）。
+- **验证**：297/297（新 4 用例：output 直记/差分归位/多行占比分摊+和守恒/负差护栏；persisted setTokens 写穿+恢复往返）；**真网关实弹**（dashscope qwen3.8-flash 双轮）：usage [142/27, 174/15] → assistant 行 27·15 直记、第二轮 user 行差分落 5（估算口径 12，真实口径各归其位），system 首轮基线保持 52≈54 估算不动。
+- 踩坑记：首轮冒烟"差分未归位"实为**验证脚本竞态**（发消息后 status 仍处上轮 holding 即退出轮询），产品行为正确——脚本先等进 thinking 再等出 thinking 复测即中。

@@ -57,7 +57,7 @@ describe('ContextManager 导出/概览', () => {
     const { contextManager } = makeRepo()
     await contextManager.register({ agentId: 'a1', systemPrompt: 'sys', onDelivery: () => {} })
     await contextManager.deposit('a1', { role: 'user', content: 'hi' })
-    await contextManager.appendHistory('a1', { role: 'assistant', content: 'hello' }, 'summary')
+    await contextManager.appendHistory('a1', { role: 'assistant', content: 'hello' }, { tag: 'summary' })
 
     const jsonl = await contextManager.exportJsonl('a1')
     const lines = jsonl.split('\n').filter(Boolean)

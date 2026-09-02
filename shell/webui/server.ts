@@ -185,6 +185,7 @@ async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId
       content: typeof m.message.content === 'string' ? m.message.content : JSON.stringify(m.message.content),
       ...(m.from !== undefined ? { from: m.from } : {}),
       ...(m.tag !== undefined ? { tag: m.tag } : {}),
+      tokens: m.tokens,
       turn: m.turn,
       indexInTurn: m.indexInTurn,
       valid: m.valid,

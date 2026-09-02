@@ -51,6 +51,11 @@ export interface Repository {
   readonly markInvalid: (agentId: string, ids: readonly string[]) => Promise<void>
   /** 管理员打戳时重写某条消息（如 user 消息加发送者戳）。 */
   readonly updateMessage: (agentId: string, id: string, message: ChatMessage) => Promise<void>
+  /**
+   * 静默修订行 token 计量（真实值回填通道，T3 累积差分归位用）。
+   * 不触发 onChange（token 不改上下文形状）；行不存在 = 幂等 no-op。
+   */
+  readonly setTokens: (agentId: string, id: string, tokens: number) => Promise<void>
   readonly getState: (agentId: string) => RepositoryState
   readonly listRegistered: () => readonly string[]
   /** 判断 agent 是否已注册。 */
@@ -142,6 +147,13 @@ export class DefaultRepository implements Repository {
     const idx = box.messages.findIndex((m) => m.id === id)
     if (idx < 0) return
     box.messages[idx] = { ...box.messages[idx]!, message }
+  }
+
+  async setTokens(agentId: string, id: string, tokens: number): Promise<void> {
+    const box = this.require(agentId)
+    const idx = box.messages.findIndex((m) => m.id === id)
+    if (idx < 0) return
+    box.messages[idx] = { ...box.messages[idx]!, tokens }
   }
 
   getState(agentId: string): RepositoryState {

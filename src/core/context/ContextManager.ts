@@ -102,8 +102,20 @@ export interface ContextManager {
   readonly deposit: (agentId: string, letter: ChatMessage, from?: string) => Promise<void>
   /** 注册挂起等待：等待 waitFor 的回复作为 tool 结果填充到 owner 上下文。 */
   readonly registerHold: (waitFor: string, opts: { ownerId: string; toolCallId: string }) => Promise<void>
-  /** 追加历史（runtime 复制 assistant；工具模块注入 tool 结果）。tag 可选标记合成消息。 */
-  readonly appendHistory: (agentId: string, message: ChatMessage, tag?: string) => Promise<void>
+  /** 追加历史（runtime 复制 assistant；工具模块注入 tool 结果）。opts.tag 标记合成消息，opts.tokens 真实计量直记（缺省估算）。 */
+  readonly appendHistory: (
+    agentId: string,
+    message: ChatMessage,
+    opts?: { readonly tag?: string; readonly tokens?: number },
+  ) => Promise<void>
+  /**
+   * 真实 token 计量归位（T3 累积差分法）：每 LLM 请求 usage 抵达时调用——
+   * assistant 行由 appendHistory 直记 output；本方法把「相邻请求 input 差分」
+   * 按估算占比归位到两轮之间新入库的 tool/user 行（真实口径覆盖估算）。
+   * 差分非正（compact 重组/组装跳变）→ 该批回落估算，基线照常推进（自愈）。
+   * 基线纯内存（重启后首轮重记），compact 天然重置。
+   */
+  readonly attributeUsage: (agentId: string, usage: { readonly inputTokens: number; readonly outputTokens: number }) => Promise<void>
   /** 工具调用审计记录（工具模块自动发送）。 */
   readonly appendToolRecord: (agentId: string, record: ToolRecord) => Promise<void>
   readonly getState: (agentId: string) => Promise<RepositoryState>
@@ -144,6 +156,8 @@ export class DefaultContextManager implements ContextManager {
   private readonly timer: TimerFactory
   private readonly boxes = new Map<string, InternalBox>()
   private readonly courier: Courier
+  /** token 差分归位基线（agentId → 上次请求 usage + 水位；纯内存，重启/compact 自愈）。 */
+  private readonly tokenBases = new Map<string, { input: number; output: number; count: number }>()
   private readonly spawnRole?: (hostAgentId: string, role: StrategyAgentSpec) => Promise<string>
   private readonly spawnWorker?: (roleAgentId: string, task: string, spec: StrategyAgentSpec) => Promise<string>
   private readonly terminateWorker?: (workerId: string, by: string) => Promise<void>
@@ -269,10 +283,53 @@ export class DefaultContextManager implements ContextManager {
     await this.wake(box)
   }
 
-  async appendHistory(agentId: string, message: ChatMessage, tag?: string): Promise<void> {
+  async appendHistory(
+    agentId: string,
+    message: ChatMessage,
+    opts?: { readonly tag?: string; readonly tokens?: number },
+  ): Promise<void> {
     const box = this.require(agentId)
     box.lastHistoryAt = Date.now()
-    await this.repository.append(agentId, { message, ...(tag !== undefined ? { tag } : {}) })
+    await this.repository.append(agentId, {
+      message,
+      ...(opts?.tag !== undefined ? { tag: opts.tag } : {}),
+      ...(opts?.tokens !== undefined ? { tokens: opts.tokens } : {}),
+    })
+  }
+
+  async attributeUsage(
+    agentId: string,
+    usage: { readonly inputTokens: number; readonly outputTokens: number },
+  ): Promise<void> {
+    this.require(agentId)
+    const messages = this.repository.list(agentId)
+    const base = this.tokenBases.get(agentId)
+    if (base === undefined) {
+      // 首轮只记基线：整段 prompt（含 schemas）无行级可分性，估算保留。
+      this.tokenBases.set(agentId, { input: usage.inputTokens, output: usage.outputTokens, count: messages.length })
+      return
+    }
+    // 相邻请求差分：Δ = input(n) - input(n-1) - output(n-1) = 两轮间新行（tool/user）的真实增量。
+    const delta = usage.inputTokens - base.input - base.output
+    if (delta > 0) {
+      // assistant 行已在 append 时直记 output（过滤之）；批次 = 基线水位后新行。
+      const candidates = messages.slice(base.count).filter((m) => m.message.role !== 'assistant')
+      const estSum = candidates.reduce((sum, m) => sum + m.tokens, 0)
+      if (candidates.length > 0 && estSum > 0) {
+        let assigned = 0
+        for (let i = 0; i < candidates.length; i++) {
+          const candidate = candidates[i]!
+          const share =
+            i === candidates.length - 1
+              ? Math.max(1, delta - assigned) // 末行吸收凑整误差
+              : Math.max(1, Math.round(delta * (candidate.tokens / estSum)))
+          assigned += share
+          await this.repository.setTokens(agentId, candidate.id, share)
+        }
+      }
+    }
+    // delta ≤ 0（compact 重组等跳变）→ 该批回落估算；基线照常推进，下轮自愈。
+    this.tokenBases.set(agentId, { input: usage.inputTokens, output: usage.outputTokens, count: messages.length })
   }
 
   async appendToolRecord(agentId: string, record: ToolRecord): Promise<void> {
@@ -437,7 +494,7 @@ export class DefaultContextManager implements ContextManager {
       list: () => this.repository.list(box.agentId),
       listValid: () => this.repository.listValid(box.agentId),
       append: async (message, tag) => {
-        await this.appendHistory(box.agentId, message, tag)
+        await this.appendHistory(box.agentId, message, tag === undefined ? undefined : { tag })
       },
       markInvalid: async (ids) => {
         await this.repository.markInvalid(box.agentId, ids)

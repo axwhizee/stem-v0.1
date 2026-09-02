@@ -147,6 +147,7 @@ docs/                      # 设计文档：architecture.md（实际架构，以
 ### 消息库：tag + 双索引
 
 - `StoredMessage`：`id / agentId / message / at / tokens / valid / from? / tag? / turn / indexInTurn`。
+- **token 计量双标记**：tag=是什么（strategy 写合成消息），tokens=多大（网关真实值优先——assistant 行直记 usage.output、tool/user 行按相邻请求 input 差分归位（Runtime→contextManager.attributeUsage，负差护栏回落估算、基线内存自愈）；估算 chars/4 兜底）。`Repository.setTokens` 静默修订（不触发 onChange）。
 - **tag**（可选）：标记非原生合成消息（如 summary/impression/meta）；**strategy 是上下文属性**（实例化时确定），组装器按 agent 的策略解释 tag。
 - **双索引**：`turn` = 轮序号（复用 turnCount 语义：user 消息开启新轮）、`indexInTurn` = 轮内序号；Repository 自动维护。
 

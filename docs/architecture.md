@@ -2,7 +2,7 @@
 
 > 本文档记录**实际开发过程中明确的系统架构**与各模块内部的实现逻辑（落地后的真实形态，与规划冲突时以本文档为准，并会同步修订）。
 
-**日期**：2026-08-22 · 最后同步 2026-09-02（S7：三维资源矩阵 / 工具三分类 internal·extension·custom / skill 机制废除（SKILL.md 降为 custom 工具约定）/ extensions 分键点名 / fs 五件套落 extension/tools/）
+**日期**：2026-08-22 · 最后同步 2026-09-02（S7：三维资源矩阵 / skill 机制废除 / web 工具开闸 / 行级 token 真实计量——tag=是什么、tokens=多大）
 
 ---
 
@@ -112,7 +112,8 @@
 
 ### 关键概念
 
-- **仓库（Repository）**：上下文本体的唯一存储（`message / agentId / at / tokens / valid / from / tag? / turn / indexInTurn`）；任何消息先入库，触发 onChange。
+- **仓库（Repository）**：上下文本体的唯一存储（`message / agentId / at / tokens / valid / from / tag? / turn / indexInTurn`）；任何消息先入库，触发 onChange。两标记分工：**tag = 是什么**（合成消息出处，strategy 写），**tokens = 多大**（计量：网关真实值优先、估算兜底，来源不设第二标记）。
+- **token 真实计量（累积差分归位）**：gateway `usage` 事件（openaiCompatible 流式 `include_usage`）→ Runtime 双通道——① assistant 行 append 时**直记** `outputTokens`；② `contextManager.attributeUsage` 把**相邻请求 inputTokens 差分**（扣除上轮 output）按估算占比归位到两轮之间新入库的 tool/user 行（`Repository.setTokens` 静默修订不触发 onChange，persisted 写穿零 schema 迁移）。护栏：首轮只记基线（整段 prompt 含 schemas 无行级可分性）、差分非负（compact 跳变回落估算）、基线纯内存（重启/compact 自愈）。compact 阈值与 totalCost 随真实口径自动升级。
 - **管理员（ContextManager）**：打发送者戳（user 消息用 from 生成 `<sender id>`）、context_wait 判定（命中挂起 → 作为 tool 结果填充）、**策略 process（异步，user_prompt 抵达触发）→ 就绪后唤醒快递员**、组装（按 agent 策略分发 + **legalize**；组装权归管理员——快递员只发不组装）；信箱配对 `waitForReply`（模块扮演 agent 的程序化等待原语）。
 - **快递员（Courier）**：按 agentId 维护发送倒计时（初始 0 立即送；发送后开始；来信重置）；agent 送信快照经管理员委托（`buildAgentDelivery`）构造，面板（`assemble:false`）信件 diff 自持。
 - **消息 ≠ 上下文**：通信消息直接投递；上下文由管理员按模式组装。
