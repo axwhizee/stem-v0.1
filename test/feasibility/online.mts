@@ -1,7 +1,7 @@
 // ============================================================
 // test/feasibility/online.mts —— 机制可行性在线档（真网关 ALIBABA/qwen3.8-flash）
 //
-// 前置：ALIBABA_API_KEY 已注入环境（值只走 env，见 docs/test-plan.md §1）。
+// 前置：ALIBABA_API_KEY 已注入环境（值只走 env，注入法见 docs/contributor.md §8）。
 // 验证 mock 不可测面：W1 真 LLM 轮 / W2 真模型自发生成 tool_call→bash 执行
 // 回注→闭合 / W3 真 websearch+webfetch（extension 装载+外网） /
 // W4 真 ask 审批链（模型真实申请→根答复→类落盘） / W5 telemetry_query 观测 /

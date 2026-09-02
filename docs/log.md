@@ -987,3 +987,11 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - **验收战果 = 五个实况 bug**（初步档 mock 与单测各自掩盖的面，全部真端网/真进程挖出）：dispose 与进行轮的退出竞态 + 12 处裸 void 孤儿 promise（P6，两度击落 webui）；轮账目引用直改不落库致重启清零（P9）；grep/bash 相对路径基准漂移（P5）；webui context 丢工具轨迹（P3）；实例化面板漏 birth 模型通道（P10）。逐一修复带回归锚，基线 310 单测 + 离线双档 + ask3/update2/tree3 全绿。
 - **行为面收获**：tester 场景闭环教科书级（并行跑测定位→最小修复→复跑→诚实汇报，外部复核）；assistant 占位类乱走暴露"根表无 fs 键"设计事实（root 最小权限面——用例主体必须是专职工人，systemPrompt 纪律决定模型稳定性）；家学模型自然断流恰证中断自愈路径。
 - 踩坑追加：`setsid` 内 npx 无 PATH（用绝对 node --import tsx）；up.sh 式脚本化起服务（操作命令与常驻彻底分离，混链必挂）；Windows npx 兜底乱码报错 = WSL PATH 未带；drvfs 偶发 NotFound 重试即复；dashboard messages 参数是 `archived=1`；terminate 竞态族（not_found/terminated）静默语义进 forget 白名单。
+
+### 追记：LLM 实测反馈卷成文 + 测试工作归拢 test/
+
+验收行为观察浓缩为实况卷 **docs/llm-playbook.md**（双向适配评估 + 提示词三环词汇表 + 工人人格四段模板 + 误解预防表 + 五项待办改进：错误文本行动化/步数预算告知/审批实参披露/占位类人格补丁/观察项）；测试工作全部归拢 `test/`（test-support→test/support、tmp 演示空间→test/space-demo、tmp 退役），CLI 实起冒烟通过，310/310。验收双服务已按用户指令关停。下一批开放项见 llm-playbook §3 与 test-plan §6.2 #16（docker 待点头）。
+
+### 追记二：evolution-plan §5 整卷重写（brain_enhanced）+ test-plan 卷退役
+
+用户提出 brain-simu/增强版三层记忆构思（上下文层/笔记层文件空间/睡眠子 agent 固化单一长期记忆文件注入头部）+ 四点理论（缺的是记忆生理非智力；高频闭环；有损压缩+睡眠归纳；权衡应可自进化）。据此将 evolution-plan §5 由原 dreaming/ltm-stm-mix（LTM 住消息带）整卷重写为 **brain_enhanced 方案（S7 候选）**：L0 组装=memory 头注入+笔记目录条+精准区滚动；L1 `.stem/mem/<agentId>/notes/`（compact 升级分篇落文件+指针）；L2 MEMORY.md 睡眠拍全量重写（memorist 零工具子实例、一拍一生死、provenance 对冲有损毒性）；权衡旋钮 `custom.mem` 滑位谱（simu↔classic 同一基因面）；S7.1-7.3 批次与验收。裁决记录：记忆住文件不住消息带、睡眠工字面零工具、memory_note 主动工具 v1 不做。验收方案卷 test-plan.md 落地退役（plan 卷纪律），五处悬空引用改指 log 记录。llm-playbook 卷成文同批提交。

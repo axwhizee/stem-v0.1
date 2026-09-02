@@ -1,9 +1,9 @@
 # stem 自进化与自主节律 · S5 方案冻结
 
 > **性质**：方案设计冻结文档。经三轮讨论收敛，作为 S5 各批实施的唯一依据；与口头讨论冲突时以本文为准。
-> **状态**（2026-09-01）：**S5.1 族谱树重构 ✅（46bb227）· S5.2 进化观测与书写 ✅（efcd499）**——实施偏差与裁决记录见 §8；S5.3 调度 / S5.4 dreaming 延后实施（用户指令）。**§9 = 目标-达成度进化方案存档**（用户改道裁决，取代原"benchmark 后置"行；未排实施）。
+> **状态**（2026-09-02 刷新）：**S5.1 ✅（46bb227）· S5.2 ✅（efcd499）· S6 全批 ✅**（模型自由三环/配置收敛/仪表盘，v1.0 全量验收 15/16 通过，记录见 docs/log.md）。S5.3 薄调度与 S5.4 dreaming 均已改道：**§5 整卷重写为 brain_enhanced 三层记忆策略方案**（用户 2026-09-02 构思 + LLM 实测反馈校准，取代原案——原案 LTM 住消息带，新案 LTM/笔记住文件）。**§9 = 目标-达成度进化方案存档**（未排实施，与 §5 正交）。
 > **日期**：2026-09-01 · 前置：S4 已全部落地（bash 单点 / extensions tool_set / 目录即真相 / OLED webui / Docker）。
-> **范围**：①族谱树重构 ②进化观测与书写 ③dreaming 上下文策略方案。**不含**实现代码；benchmark/fitness 模块明确后置。
+> **范围**：①族谱树重构 ②进化观测与书写 ③brain_enhanced 记忆策略方案。**不含**实现代码；benchmark 已被 §9 取代。
 
 ---
 
@@ -48,7 +48,7 @@
 
 ---
 
-## 2. 现状基线（已核实）
+## 2. 现状基线（S5 冻结时点核实，保留为历史快照；至 2026-09-02 本表多数行已落地或被超越——agentSerialize / telemetry_query / 树 attach / 类落盘均已存在，实况以 docs/architecture.md 为准）
 
 | 事实 | 出处 |
 |---|---|
@@ -173,71 +173,90 @@ AgentClass → .stem/agent/<name>.md
 
 ---
 
-## 5. S5.3/5.4 · 策略自调度 + dreaming 仿生策略（方案）
+## 5. S7 候选 · brain_enhanced 三层记忆策略（重写于 2026-09-02）
 
-> 定位：**方案冻结，不排入 1.0 实施承诺**。dreaming 是"进化闭环跑通后第一个被进化的对象"——先用本文机制把它设计成可生长的形状。
+> 定位：**方案冻结**（用户构思 brain-simu/增强版 + v1.0 验收约 60 个真实模型轮反馈校准，证据见 docs/llm-playbook.md）。进化对象 = 生理层（策略），与 §9（基因层进化）正交。经典问题：classic 是急救室（超阈值压一次），brain 是生理（持续印象化 + 短期笔记 + 睡眠固化）。
 
-### 5.1 机制：调度权归策略（v3 冻结形态）
+### 5.0 理论地基（用户四点 → 工程映射）
 
-**唯一薄件**：`StrategyApi` 扩一个调度面 + 自触发约定——
+| 论点 | 工程落点 |
+|---|---|
+| 智力够，缺"记忆生理" | 三层：上下文层（工作记忆）/ 笔记层（海马体，文件）/ 记忆层（皮层，单文件） |
+| 高频闭环 > 开环一次性 | stem 已有节律器官（快递员/倒计时/信箱）；brain 把"感知"从塞满上下文换成**指针化记忆 + 工具实时读环境** |
+| 有损压缩 + 睡眠归纳 | 压缩必损 → 毒性靠 provenance + 每拍全量重写 + 过时声明对冲（§5.5 风险表） |
+| 自进化不人工调参 | **权衡即基因**：精准↔印象谱 = `custom.mem` 数值位，进化回路（§9 评估者）可调；策略代码本身 = 系统信任级不动（D7 延续） |
 
-```ts
-// StrategyApi 追加（TimerFactory 已在 ContextManager 手中，经工厂透传）：
-readonly schedule: (name: string, fn: () => Promise<void>, everyMs: number) => void
-//  ① 同名幂等覆盖；② fn 抛错 = catch + log，绝不逃逸；③ 宿主 agent detach /
-//  terminate → 该 agent 全部 timer 取消（树 detach 联动，防泄漏）；
-//  ④ 不入库：重启后由策略注册期自行重排（节律是类的基因位，从配置重建）。
-readonly wakeHint?: （后置可选）策略请求"提前醒一次"，v2 再谈。
-```
+### 5.1 前置薄件：策略自调度（原 S5.3 设计存活，重编号 S7.1）
 
-**自触发语义**：策略在模块装载/首绑定时把自己某个 action（如 `consolidate`）`schedule` 上——醒来时**直接经 append/markInvalid/spawn 操作自己的记忆**，全程 kernel 不参与、不经信件、不经快递员。
+`StrategyApi` 追加 `schedule(name, fn, everyMs)`（同名幂等覆盖 / fn 异常吞并落 log / 宿主 detach·terminate 联动取消 / 不入库重启由策略注册期自排——TimerFactory 已在 ContextManager 手中，零新端口）。睡眠拍触发 = **timer 到点（给出"最早可睡"）∧ 轮闭合（Runtime activeTurns 无本 agent 在途——P6 产物直接复用）**。双时钟正交、对删 courier / 注 tick 信 / kernel 开关三案的否决记录不变（git 史可溯，铁律 D10 不破：策略醒来直接操作记忆，不经 kernel 编排、不经信件链路）。
 
-**双时钟并行定案**（承 D8/D9/D10）：
-
-| | sendCountdown | 策略自调度 |
-|---|---|---|
-| 驱动 | 事件（来信） | 时钟 |
-| 作用 | 合并突发信，攒一次 LLM 调用（省） | 无刺激时的生理窗（整理/进化评估） |
-| 归属 | courier（保留） | 策略（经 TimerFactory 端口） |
-| 关系 | **正交**：整理不动送信状态机；送信不看定时器 | |
-
-**否决记录（防翻案）**：①删 courier 改 kernel 收发缓冲（= 在 kernel 里重写 courier 且丢合并窗/并发隔离/唤醒语义）；②kernel 定时注 `<tick/>` 信 + `process` 返回 `deliver|suppress`（= 多造一条信类型 + 契约分支，而策略本就可直接动记忆——间接且更重）；③kernel "tick 开关调用其他接口"的处理器注册（= kernel 长业务，违背薄协调者）。
-
-**开放点 #1（睡眠拍留痕）**：自调度整理天然留痕（append 的 impression + markInvalid 位图 + 新事件 `context.consolidated`）——倾向**落审计事件**；"每次醒来即写一条心跳行"倾向**不做**（纯 token/IO 噪声）。
-
-### 5.2 dreaming 策略记忆分层（生理模型）
+### 5.2 三层生理形状
 
 ```
-┌ LTM（新皮层）:  tag ∈ {impression, lesson} 的合成记忆带 —— 小而全，恒在
-├ STM（海马体）:  最近 N 轮原文 —— 精准，滚动过期
-└ 当前拍:        本轮信件 —— 永远在场
+L0 上下文层（每拍 assemble 现拼，全派生，不落任何新存储）
+   = <memory>  LTM 文件头注入（按预算截断）
+   + <notes>   笔记层目录条（每篇一行"主题 —— 首句摘要"）
+   + 精准区     最近 recentFloor 轮原文（valid 消息，天然滚动）
+   + 本轮信件   （永远在场）
+L1 笔记层 = .stem/mem/<agentId>/notes/<主题>.md   —— 短期记忆/操作文档
+   写入方：① compact 升级——摘要 worker 输出从"一条 summary 消息"变为
+   "按主题分篇落文件 + 上下文内一行指针"（原消息 markInvalid 归档照旧）
+   ② 睡眠拍副产品（整理时发现值得成篇的细节）
+   读取方：模型按注入目录条按图索骥——有 fs 工具的类直接 read（路径权限
+   天然，v1 不设专用工具）；无 fs 的类由策略在追问时代读打包（v2 候补）
+L2 记忆层 = .stem/mem/<agentId>/MEMORY.md          —— 长期单一记忆文件
+   唯一写入者 = 睡眠拍（全量重写，覆写即纠错）；人可手改（文件即真相）；
+   每次睡眠留 DB 一行 tag='memory' 审计消息（不承载注入）
 ```
 
-组装 = 预算分配拼接（`window × 比例`，LTM 超预算则再归纳一层）；写入 = 睡眠期跨轮归纳。
+**存储裁决：记忆住文件，不住消息带**（推翻原 §5.2 ltm-stm-mix 的 tag 带案）——人可审、git 化即记忆史、覆写即纠错、与语料归档解耦；实测背书：模型对"文件=真相"母语级适应（skill/回读/跨重启全一次上手），对静默注入的 note 不调起（llm-playbook §2.1）。目录名定 `mem` 不用 `tmp`（tmp=可弃，记忆=资产；根级 tmp/ 已退役避免混淆）。
 
-**与 classic 的关系**：不冲突、分层复用——classic 是**被动急救**（超阈值压 turn→summary，轮内），dreaming（拟名 `ltm-stm-mix`）是**主动生理**（周期跨轮归纳 episodes→语义记忆）。实现上 ltm-stm-mix **组合复用** classic 的 assemble 与 compact 实现，只加自调度归纳例程，不复制压缩逻辑。
+### 5.3 睡眠规格（一拍一次生死）
 
-### 5.3 睡眠期动作规格（v1 只做两件事）
+```
+水位线：上次睡眠 at（MEMORY.md 头注 <!-- slept@<at> --> 即状态，零新存储）
+触发  ：timer 到点 ∧ 轮闭合 ∧ 饥饿达标（水位线后新内容 ≥ hunger tokens）
+打包  ：策略读 [MEMORY.md 现文 + 新/变笔记篇目 + 水位线后 episode 片段(截断)]
+        → 一份纯文本 userPrompt（记忆工作不需要环境操作）
+工人  ：role memorist-<agentId> 子实例——父=宿主（族谱诚实）；tools 字面 {}
+        零工具（输入输出纯文本契约，同 summarize worker；fs/bash 一律不给，
+        无人值守写盘通道 = §5.5 红线）；model = custom.mem.consolidateModel
+        基因位（缺省 inherit，起步配小模型）
+产出  ：新 MEMORY.md 全文（规范见 §5.5 毒性对策行）→ 策略写盘 → 工人
+        terminate 归档（不留常驻睡眠工，防族谱/dashboard 僵尸节点）
+留痕  ：DB append tag='memory' 一行（输入摘要+条数）+ 审计事件
+        context.memorized{agentId, inTokens, outTokens, bytes}（token 账目
+        走既有差分归位，睡眠成本可观测）
+```
 
-| action | 内容 | 成本 |
-|---|---|---|
-| `consolidate` | 自上次水位线以来（水位线 = 私有 tag 消息记 `at`）的 episodes 交 **spawn worker（小模型，复用 `summarizeModel` 先例）** 归纳 → `append(tag:'impression'/'lesson')`；原文不失效（等 classic compact 收口，防双重失效竞态） | 零主模型；小模型 |
-| `prune` | 低价值寒暄轮 markInvalid（保留判断走规则/worker） | 零 LLM（可选） |
+### 5.4 权衡旋钮（brain-simu ↔ 全保留 = 同一基因面的滑位）
 
-**节奏 = 可进化基因位**：`everyMs` 起步保守（如 idle-only + 低频）；节律参数归属类配置（`custom.dream.*` 透传位——策略经 `StrategyApi` 读宿主类的 custom 即可拿基因），进化回路可自调。
+```
+custom.mem = { ltmShare: 0.10, notesShare: 0.05, recentFloor: 6,
+               hunger: 2000, everyMs: 600000, sleepCap: 48, consolidateModel? }
+```
 
-### 5.4 治理红线（无人值守自改进 = 最锋利处）
+比例 × window 预算分配（LTM 超份额截断、目录条恒一行/篇）；`recentFloor→∞ 且 ltmShare→0` 退化为 classic，`recentFloor→0` 即**纯 brain-simu**（极端印象化，全靠指针+工具）——用户方案的两个变体是同一策略上的谱，不做两个策略。`sleepCap` = 每日睡眠硬顶（原开放点"进化熔断"在此落位）。基因经 StrategyApi 读宿主类 custom 获得（D11 归属不变）。
 
-- 策略文件 = 代码、系统信任级：改它的手段是既有 bash/edit（用户主权），生效重启——**不给模型任何新的写策略通道**（D7）；
-- tick + bash 无 ask + 类可写 → 三防护：类显式配置才有心跳（opt-in）、telemetry/授权可见域走树位置函数（§3.4）、`.stem/` git 化 = 进化史即版本史；
-- **开放点 #3（熔断，倾向做）**：每日/每周期 `log.class.*` 书写次数上限（如 10），超限策略自抑制 + `notice` 事件提示人工介入——防无 fitness 梯度下朝"省 token"方向漂；
-- 全量 LLM"心跳对话轮"**不进 v1**（开放点 #2）：先只做 worker 级整理。
+### 5.5 风险与治理（括号内为实测证据）
 
-### 5.5 评估面（benchmark 占位）
+| 风险 | 对策（全部在机制内） |
+|---|---|
+| **有损压缩毒性**：错误固化进 LTM 反复注入（验收 P5：模型把一次工具失败当永久事实写进总结并链式误判） | MEMORY.md 规范：每条印象带 `←t<turn>` provenance 可回查；睡眠**全量重写**（旧错被下拍稀释）；注入头恒附一句"记忆可能过时，关键决策回语料/文件核实" |
+| 注入物不被调起（实测：note 零反应 vs 点名格式全中） | `<memory>/<notes>` 显式块格式；宿主类 systemPrompt 配第二环句："笔记目录=你的记忆索引，追问细节前先读对应篇目"（playbook §2.1 现成文案） |
+| 睡眠与在途轮竞态 | 触发恒在轮闭合后（activeTurns）；水位线幂等；睡眠期间新消息进 L1 等下拍 |
+| 成本失控 | 饥饿才睡 + consolidateModel 小模型位 + sleepCap 硬顶；worker 账目归位已可观测 |
+| "读笔记"挤占步数预算（乱走吃光 maxSteps 实证） | 目录条给"何时读"条件不给能力清单；**前置依赖：playbook §3 步数预算告知改进** |
+| 无人值守写盘面 | 睡眠工零工具（§5.3）；只写 `.stem/mem/`；策略文件/类文件与睡眠绝缘（**记忆≠基因，两层不交叉**）；`.stem/mem/` 建议入 git = 记忆史可审可回滚 |
 
-语料基础已在（归档不删 + 双索引 + tag）。benchmark 模块 = 回放任务集 → 同任务在两代类/策略下跑出 telemetry 对照（成功率/成本/中断率/ask 通过率）→ 供评估者消费。**S5.2 观测面跑起来之前不动工**。
+### 5.6 批次与验收
 
----
+| 批 | 内容 | 依赖 | 验收 |
+|---|---|---|---|
+| S7.1 | `schedule` 薄调度（含 detach 取消/异常兜底/重启自排） | — | timer 无泄漏/异常不逃逸/重启重排 单测 |
+| S7.2 | `.stem/mem/` 文件协议 + compact 升级（分篇笔记+指针）+ L0 组装注入 | 可与 S7.1 并行 | 离线双档改造：FakeGateway 下笔记分篇落盘、重启后目录条复现；classic 用户零影响（策略按类注册隔离） |
+| S7.3 | memorist 睡眠拍 + 审计事件 + `custom.mem` 全基因位接通 | S7.1+S7.2 | 离线：mock 输出→MEMORY.md 重写→下拍注入可见；在线：第 30 轮仍能答对第 3 轮事实（记忆保持 needle 文件化变体），对照 classic 同任务成本/质量 |
+| 明确不做 | memory_note 主动工具（等实测暴露需求再议）、策略代码自进化、常驻睡眠工、`.stem/tmp` 命名、唤醒全量 LLM 心跳轮（原开放点 #2 裁决不变） | | |
 
 ## 6. 批次、依赖与验收总表
 
@@ -245,8 +264,8 @@ readonly wakeHint?: （后置可选）策略请求"提前醒一次"，v2 再谈�
 |---|---|---|---|---|
 | **S5.1** | 树合并 + attach 下沉 + canReach | — | ✅ 达成（46bb227）：+6 门面直测、余 202 零修改全绿、typecheck 0 | — |
 | **S5.2** | 序列化器 + create/update 落盘 + telemetry_query + 类审计事件 | S5.1（canReach） | ✅ 达成（efcd499）：237 全绿（+29，含重启进化 e2e） | — |
-| **S5.3** | `StrategyApi.schedule` 薄调度（含 detach 取消/失败兜底/重排） | S5.1（生命周期钩子点） | timer 无泄漏测试、异常不逃逸测试 | 小批 |
-| **S5.4** | `ltm-stm-mix`（consolidate 起步）+ 模板文档 | S5.2+S5.3 | 语料对照人工评审（impression 质量） | **实验性，1.0 后** |
+| ~~S5.3~~ | 薄调度设计存活，**编号并入 S7.1**（§5.1，2026-09-02 重编） | | | |
+| ~~S5.4~~ | dreaming/ltm-stm-mix **已被 §5 brain_enhanced 重写取代**（记忆住文件非消息带） | | | |
 | 后置 | ~~benchmark/fitness~~ → **已被 §9 目标-达成度方案取代**（用户裁决，benchmark 基建不建） | — | — | — |
 
 ## 7. 待拍板（S5.3/S5.4 实施前处理）
@@ -354,4 +373,4 @@ loop（gen = 当前代数，缺省冠军 = 目标类现名）：
 
 ---
 
-*本文档由三轮设计讨论收敛生成；§9 为 S6 批 3 方案存档（用户 2026-09-01 改道裁决）。实施时各批独立提交并同步 architecture.md/log.md。*
+*本文档由三轮设计讨论收敛生成；§9 为 S6 批 3 方案存档（用户 2026-09-01 改道裁决）；§5 于 2026-09-02 按用户 brain 构思 + llm-playbook 实测整卷重写。实施时各批独立提交并同步 architecture.md/log.md。*

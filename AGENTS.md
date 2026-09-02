@@ -125,10 +125,9 @@ test/                      # 测试工作区：support/（kernelHarness 内存+F
                            #   验收现场 test/space-v10/（opencode 网关执行场）
 docs/                      # 设计文档（实况卷/历史卷二分见 contributor §1）：
                            #   实况卷 architecture.md（实际架构，以此为准）/ api.md（接口清单，对拍冻结）/
-                           #   dev-guide.md（扩展点全景+食谱）/ contributor.md（工程纪律）/
-                           #   历史卷 log.md（开发日志）/ evolution-plan.md（S5 方案，S5.3/S5.4 待实施）/
+                           #   dev-guide.md（扩展点全景+食谱）/ contributor.md（工程纪律）/ llm-playbook.md（LLM 实测反馈+提示词指南）/
+                           #   历史卷 log.md（开发日志）/ evolution-plan.md（§5 brain_enhanced 记忆策略方案 S7 候选，§9 目标-达成度存档）/
                            #   阶段 plan 卷（实施期的执行依据，不回改；落地即随下一功能提交删除）/
-                           #   test-plan.md（验收方案+执行记录）/
                            #   scenarios.md（目标场景清单，6 条+自检）/ prompts.md（需求记录，不纳入提交）
 ```
 
