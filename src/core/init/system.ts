@@ -186,7 +186,9 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     config,
     init,
     dispose: async () => {
-      kernel.abortAllAgents()
+      // 中断 + 等待活跃轮收尾落行（旧实现只置标志即关存储，进行轮的
+      // interrupted 归一化与账目快照被退出吞掉——验收现场修复）。
+      await kernel.drainForShutdown()
       deps.stateStore?.messages.close?.()
       deps.stateStore?.instances.close?.()
     },

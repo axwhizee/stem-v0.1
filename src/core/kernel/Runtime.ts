@@ -42,6 +42,8 @@ export interface RuntimeDeps {
   readonly onStatus?: (agentId: AgentID, from: AgentStatus, to: AgentStatus) => void
   /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: LogSink
+  /** 可注入计时器（drain 超时兜底；缺省 setTimeout，与 Courier/管理员同法）。 */
+  readonly timer?: (fn: () => void, ms: number) => { cancel: () => void }
 }
 
 export interface Runtime {
@@ -55,6 +57,8 @@ export interface Runtime {
   readonly abortAll: () => void
   /** 当前活跃（thinking/进行中）的 agent id 列表。 */
   readonly activeAgents: () => readonly AgentID[]
+  /** 等活跃轮收尾落账（abort 之后调用；超时兜底，dispose 前必须 drain）。 */
+  readonly drainActiveTurns: (timeoutMs?: number) => Promise<void>
 }
 
 /** 中断后收尾标记（消息闭合：避免出现"assistant 后直接接 user"的非法消息序列）。 */
@@ -65,6 +69,8 @@ export class DefaultRuntime implements Runtime {
   private readonly estimateCost: (usage: UsageEvent | undefined) => number
   /** 各 agent 当前轮的中断控制器（进程/用户中断入口）。 */
   private readonly controllers = new Map<AgentID, AbortController>()
+  /** 活跃轮 promise 登记（优雅收尾 drain 用；同一 agent 串行只挂一枚）。 */
+  private readonly activeTurns = new Map<AgentID, Promise<void>>()
 
   constructor(private readonly deps: RuntimeDeps) {
     this.maxSteps = deps.maxSteps ?? 5
@@ -86,7 +92,32 @@ export class DefaultRuntime implements Runtime {
     return [...this.controllers.keys()]
   }
 
-  async processDelivery(delivery: AgentDelivery): Promise<void> {
+  processDelivery(delivery: AgentDelivery): Promise<void> {
+    const id = makeAgentID(delivery.agentId)
+    const turn = this.runDelivery(delivery)
+    this.activeTurns.set(id, turn)
+    const done = (): void => { if (this.activeTurns.get(id) === turn) this.activeTurns.delete(id) }
+    void turn.then(done, done)
+    return turn
+  }
+
+  /** abort 后等待全部活跃轮完成 halt 收尾（interrupted 状态落行 + 消息闭合）。
+   *  超时兜底走注入 timer（core 零平台全局）；坏网关不响应 signal 时最坏等超时。 */
+  async drainActiveTurns(timeoutMs = 5000): Promise<void> {
+    const pending = [...this.activeTurns.values()]
+    if (pending.length === 0) return
+    let settle: (() => void) | undefined
+    let timer: { cancel: () => void } | undefined
+    const deadline = new Promise<void>((res) => {
+      settle = res
+      timer = (this.deps.timer ?? ((fn: () => void, ms: number) => { const h = setTimeout(fn, ms); return { cancel: () => clearTimeout(h) } }))(res, timeoutMs)
+    })
+    await Promise.race([Promise.allSettled(pending), deadline])
+    timer?.cancel()
+    settle?.()
+  }
+
+  private async runDelivery(delivery: AgentDelivery): Promise<void> {
     const instances = this.deps.instances
     const instance = await instances.get(makeAgentID(delivery.agentId))
     // S6/R6：本轮模型 = 族谱树四级律快照（setModel 下轮送信自然生效）。

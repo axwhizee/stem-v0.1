@@ -41,7 +41,7 @@ import type { AccessReply } from '../../src/core/tools'
 import type { PilotEvent } from '../../src/core/events'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
 import { bootStem } from './platform'
-import type { InitReport } from '../../src/core/init'
+import type { InitReport, StemSystem } from '../../src/core/init'
 import type { StemConfig } from '../../src/core/config'
 
 /** S6/R11 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（一进程 = 一空间 = 一 .stem）。 */
@@ -50,6 +50,8 @@ const DEFAULT_USER_PROMPT = '你好，请做一个简短的自我介绍。'
 
 interface ShellState {
   kernel: Kernel
+  /** 装配后的系统句柄（优雅收尾用 dispose——异步闭合进行轮并落行）。 */
+  system: StemSystem
   currentAgentId: AgentID
   source: string
   /** 弹窗模块（权限确认等队列弹窗）。 */
@@ -71,6 +73,7 @@ async function createShell(): Promise<ShellState> {
   // 先建 state 骨架，回调引用 state.currentAgentId（动态，避免旧值闭包）。
   const state: ShellState = {
     kernel: undefined as never,
+    system: undefined as never,
     currentAgentId: '' as never,
     source: '',
     dialogs,
@@ -88,6 +91,7 @@ async function createShell(): Promise<ShellState> {
   })
   state.source = source
   state.kernel = system.kernel
+  state.system = system
   state.init = system.init
   state.config = system.config
   for (const issue of system.init.issues) console.log(`  [init] ${formatInitIssue(issue)}`)
@@ -309,12 +313,14 @@ async function main(): Promise<number> {
     if (active.length > 0) {
       state.kernel.abortAllAgents()
       console.log(`\n[${signal}] 已请求中断 ${active.length} 个活跃 agent（消息闭合中）…`)
-      // 给 processDelivery 的 halt 收尾一点时间（消息入库）。
-      setTimeout(() => {
+      // halt 收尾是异步（消息闭合 + 状态快照落行）：等 boot.system.dispose
+      // 完成再退，超时 5s 兜底强退。
+      const closing = state.system.dispose().catch((e: unknown) => console.error('[shutdown]', e))
+      void Promise.race([closing, new Promise((r) => setTimeout(r, 5000))]).then(() => {
         rl.close()
         console.log('\nbye')
         process.exit(0)
-      }, 300)
+      })
     } else {
       rl.close()
       console.log('\nbye')

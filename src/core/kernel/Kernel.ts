@@ -244,6 +244,7 @@ export class Kernel {
       resolveModel: (agentId) => this.lineage.modelOf(agentId as string)?.ref,
       maxSteps: options.maxSteps,
       estimateCost: options.estimateCost,
+      timer: options.timer,
       onEvent: (agentId, event) => this.events.emit({ type: 'stream', agentId, event }),
       onStatus: (agentId, from, to) => this.events.emit({ type: 'status', agentId, from, to, at: Date.now() }),
       onLog: { log: (event) => this.emitLog(event) },
@@ -558,9 +559,17 @@ export class Kernel {
     this.runtime.abort(target)
   }
 
-  /** 中断所有活跃 agent（进程优雅收尾用）。 */
+  /** 中断所有活跃 agent（进程优雅收尾用；只置中断标志，不等收尾）。 */
   abortAllAgents(): void {
     this.runtime.abortAll()
+  }
+
+  /** 优雅收尾专用：中断全部活跃轮并**等待** halt 收尾落行
+   *（status→interrupted、消息闭合）——storage.close 前必须完成，
+   * 否则进行中轮的账目/状态快照被退出吞掉（验收现场 bug）。 */
+  async drainForShutdown(timeoutMs = 5000): Promise<void> {
+    this.runtime.abortAll()
+    await this.runtime.drainActiveTurns(timeoutMs)
   }
 
   /**

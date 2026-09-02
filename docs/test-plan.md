@@ -78,7 +78,20 @@
 
 用户裁决：全量验收前先做**功能可行性**（模块机制能跑通即达标）。产物 = `test/feasibility/` 四脚本（offline1 29✔ / offline2 9✔ / online 11✔ / http 10✔ = 59 断言全绿；`npm run test:feas` 离线可重复，在线两档需 ALIBABA key）。重大产出：**挖出并修复网关 P0**（dashscope tool_calls 空 id 尾片覆盖 → 真网关工具链静默失效，详见 docs/log.md 对应阶段）；核定 user0 面板事实——**本表用例 4/5/7 的目标须改为子实例跑轮**（user0 不跑 LLM 轮是设计事实）。
 
-### 6.2 全量验收（待用户方案定稿后开跑）
+### 6.2 全量验收（进行中，2026-09-02：网关 opencode/qwen3.8-flash，空间 `test/space-v10/`，操作件 `test/feasibility/tools/`）
+
+**执行期判据校准（开跑即立，覆盖用例表原文的口径错误）**：
+- 轮终态 = **holding**（非 idle——thinking→holding 是设计稳态，unit 有锚；idle 仅初始）；waitidle.sh 已按此修。
+- user0 面板 turnCount 恒 0 为正确语义（不跑轮）。
+- webui `/api/instantiate` 不受理 agentId 参数（id 自动短码生成）——用例以返回的 id 为准。
+- 运行中新增 `.stem/agent/*.md` **需重启装载**（目录即真相=启动期扫描，无 watcher——此即用例 #1 语义之一）。
+
+| # | 结果 | 证据/备注 |
+|---|------|-----------|
+| 1 | ✔ 通过 | haiku.md 热重启装载→instantiate(jn2c)→真模型三行俳句逐字吻合人格（tools={} 零调用）、assistant 行 tokens=117 真实值、回信以 `<sender id="jn2c">` 落 user0 信箱 |
+| 9(1/2环) | ✔ 通过 | birth model=max → origin=explicit 落行跨重启；/api/set_model 热切 flash。**发现并修复**：webui /api/instantiate 不透传 model（三环·环一用户面不可达）→ feat(webui) 补齐（API+侧栏下拉） |
+| 4 | ✔ 通过（换主体后） | worker 类（fs5+bash 显式 allow）五步作业全中：write/read/grep/glob/bash + **并行三工具轮**。**发现并修复两处**：(a) P5 工具相对路径基准不统一——grep/glob 的 include/pattern 对绝对路径做锚定 test 恒不中、bash cwd="." 随宿主进程漂（= 首测 assistant 乱走真因之一：占位类继承根表**无 fs 键**，属设计事实非 bug，用例主体改 worker）；(b) webui contextOf 手抄字段丢 toolCalls 工具轨迹（审计面缺）→ 透传修复。三处回归锚（tools.test include/glob、bash.test 相对与缺省 cwd、305/305）|
+| 5 | ✔ 通过 | wc -c 输出回库、默认 cwd=空间根（pwd 实证）；14 项非零退出码 = 正常结果语义单测锚 |
 
 | # | 结果 | 证据/备注 |
 |---|------|-----------|

@@ -33,6 +33,14 @@ function broadcast(event: PilotEvent): void {
 
 // ---------- 服务器 ----------
 
+
+// —— 宿主卫生（验收 P6 现场：孤儿 promise 曾直接击落进程）——
+// unhandledRejection 记录完整对象并存活（core 判别联合对象默认 toString 为空，
+// 用 JSON 展开）；定位各真凶后逐一补 catch，本钩子兜最后一道。
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', (() => { try { return JSON.stringify(reason) } catch { return String(reason) } })())
+})
+
 async function main(): Promise<void> {
   const { system, source } = await bootStem({
     projectRoot: PROJECT_ROOT,
@@ -130,11 +138,15 @@ async function main(): Promise<void> {
     console.log('  Ctrl+C 退出（中断所有活跃 agent）')
   })
 
-  // 优雅收尾。
+  // 优雅收尾：dispose 必须 await（中断活跃轮 → 消息闭合与状态归一化
+  // 落行后才退——同步 exit 会把进行中的轮次快照吞掉，重启即丢账目/状态）。
+  let exiting = false
   const shutdown = () => {
+    if (exiting) { process.exit(130); return }
+    exiting = true
     system.dispose()
-    server.close()
-    process.exit(0)
+      .catch((e: unknown) => console.error('[shutdown]', e))
+      .finally(() => { server.close(); process.exit(0) })
   }
   process.on('SIGINT', shutdown)
   process.on('SIGTERM', shutdown)

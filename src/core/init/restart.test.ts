@@ -69,6 +69,21 @@ function boot(
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 30))
 
+function hangUntilAbort(_req: unknown, opts?: { signal?: AbortSignal }): AsyncIterable<unknown> {
+  return (async function* () {
+    yield { type: 'text-delta', text: '进行中' }
+    await new Promise<void>((_resolve, reject) => {
+      const sig = opts?.signal
+      const abortErr = () => Object.assign(new Error('abort'), { name: 'AbortError' })
+      if (!sig) return
+      if (sig.aborted) reject(abortErr())
+      else sig.addEventListener('abort', () => reject(abortErr()))
+    })
+    yield { type: 'finish', reason: 'stop' }
+  })()
+}
+
+
 describe('createStemSystem 重启恢复（持久化 e2e）', () => {
   test('A 对话 → B 恢复续聊 + 归档 → C 归档不加载', async () => {
     const messages = new MemoryMessageStore()
@@ -183,5 +198,16 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     await new Promise((resolve) => setTimeout(resolve, 30))
     assert.ok(lettersB.some((text) => text.includes('恢复后回复')), 'B：重启后对话链路正常')
     await systemB.dispose()
+  })
+})
+describe('优雅收尾 drain（验收 P6 回归锚）', () => {
+  test('进行中轮挂起时 dispose：abort 后等待 halt 收尾——行归一 interrupted 后才返回', async () => {
+    const stateStore = { messages: new MemoryMessageStore(), instances: new MemoryInstanceStore() }
+    const system = await boot(makeDeps({ sendCountdown: 0 }), new FakeGateway(hangUntilAbort as never), stateStore, [] as string[])
+    const childId = await system.pilot.instantiate({ className: 'assistant', userPrompt: '写长文' }, '/proj')
+    await new Promise((r) => setTimeout(r, 80)) // 轮进入 thinking 挂起
+    await system.dispose()
+    const row = stateStore.instances.loadAll().find((i) => i.id === childId)
+    assert.equal(row?.status, 'interrupted', 'dispose 返回即应完成中断归一化（旧实现行停 thinking/holding）')
   })
 })
