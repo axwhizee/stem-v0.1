@@ -962,3 +962,14 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - **前端**：OLED 同设计语言六页签（族谱缩进树/token 账目/资源清单/语料/原表/清理），复用 view.js 纯函数核心（ES module 双端共用兑现设计初衷），手写 SVG 账目条形（依赖政策本轮放开，工程选择仍自包含：无构建链 + 无 CDN 网络风险）。
 - **验证**：300/300（dashboard 3 用例：真 SQLite 全查询面/清理三门禁/真标本三态装配）+ **双服务并开实跑**（4321+4421 同 tmp 空间互不干扰）：账目精确（1sif system 行 52 = T3 直记真实值）、extension 7 件（五件套+web 两件）全列、类五枚分层无误（creator=extension、user-reviewer=custom）、只读门禁 403 实弹、user0 无 system 行正确（空人格不落行）。
 - 踩坑三枚：`AS all` SQLite 保留字（syntax error near "all"）；窗口 rn=1 是尾行非"尾 user 行"（role 过滤须进分区前）；工具会话 SIGKILL 连坐进程组——冒烟常驻服务需 setsid 脱组。
+
+
+## 阶段：v1.0 初步测试——机制可行性三档五脚本（2026-09-02）
+
+用户裁决把全量验收先降维为**机制可行性**（验证各模块机制都能正常工作，不追指标）。测试脚本固化于 `test/feasibility/`（`npm run test:feas` 跑离线三档，在线两档需 `ALIBABA_API_KEY`）。
+
+- **档位与结果**：offline1（mockSse 匿名 provider 真宿主装配，29✔）= 装配全链/端到端回信归位/status 事件/token usage 直记/ask 消息化→根答复→类落盘/bash allow 执行/模型四级+blame 语义/home 下传保持/setModel 不级联/重启恢复七面；offline2（compact 9✔）= 摘要 worker 正规往返/归档可逆/turnCount 续接/手动动作面/面板零请求；online（真网关 11✔）= 模型自发 tool_call→bash→回注闭合/websearch+webfetch 实弹/真 LLM 触发 ask→审批→落盘/telemetry 观测/真实 compact；http（双服务 10✔）= SSE/真轮 HTTP 面/跨进程 DB 镜像/门禁 403/terminate 收敛。
+- **P0 bug（真网关挖出，单测从未见过）**：dashscope qwen3.8-flash 流式 tool_calls **尾分片携带 `id:""`**，openaiCompatible 解析器 `typeof tc.id==='string'` 无条件覆盖 → 首片真 id 被抹 → flush 期 `!call.id` 全跳 → **工具链整体静默失效**（finish reason 正常、假绿极隐蔽：assistant 空 content + 正常闭合）。单测 mock 尾片无 id 键恰漏此形状。修复 = 空串不覆盖 + dashscope 实测形状回归用例（reasoning_content 混片一并锁定）。**教训：可行性测试必须真端点——自造 mock 会精确隐藏它没见过的形状**。
+- **设计事实核定（修测试预期）**：user0 根 = `assemble:false` 面板接线（kernel 级，与类 panel 字段并行的根特判），**永不跑 LLM 轮**——一切模型轮可行性验证的正确目标是子实例；「给 user0 自发消息跑轮」的用例设计是错的（test-plan 用例表按此校准）。
+- **仪表盘策略维度补全**：inventory 标本此前根本没采策略面（"Strategy 列表为空"实为观测面缺维，非注册丢失）——补 `strategies` 字段（注册表实况 + process/actions 能力面 + 层判定：内置集从 createBuiltinStrategyRegistry 派生不硬编码）+ 前端清单表；测试断言 classic/none 在列。
+- **待裁决的设计精髓问题**（记录不擅动）：① `builtin/Coder.json`/`SimpleChat.json` 系 S2 demo 遗留赖在 internal 层（违反"internal=最小系统"），tmp `user-reviewer.md` 同类；② access_request 消息 metadata 仅 `{tool:id}` **不带申请实参**——根审批"盲批"（风险恰在参数里：bash 命令行/类内容）；③ `shell/cli/main.ts` 头注释旧叙事（"临时面板/bus.send 自动寄信"）+ 绕 pilot 直连 kernel 面（`access.reply`/`instantiateAgent`），属叙述债与原则 4 小偏离。

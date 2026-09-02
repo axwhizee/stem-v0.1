@@ -15,7 +15,8 @@
     "smoke": "tsx prototype/smoke.ts",
     "shell": "tsx shell/cli/main.ts",
     "dashboard": "node --import tsx shell/dashboard/server.ts",
-    "web": "tsx shell/webui/server.ts"
+    "web": "tsx shell/webui/server.ts",
+    "test:feas": "bash -c 'for f in test/feasibility/*.mts; do echo \"== $f ==\"; npx tsx \"$f\" || exit 1; done'"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
