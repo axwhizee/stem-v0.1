@@ -9,7 +9,7 @@
 - 提交链（HEAD 起）：`92f03e1` docs(dashboard) → `b478efc` feat(dashboard) → `7b9b248` feat(context) token 真实计量 → `e49e84c` feat(tools) web 两件 → `8f7ab4e` feat 三维矩阵 → S6 批 1/2 → S5。
 - 基线：**typecheck 0；npm test 300/300**。执行期间任何改动必须保持两者全绿才可记"通过"。
 - 本轮**不做**：S5.3 调度 / S5.4 dreaming（`evolution-plan.md`）——v1.0 后才议。
-- 方案沿革：`s7-plan.md` D1-D9（矩阵/两标记/web 后端/测试网关裁决）不回改。
+- 方案沿革：矩阵/两标记/web 后端/测试网关诸裁决的当时记录见 `docs/log.md`（plan 卷已按纪律落地删除）。
 
 ## 1. 环境与资源
 
