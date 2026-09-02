@@ -46,6 +46,8 @@
       "agent_class_update": "ask",
       "agent_terminate": "ask",
       "bash": "allow",
+      "websearch": "allow",
+      "webfetch": "allow",
       "read": "allow",
       "grep": "allow",
       "glob": "allow",
@@ -66,7 +68,7 @@
   // 三维资源矩阵（S7）：extension/ 下按资源目录分键点名启用（tools 缺省 = fs 五件套；
   // agent/context 缺省 = 不启用）。用户空间 .stem/ 各目录自动扫描，不经此清单。
   "extensions": {
-    "tools": ["read", "write", "edit", "grep", "glob"],
+    "tools": ["read", "write", "edit", "grep", "glob", "websearch", "webfetch"],
     "agent": ["creator"]
   },
   "sendCountdown": 1000

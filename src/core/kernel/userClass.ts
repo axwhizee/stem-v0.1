@@ -37,6 +37,10 @@ export const DEFAULT_USER_TOOLS: Readonly<Record<string, ToolAccess>> = {
   // 对外操作面：bash = 最小系统唯一外部操作入口（internal 显式 allow——
   // 高频工具不走 ask，治理靠超时/截断机制与提示词分担，见 tools/bash）。
   bash: 'allow',
+  // 对外信息面（extension 点名安装后生效；与 bash 同权级：无 ask，
+  // 未安装 = 键空转无副作用）。
+  websearch: 'allow',
+  webfetch: 'allow',
   // 管理面：user0 经工具驱动系统（pilot 旁路之外的模型侧能力）。
   agent_instantiate: 'allow',
   agent_list: 'allow',

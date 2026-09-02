@@ -182,7 +182,7 @@
 
 > 系统工具 `kind=internal` → 默认 `ignore`，示例模板在 `tools` 显式 `allow`。`DEFAULT_USER_TOOLS`（S5.2 起）含 `telemetry_query:'allow'`（观测）与 `agent_class_update:'ask'`（书写，与 create 同高危列）。
 
-### 4.7 extension 工具层：fs 五件套（`extension/tools/`，kind=extension）
+### 4.7 extension 工具层：fs 五件套 + web 两件（`extension/tools/`，kind=extension）
 
 **一工具一目录、入口与目录同名**（`tools/read/read.ts`；`_lib/` 下划线前缀 = 共享辅助不入库；附属脚本/资源同目录自由放置）。由 `config.extensions.tools` 点名加载（init 管线装载，S7 统一矩阵），缺省 = fs 五件套，显式 `[]` = **纯 bash 最小系统**；点名缺失 → `extension_entry_missing` issue 不炸启动（fail-soft）。入口默认导出允许两形态：`ToolCapability` 对象或**工厂** `(projectRoot) => ToolCapability`（工作区级工具需要空间根做路径沙箱，loader 注入）。fs 五件套（read/write/edit/grep/glob）以工厂形态实现（`createXTool(root)`），路径沙箱基于注入的空间根。
 
@@ -238,7 +238,7 @@
 ### 4.14 extension/：矩阵 extension 层（三类资源目录形态）
 
 - 仓库级可选扩展的家：`extension/tools/<名>/<名>.ts`、`extension/agent/<名>/<名>.md`、`extension/context/<名>/<名>.ts`——**一资源一目录、入口与目录同名**，附属脚本/资源同目录自由放置；由 `config.extensions.{tools,agent,context}` 分键点名启用（装载与覆盖律见 §4.12 init 管线；S7）。
-- 首住户：fs 五件套（tools/read…glob）、`agent/creator/`（调度者示例类——父子调度 dogfood）；`_lib/` 前缀目录 = 共享辅助代码不参与扫描。
+- 首住户：fs 五件套（tools/read…glob）+ web 两件（tools/websearch：百炼 WebSearch MCP，密钥 `ALIBABA_API_KEY` 走 env；tools/webfetch：零依赖抓取转换，无密钥）+ `agent/creator/`（调度者示例类——父子调度 dogfood）；`_lib/` 前缀目录 = 共享辅助代码不参与扫描。
 - 与 custom 层的差别只在**启用方式**（点名 vs 目录即真相）与**归属**（仓库发布物 vs 用户空间），装载管线同构（core/init 统一 loader）。
 - **S7 起无系统级 skill 子系统**：SKILL.md 生态兼容降为 custom 工具约定（`.stem/tools/skill/skill.ts` 装载器 + `<技能名>/SKILL.md` 资产，见 dev-guide 食谱）；MCP 类外部能力同样走工具三分类落位，不设第二通道。
 

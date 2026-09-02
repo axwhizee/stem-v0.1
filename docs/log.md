@@ -931,3 +931,14 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - `typecheck` 0；`npm test` **277/277**（净增 13 用例：extension 点名装载/缺失 issue/agent·context 类目录点名/宿主无根零 issue/平铺+目录双形态与优先序/replace 覆盖律/工厂入口注入/分键 config 校验 + 旧数组拒启/D9 缺省表锚点）。
 - 真装配冒烟（bootStem tmp 纯内存）：三源工具面 21 internal + **5 extension**（工厂收根 + 沙箱行为正确反证）+ 2 custom；`skill()` 清单/`skill({name})` 正文实开；模板五连 = user + simple-chat/coder(internal) + creator(extension 点名) + user-reviewer(custom) 三层齐。
 - 踩坑两枚：① pkill -f 自噬（模式串在当前命令行内，连坐自家 shell）——改用 `[r]` 正则拆分或精确 pid；② fake 目录发现函数返回全路径后又拼一次前缀（双重拼接致 packed 探测全灭），REPL 隔离复现 30 秒定位——**测试 fake 与宿主实现必须同语义**的又一次实证。
+
+
+## 阶段：websearch/webfetch extension 工具（对外信息面开闸，2026-09-02）
+
+矩阵落地后的首批第三方资源，dogfood `extension/tools/<名>/<名>.ts` 目录形态与工厂入口约定。
+
+- **websearch**（`dashscopeMcp.ts` 专用脚本 + 入口）：百炼 WebSearch MCP（JSON-RPC：initialize 进程内幂等握手 → `tools/call bailian_web_search`），结果格式化编号列表（标题/URL/来源/摘要，snippet 500 字符收敛）。**密钥治理**：`ALIBABA_API_KEY` env 晚绑定读取（与 providers.alibaba 同账号同变量），未配置 = 可行动错误文本回模型（fail-soft 不抛栈）；count 夹取 [1,20]、30s 超时。
+- **webfetch**（`htmlExtract.ts` 纯函数 + 入口）：零依赖 HTML→text/markdown 抽取（噪声块剥离/块级换行/实体解码/markdown 近似转换），三格式参数 + Accept 协商（markdown 请求优先原生直出）、手动重定向限 5 跳、4MB 拉取上限 + maxChars 截断（默认 20k 上限 100k）、非文本 content-type 拒回、伪协议 url 校验。
+- **权限与启用**：与 bash 同"对外操作面"权级（无 ask 无黑名单，超时/截断限事故半径）——`DEFAULT_USER_TOOLS` 加 `websearch/webfetch` allow（未安装 = 键空转）；tmp 空间 `extensions.tools` 点名 + user0 整表同步。
+- **可测性设计**：transport 层 fetch 作构造 deps 注入（假帧夹具测 MCP 握手序/错误分层/参数夹取），零全局 mock——extension 工具遵守与 core 相同的"纯逻辑抽纯函数"纪律。
+- **验证**：typecheck 0 + 293/293（新 16 用例）+ **真端点实测**：百炼 MCP 出带来源编号结果、example.com markdown 转换干净（key 经 powershell 读 Windows 用户 env，只进子进程，零打印零落盘）。
