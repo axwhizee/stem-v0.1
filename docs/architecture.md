@@ -231,9 +231,10 @@
   5. `tools.initAll`（fs/projectRoot/log 注入）→ 用户注入钩子（`userHooks`，init 末尾，深度扩展）。
 - 返回 `StemSystem { kernel, pilot, tools, config, init, dispose }`；任何 shell 注入平台能力即可装配出完整最小系统。
 
-### 4.13 shell 层（`shell/cli/` + `shell/webui/`）
+### 4.13 shell 层（`shell/cli/` + `shell/webui/` + `shell/dashboard/`）
 
 - **cli**（参考 shell）：`platform.ts`（`bootStem`：config + 网关 + createStemSystem + extension 资源根注入（仓库 extension/ 三目录）+ bash `ShellRunner` 注入，供任何 shell 复用）+ `gateway.ts`（**providers 路由门面**：逐 provider 装配 + `req.model.provider` 分发，R1 两段式 warn/硬错；产品无 mock，mockSse 降测试/冒烟支撑）+ `storage/`（`createSqliteStateStore`：node:sqlite 实现两端口，默认 `.stem/stem.db`）+ CLI 命令（直接对话 /new /use /agents /templates /tools /config /compact /stop）。
+- **dashboard**（空间仪表盘，法医/管理员 shell）：独立进程独立端口 4421，与 webui 真并列零共享——数据源两路：SQLite 只读直查（个体层同步 write-through，行即运行态实时镜像：族谱/token 账目/语料/原表）+ **纯内存标本装配**（`bootStem({stateStore:false})` 的矩阵装载与 materialize(user0) 生效可见集 = 资源清单单一真相）；清理为唯一写通道（`--allow-write` 进程姿态 + `confirm=yes` 双确认；孤儿箱 GC/terminated 语料 GC/定点 purge(active 需 force)/VACUUM，freelist 回收估计）。前端复用 webui view.js 纯函数核心（行序/字形），OLED 同语言。
 - **webui**（WebUIShell）：`node:http` + SSE，复用 cli 的 platform；REST（send/instantiate/terminate/interrupt/access/context_action + **`/api/health`** = docker HEALTHCHECK 探针）+ 观察（agents/templates/context）+ 单页 UI（**OLED 友好主题**：纯黑底、边框分层无灰底卡片、青绿=运行/品红=介入双色语义、状态"字形+色+文字"三重编码；agent 侧栏 / timeline（summary 归档渲染为分隔条）/ composer / header 动作 compact·中断·销毁 / 权限弹窗 = 渲染 `<access_request>` 消息 + `access_reply`）。绑定地址：裸机缺省 `127.0.0.1`，容器 `STEM_HOST=0.0.0.0`。
 
 ### 4.14 extension/：矩阵 extension 层（三类资源目录形态）

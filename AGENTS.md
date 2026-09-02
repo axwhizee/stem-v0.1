@@ -47,6 +47,8 @@ npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑（node:test 
 npm run shell               # CLI shell：cwd 即空间（opencode-style；`-- <path>` 指定目录）
 ALIBABA_API_KEY=<key> npm run shell   # 真实网关（密钥只走 env：config providers.<p>.key_env 声明变量名）
 npm run web                 # WebUIShell（http://localhost:4321；空间定位同上，`-- <path>`/STEM_PROJECT_ROOT）
+npm run dashboard -- [path] # 空间仪表盘（http://localhost:4421；法医/管理员 shell：DB 只读直查 +
+                            #   标本装配资源清单 + 清理；--allow-write 才解锁写操作，可与 webui 并开）
 npm run build               # 与 typecheck 相同（tsc --noEmit）
 docker build -t stem:1.0 . && docker run -d -p 4321:4321 -v stem-data:/data stem:1.0   # 发布形态
 docker run -d -p 4321:4321 -v stem-data:/data -e <providers 声明的 key_env 名>=<key> stem:1.0   # 真实网关
@@ -94,6 +96,11 @@ shell/                     # 宿主层（node/CLI + Web），实现 core 注入�
   │                        #   bash runner）+ gateway.ts（providers 路由两段式）+ storage/（SQLite
   │                        #   端口实现，v2 根伪空间归并）
   │                        #   + CLI 命令（stem [path] 空间定位）
+  ├── dashboard/           # 空间仪表盘 shell（与 webui 并列零耦合）：db.ts 只读直查（族谱/token 账目/
+  │                        #   语料/原表——write-through 行即运行态镜像）+ inventory.ts 标本装配
+  │                        #   （bootStem stateStore:false 纯内存，三态清单=矩阵真实结果）+
+  │                        #   cleanup.ts 清理（孤儿 GC/terminated GC/定点 purge/VACUUM，
+  │                        #   --allow-write 只读门禁 + confirm 双确认）+ public/ 前端（复用 view.js）
   └── webui/               # WebUIShell：HTTP + SSE 浏览器交互层（OLED 主题；S6 批 2 第一视角：
                            #   view.js 纯函数核心[汉字三态字形/routeLetters 信箱归位/computeTreeRows
                            #   git 风族谱行序/deriveActions 能力事实驱动，双端共用可 node 直测] +
@@ -105,7 +112,7 @@ test-support/              # 测试支撑：kernelHarness.ts（内存 + FakeGate
                            #   mockSse 兼容再导出（正身 shell/cli/mockSse.ts = 纯测试/冒烟支撑，
                            #   S6 起产品无 mock 回落；离线冒烟 = mockSse 作匿名 provider 入测试 config）
 tmp/                       # 测试项目空间（.stem/ 配置 + 用户 tools/agent 示例）
-docs/                      # 设计文档：architecture.md（实际架构，以此为准）/ log.md（开发日志）/
+docs/                      # 设计文档：architecture.md（实际架构，以此为准）/ api.md（v1.0 接口清单，对拍冻结）/ dev-guide.md（开发者手册）/ test-plan.md（v1.0 验收方案）/ log.md（开发日志）/
                            #   evolution-plan.md（S5 方案冻结；S5.1 族谱树/S5.2 观测书写已落地，
                            #   S5.3 调度与 S5.4 dreaming 待实施；进度以 log.md 为准）/
                            #   s6-plan.md（S6 定稿：零兜底网关/模型族谱/space 分级持久化/

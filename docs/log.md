@@ -953,3 +953,12 @@ npm run shell       # 然后 /new tool-assistant → 输入 “echo hello”
 - **红利自动生效**：compact threshold（estimatedTokens 求和读行 tokens）与 `context_overview`/webui `/context`（条目新增 tokens 字段）随真实口径升级；totalCost 通道不变（既有 estimateCost(usage) 语义即真实）。
 - **验证**：297/297（新 4 用例：output 直记/差分归位/多行占比分摊+和守恒/负差护栏；persisted setTokens 写穿+恢复往返）；**真网关实弹**（dashscope qwen3.8-flash 双轮）：usage [142/27, 174/15] → assistant 行 27·15 直记、第二轮 user 行差分落 5（估算口径 12，真实口径各归其位），system 首轮基线保持 52≈54 估算不动。
 - 踩坑记：首轮冒烟"差分未归位"实为**验证脚本竞态**（发消息后 status 仍处上轮 holding 即退出轮询），产品行为正确——脚本先等进 thinking 再等出 thinking 复测即中。
+
+
+## 阶段：空间仪表盘 shell（法医/管理员视图，v1.0 前可观测性补齐，2026-09-02）
+
+- **定位裁决**（与 WebUI"并列但不冲突"的解法）：不侵入运行进程、不造第二套清册——个体层同步 write-through 使 **DB 行即运行态实时镜像**（只读直查得族谱/token/语料近实时全量）；资源清单 = `bootStem({stateStore:false})` **纯内存标本装配**的真实结果（矩阵三态 + materialize(user0) 生效可见集 + 家学/providers 密钥状态 + init issues），零 DB 触碰零 LLM 成本。
+- **数据层**（db.ts）：summary 四卡（语料/token 双口径/实例状态/DB 与 schema）+ dashAgents（窗口函数取最新 user 信剥 sender 戳，行序数据喂 view.js computeTreeRows）+ tokenStats（byAgent 角色堆叠/tag 分项/byDay 桶）+ 语料分页 + 原表 JSON pretty。清理（cleanup.ts）：孤儿箱 GC / terminated 语料 GC（墓碑保留）/ 定点 purge（非 terminated 默认拒绝、force 自担）/ VACUUM（freelist×page_size 估计）——唯一写通道：`--allow-write` 进程姿态 + confirm 双确认，**不假装检测并发实例**（无锁是既定约定，知情权交操作者）。
+- **前端**：OLED 同设计语言六页签（族谱缩进树/token 账目/资源清单/语料/原表/清理），复用 view.js 纯函数核心（ES module 双端共用兑现设计初衷），手写 SVG 账目条形（依赖政策本轮放开，工程选择仍自包含：无构建链 + 无 CDN 网络风险）。
+- **验证**：300/300（dashboard 3 用例：真 SQLite 全查询面/清理三门禁/真标本三态装配）+ **双服务并开实跑**（4321+4421 同 tmp 空间互不干扰）：账目精确（1sif system 行 52 = T3 直记真实值）、extension 7 件（五件套+web 两件）全列、类五枚分层无误（creator=extension、user-reviewer=custom）、只读门禁 403 实弹、user0 无 system 行正确（空人格不落行）。
+- 踩坑三枚：`AS all` SQLite 保留字（syntax error near "all"）；窗口 rn=1 是尾行非"尾 user 行"（role 过滤须进分区前）；工具会话 SIGKILL 连坐进程组——冒烟常驻服务需 setsid 脱组。
