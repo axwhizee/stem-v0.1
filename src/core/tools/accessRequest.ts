@@ -134,6 +134,25 @@ export class DefaultAccessAskBus implements AccessAskBus {
       throw { kind: 'access_denied', accessKey: entry.info.accessKey, agentId: entry.info.agentId } satisfies AccessError
     }
     this.pending.delete(input.requestId)
+    // 总序防御：挂起期间该键被运行期收敛改严为 deny——迟到的批准被铁律压死
+    // （不写 always 备忘；复核即台账现值查询，无新端口）。
+    if (input.reply !== 'reject' && this.resolvePort?.accessOf(entry.info.agentId, entry.info.accessKey) === 'deny') {
+      this.onLog?.log({
+        type: 'access.replied',
+        at: Date.now(),
+        agentId: entry.info.agentId,
+        accessKey: entry.info.accessKey,
+        requestId: entry.info.id,
+        reply: 'reject',
+      })
+      entry.reject({
+        kind: 'access_rejected',
+        accessKey: entry.info.accessKey,
+        requestId: entry.info.id,
+        feedback: '该工具在申请挂起期间已被族谱权限收敛为 deny——批准不得盖过铁律',
+      })
+      return
+    }
     this.onLog?.log({
       type: 'access.replied',
       at: Date.now(),

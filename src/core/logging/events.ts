@@ -123,15 +123,26 @@ export interface AgentTerminated {
   readonly agentId: string
 }
 
-/** 运行时换模型审计（S6 set_model 通道；树配置相重绑 + 实例行落盘）。 */
+/** 运行时换模型审计（agent_update 的 model 半程；实例行落盘 + replay 重解析）。 */
 export interface KernelModelSet {
   readonly type: 'kernel.model.set'
   readonly at: number
   readonly agentId: string
   readonly provider: string
   readonly model: string
-  /** 发起者（agent_set_model 工具 = 调用者；pilot 通道 = user0）。 */
+  /** 发起者（agent_update 工具 = 调用者；pilot 通道 = user0）。 */
   readonly by?: string
+}
+
+/** 实例参数更新审计（agent_update 统一通道：字段清单；收缩/清单两形式的落点记录）。 */
+export interface KernelInstanceUpdated {
+  readonly type: 'kernel.instance.updated'
+  readonly at: number
+  readonly agentId: string
+  /** 发起者（pilot 宿主通道 = 'pilot'）。 */
+  readonly by: string
+  /** 提及并生效的字段（model / displayName / tools=收敛patch / toolsGrant=清单整表）。 */
+  readonly fields: readonly string[]
 }
 
 /** 实例中断/错误记录（当前轮被中断，消息已闭合，实例存活）。 */
@@ -225,6 +236,7 @@ export type LogEvent =
   | AgentTerminated
   | AgentInterrupted
   | KernelModelSet
+  | KernelInstanceUpdated
   | AgentMessageSent
   | AccessAsked
   | AccessReplied

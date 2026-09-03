@@ -26,3 +26,31 @@ const RANK: Readonly<Record<ToolAccess, number>> = { deny: 0, ask: 1, allow: 2, 
 export function restrictAccess(a: ToolAccess, b: ToolAccess): ToolAccess {
   return RANK[a]! <= RANK[b]! ? a : b
 }
+
+/** 严格度总序数值（消费方共享：类书写/实例更新收敛校验同一把尺）。 */
+export function accessRank(action: ToolAccess): number {
+  return RANK[action]!
+}
+
+/**
+ * 工具清单收敛校验（类书写面 agent_class_update 与实例更新面
+ * kernel.updateAgent 共用的单链律）：逐键要求**序不升**
+ * （deny ≺ ask ≺ allow ≺ ignore，无同级——藏匿/放宽/撤闸/翻 deny
+ * 皆扩张被拒，曝光/加闸/关闭/收敛方向放行）；
+ * prev undefined = 比较基线不含该键（继承形/新键）→ 放行——
+ * 键即白名单 = 自我限定，实际能力仍由族谱台账物化收敛兜底，扩张不可达。
+ */
+export function checkToolsConvergence(
+  current: Readonly<Record<string, ToolAccess>> | undefined,
+  patch: Readonly<Record<string, ToolAccess>>,
+): string[] {
+  const violations: string[] = []
+  for (const [key, next] of Object.entries(patch)) {
+    const prev = current?.[key]
+    if (prev === undefined || next === prev) continue
+    if (accessRank(next) > accessRank(prev)) {
+      violations.push(`${key}: ${prev} → ${next}（扩张被拒，只许收敛）`)
+    }
+  }
+  return violations
+}

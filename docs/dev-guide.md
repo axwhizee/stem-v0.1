@@ -77,9 +77,9 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 | ask 消息化 `AccessAskBus` | `src/core/tools/accessRequest.ts` | `<access_request>` → 申请者族谱根信箱 → `access_reply`(once/always/reject+反馈)；`config.autoApprove` = 旁路（调试） |
 | always 豁免备忘 | AccessAskBus per-agent | 只免询问，**不破 deny/ignore**（非权限层） |
 | `restrictAccess` 四态纯代数 | `src/core/tools/access.ts` | 层间合成的唯一算法（lineage 只共享此纯函数，tools 绝不 import lineage） |
-| `canReach(agentId)` 可见域 | `src/core/lineage` | 跨 agent 操作统一谓词（销毁/中断/telemetry/set_model 全走它；自身∨祖先代查） |
+| `canReach(agentId)` 可见域 | `src/core/lineage` | 跨 agent 操作统一谓词（销毁/中断/telemetry/agent_update 全走它；自身∨祖先代查） |
 | `DEFAULT_USER_TOOLS` | `src/core/kernel/userClass.ts` | 根类缺省清单；`config.user.tools` 给出即**整表替换**（误删 `access_reply` = ask 死锁） |
-| 祖先锁定律 | AccessLedger 语义矩阵 | `deny≺ask≺allow/ignore` 不可撤销；祖先匿名封闭不下传、显式判定才下传 |
+| 祖先锁定律 | AccessLedger 语义矩阵 | 总序 `deny≺ask≺allow≺ignore` 顺链只许收缩；祖先匿名封闭不下传、显式判定才下传（藏匿/放宽皆扩张被拒） |
 
 ### E. 模型解析接入点（四级律的单点化）
 
@@ -87,7 +87,7 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 |---|---|---|
 | 解析链本体 | `LineageTree.modelOf / nodeConfigOf` | 显式（实例行）> 类基因 > 父继承 > 家学（`config.user.model` 必填锚点，boot 硬校验）；attach 同批物化 `ModelBinding{ref,origin}` |
 | 出生显式 | `InstantiateOptions.model` / `pilot.instantiate({model})` | 落实例行 = 持久载体（随行 JSON，含 `modelSnapshot` 出生快照跨重启） |
-| 运行时热切 | `agent_set_model` 工具（canReach）/ `pilot.setModel`（宿主通道） | **不级联子女**（族规=出生快照）；下轮送信生效；审计 `kernel.model.set` |
+| 运行时热切 | `agent_update` 工具（canReach；model 半程）/ `pilot.setModel`（宿主薄壳同入口） | **不级联子女**（出生快照保护，replay 重解析天然）；下轮送信生效；审计 `kernel.model.set` + `kernel.instance.updated` |
 | 摘要 worker 基因位 | `config.context.compact.summarizeModel` | 缺省 = 继承宿主档案 |
 | 消费单点 | `RuntimeDeps.resolveModel` 端口 → lineage | **禁止**再拼 `template.model ?? 默认` 单层链（defaultModel/FALLBACK 已整体拆除） |
 | 候选面 | `providers` 注册表 + `models` 白名单 + webui `/api/models` | 全严格式 `提供商/模型`，裸名不受理 |
@@ -234,7 +234,7 @@ R12 全量有效：**未知顶层键 fail-fast**，`custom` 唯一自由位（§
 | 键 | 语义 |
 |---|---|
 | `providers.<名>` | `{ base_url 必填 http(s), key_env? 环境变量名, models? 白名单 }`；模型引用一律 `提供商/模型` 全严格式 |
-| `user` | user0 内嵌类全对象；**`user.model` 必填 = 家学锚点**；`tools` 给出即整表替换 DEFAULT_USER_TOOLS（误删 `access_reply` = ask 死锁；误删 `agent_set_model` = 模型面锁死） |
+| `user` | user0 内嵌类全对象；**`user.model` 必填 = 家学锚点**；`tools` 给出即整表替换 DEFAULT_USER_TOOLS（误删 `access_reply` = ask 死锁；误删 `agent_update` = 实例参数面锁死，ask 档） |
 | `extensions` | `{ tools?, agent?, context? }` 分键点名（§2-B） |
 | `context` | `{ window, compact: {enabled/threshold/keepRecentTurns/summarizeModel/instruction/replyTimeoutMs} }` |
 | `bash` | `{ path?, defaultTimeoutMs?, maxOutputChars?, cwd? }` |

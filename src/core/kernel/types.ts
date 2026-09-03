@@ -138,7 +138,13 @@ export interface AgentInstance {
 }
 
 /** 用户接管/微调可更新的字段。 */
-export type AgentInstancePatch = Pick<AgentInstance, 'displayName'>
+/** 实例参数更新补丁（kernel.updateAgent 的合法可写面——类定义/拓扑/
+ *  策略/systemPrompt/userPrompt 永不在内：族谱与类文件事实不走此通道）。 */
+export interface AgentInstancePatch {
+  displayName?: string
+  toolOverride?: Readonly<Record<string, ToolAccess>>
+  model?: ModelRef
+}
 
 // ---------- AgentSpace（项目级 agent 空间，最小） ----------
 

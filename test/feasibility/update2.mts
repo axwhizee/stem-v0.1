@@ -3,6 +3,12 @@
 // 真模型驱动进化书写（create→ask→落盘）+ update 收敛铁律（降序放行/升序被拒）
 // ============================================================
 const B = 'http://127.0.0.1:4321'
+
+// 前置守卫：本件为在线编排档，需 webui 已在运行（test:feas 容忍 rc=2 记为跳过）。
+if (!(await fetch('http://127.0.0.1:4321/api/health').then((r) => r.ok).catch(() => false))) {
+  console.log('跳过：webui 未起（先跑 timeout 60 bash test/feasibility/tools/up.sh webui）')
+  process.exit(2)
+}
 let pass = 0; let fail = 0
 const ok = (n: string, c: unknown, e = '') => { if (c) { pass++; console.log(`  PASS  ${n}`) } else { fail++; console.log(`  FAIL  ${n}  ${e}`) } }
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))

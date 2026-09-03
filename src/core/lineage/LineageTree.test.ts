@@ -245,16 +245,24 @@ describe('LineageTree 模型配置相（显式 > 类基因 > 父继承 > 家学�
     assert.equal(lineage.modelOf('a'), undefined)
   })
 
-  test('setModel：自身重绑 explicit，子女出生快照不动（不级联），新子随新值', async () => {
+  test('改父不动子的物化形态 = 出生快照层（重构裁决：setModel 直改口退役，行写+replay 统一）', async () => {
     const { lineage } = await makeTree()
+    const SNAPSHOT = { ref: M('home-m'), origin: 'home' as const }
+    // 出生：p 无显式落 home；oldChild 随 kernel attach 规则写快照
     lineage.attach({ agentId: 'user0', parentId: null, model: { classModel: M('home-m') } })
     lineage.attach({ agentId: 'p', parentId: 'user0' })
-    lineage.attach({ agentId: 'oldChild', parentId: 'p' }) // 出生时父 = home-m
-    lineage.setModel('p', M('new-m'))
+    lineage.attach({ agentId: 'oldChild', parentId: 'p', model: { snapshot: SNAPSHOT } })
+    assert.deepEqual(lineage.modelOf('oldChild'), SNAPSHOT)
+    // 运行期 p 换模型 = 实例行写显式层 → 全树 replay 重解析
+    lineage.replay([
+      { agentId: 'user0', parentId: null, model: { classModel: M('home-m') } },
+      { agentId: 'p', parentId: 'user0', model: { instanceModel: M('new-m') } },
+      { agentId: 'oldChild', parentId: 'p', model: { snapshot: SNAPSHOT } },
+    ])
     assert.deepEqual(lineage.modelOf('p'), { ref: M('new-m'), origin: 'explicit' })
-    assert.deepEqual(lineage.modelOf('oldChild'), { ref: M('home-m'), origin: 'home' }, '既有子女不受改父影响')
+    assert.deepEqual(lineage.modelOf('oldChild'), SNAPSHOT, '既有子女受快照保护，不受改父影响')
     lineage.attach({ agentId: 'newChild', parentId: 'p' })
-    assert.deepEqual(lineage.modelOf('newChild'), { ref: M('new-m'), origin: 'inherited' }, '新子女继承改后档案')
+    assert.deepEqual(lineage.modelOf('newChild'), { ref: M('new-m'), origin: 'inherited' }, '新子女随改后档案')
   })
 
   test('replay 乱序集合：模型相与权限相同拓拓扑序重建（显式层随实例行恢复）', async () => {
@@ -268,12 +276,8 @@ describe('LineageTree 模型配置相（显式 > 类基因 > 父继承 > 家学�
     assert.deepEqual(lineage.modelOf('user0'), { ref: M('home-m'), origin: 'home' })
   })
 
-  test('setModel 后 replay（模拟重启）：显式层由实例行传入，档案延续', async () => {
-    const { lineage } = await makeTree()
-    lineage.attach({ agentId: 'user0', parentId: null, model: { classModel: M('home-m') } })
-    lineage.attach({ agentId: 'a', parentId: 'user0' })
-    lineage.setModel('a', M('set-m'))
-    // 新树重放（实例行已带 model=显式层）
+  test('replay（模拟重启）：显式层由实例行传入，运行期改档延续', async () => {
+    // 新树重放（updateAgent 已把显式层写进行——replay 天然承接，无特判）
     const fresh = new DefaultLineageTree({
       getInstance: (id) => undefined,
       getAllInstances: () => [],

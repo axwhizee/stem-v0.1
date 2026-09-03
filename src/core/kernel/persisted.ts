@@ -10,7 +10,7 @@
 // 发生，账目系统性滞后一整轮、强杀进程即丢；全字段快照仍随任何写操作收敛。
 // ============================================================
 
-import type { AgentID, AgentInstance, AgentSpace } from './types'
+import type { AgentID, AgentInstance, AgentInstancePatch, AgentSpace } from './types'
 import type { InstanceManager, InstantiateOptions } from './InstanceManager'
 import type { AgentSpaceID, ProjectRef } from './types'
 import type { SpaceManager } from './SpaceManager'
@@ -70,14 +70,10 @@ export class PersistedInstanceManager implements InstanceManager {
     this.snap(agentId)
   }
 
-  async takeover(agentId: AgentID, patch: Partial<AgentInstance>): Promise<void> {
-    await this.inner.takeover(agentId, patch)
-    this.snap(agentId)
-  }
-
-  async setModel(agentId: AgentID, model: NonNullable<AgentInstance['model']>): Promise<void> {
-    await this.inner.setModel(agentId, model)
-    // R14：模型显式层随实例行落盘（行 JSON 序列化，零 schema 迁移）。
+  async update(agentId: AgentID, patch: Partial<AgentInstancePatch>): Promise<void> {
+    await this.inner.update(agentId, patch)
+    // 参数三件（displayName/toolOverride/model 显式层）全随实例行落盘
+    // （行 JSON 序列化零 schema 迁移；重启 replay 读回自然延续）。
     this.snap(agentId)
   }
 

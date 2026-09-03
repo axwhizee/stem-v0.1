@@ -1,7 +1,7 @@
 // ============================================================
 // core/kernel/modelTools.test.ts —— S6 模型工具面单测
 //
-// agent_instantiate.model（出生显式层）/ agent_set_model（R7：
+// agent_instantiate.model（出生显式层）/ agent_update（R7：
 // 授权 = canReach、internal 缺省 ignore、审计与遥测）/ agent_inspect
 // 的模型谱系（R6 四级律 origin 出示）。
 // ============================================================
@@ -16,17 +16,17 @@ import { makeAgentClassID, makeAgentID, type AgentClass } from './types'
 
 const userTools = {
   agent_instantiate: 'allow',
-  agent_set_model: 'allow',
+  agent_update: 'allow',
   agent_inspect: 'allow',
   agent_list: 'allow',
 } as const
 
-/** 自理模型类：agent_set_model 显式 ignore（不暴露但可执行，R7 缺省形态的用户位）。 */
+/** 自理模型类：agent_update 显式 ignore（不暴露但可执行，R7 缺省形态的用户位）。 */
 const selfModelCls: AgentClass = {
   name: makeAgentClassID('self-model'),
   description: '可自换模型',
   systemPrompt: 'sys',
-  tools: { agent_set_model: 'ignore' },
+  tools: { agent_update: 'ignore' },
 }
 /** 带类基因模型。 */
 const genedCls: AgentClass = {
@@ -76,7 +76,7 @@ describe('agent_instantiate 显式模型（R6 出生链顶）', () => {
   })
 })
 
-describe('agent_set_model（R7）', () => {
+describe('agent_update（R7）', () => {
   test('自身通道：ignore 声明类可自换；不级联兄弟与子女（canReach + 出生快照）', async () => {
     const { kernel, tools } = await harness()
     await asUser(tools, 'agent_instantiate', { className: 'self-model', userPrompt: 'hi', agentId: 'p1' })
@@ -88,10 +88,10 @@ describe('agent_set_model（R7）', () => {
 
     // p1 自换模型（ignore = 隐藏但可执行，无 ask 弹窗直落）
     const self = await tools.execute(
-      { id: 'call_self', name: 'agent_set_model', input: { model: 'cfg/new-m' } },
+      { id: 'call_self', name: 'agent_update', input: { model: 'cfg/new-m' } },
       { agentId: 'p1', spaceId: 'space-1' },
     )
-    assert.match(self.text, /已切换 p1/)
+    assert.match(self.text, /已更新 p1/)
     assert.deepEqual(kernel.lineage.modelOf('p1'), { ref: { provider: 'cfg', id: 'new-m' }, origin: 'explicit' })
     assert.deepEqual(kernel.instances.getSync(p1)?.model, { provider: 'cfg', id: 'new-m' })
     // 子女快照不动
@@ -100,14 +100,14 @@ describe('agent_set_model（R7）', () => {
     assert.deepEqual(kernel.lineage.modelOf(childId)?.ref, { provider: 'fake', id: 'home-model' }, '改父不动子')
     // 兄弟互不可见：q1 改 p1 → 拒绝文案
     const deny = await tools.execute(
-      { id: 'call_deny', name: 'agent_set_model', input: { agentId: 'p1', model: 'cfg/evil' } },
+      { id: 'call_deny', name: 'agent_update', input: { agentId: 'p1', model: 'cfg/evil' } },
       { agentId: 'q1', spaceId: 'space-1' },
     )
     assert.match(deny.text, /无权/)
     assert.deepEqual(kernel.lineage.modelOf('p1')?.ref, { provider: 'cfg', id: 'new-m' }, '被拒不得留副作用')
     // 非法格式
     const bad = await tools.execute(
-      { id: 'call_bad', name: 'agent_set_model', input: { model: 'nope' } },
+      { id: 'call_bad', name: 'agent_update', input: { model: 'nope' } },
       { agentId: 'p1', spaceId: 'space-1' },
     )
     assert.match(bad.text, /提供商\/模型/)
@@ -116,7 +116,7 @@ describe('agent_set_model（R7）', () => {
   test('审计事件 kernel.model.set 入账且遥测行式可读（by 归属）', async () => {
     const { kernel, tools } = await harness()
     await asUser(tools, 'agent_instantiate', { className: 'self-model', userPrompt: 'hi', agentId: 't1' })
-    await asUser(tools, 'agent_set_model', { agentId: 't1', model: 'cfg/m2' })
+    await asUser(tools, 'agent_update', { agentId: 't1', model: 'cfg/m2' })
     const rows = kernel.logger.all().filter((event) => event.type === 'kernel.model.set')
     assert.equal(rows.length, 1)
     const setEvent = rows[0]

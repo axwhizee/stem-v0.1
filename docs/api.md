@@ -147,7 +147,8 @@
 | `AgentClassID` | `export type AgentClassID = string & { readonly [agentClassId]: 'AgentClassID' }` | `src/core/kernel/types.ts` |
 | `AgentID` | `export type AgentID = string & { readonly [agentId]: 'AgentID' }` | `src/core/kernel/types.ts` |
 | `AgentInstance` — 实例行（parentId 即族谱父；model/modelSnapshot 随行 JSON 持久） | `export interface AgentInstance {` | `src/core/kernel/types.ts` |
-| `AgentInstancePatch` | `export type AgentInstancePatch = Pick<AgentInstance, 'displayName'>` | `src/core/kernel/types.ts` |
+| `AgentInstancePatch` | `export interface AgentInstancePatch {`（displayName/toolOverride/model 三项可选——实例运行期唯一可写面） | `src/core/kernel/types.ts` |
+| `AgentUpdateSpec` | `export interface AgentUpdateSpec {`（kernel.updateAgent 入参；toolsPatch/toolsGrant 互斥） | `src/core/kernel/Kernel.ts` |
 | `AgentSpace` | `export interface AgentSpace {` | `src/core/kernel/types.ts` |
 | `AgentSpaceID` | `export type AgentSpaceID = string & { readonly [agentSpaceId]: 'AgentSpaceID' }` | `src/core/kernel/types.ts` |
 | `AgentStatus` | `export type AgentStatus = 'idle' \| 'thinking' \| 'holding' \| 'interrupted'` | `src/core/kernel/types.ts` |
@@ -192,7 +193,7 @@
 | `DefaultAccessLedger` | `export class DefaultAccessLedger implements AccessLedger {` | `src/core/lineage/AccessLedger.ts` |
 | `DefaultLineageTree` | `export class DefaultLineageTree implements LineageTree {` | `src/core/lineage/LineageTree.ts` |
 | `LineageBindEntry` | `export interface LineageBindEntry extends AccessBindEntry {` | `src/core/lineage/LineageTree.ts` |
-| `LineageTree` — 族谱树门面：attach/detach/replay + effectiveAccess + modelOf/setModel + canReach | `export interface LineageTree {` | `src/core/lineage/LineageTree.ts` |
+| `LineageTree` — 族谱树门面：attach/detach/replay + effectiveAccess + modelOf/nodeConfigOf + canReach（无直改口，变更=replay） | `export interface LineageTree {` | `src/core/lineage/LineageTree.ts` |
 | `LineageTreeOptions` | `export interface LineageTreeOptions {` | `src/core/lineage/LineageTree.ts` |
 | `ModelBindInput` | `export interface ModelBindInput {` | `src/core/lineage/LineageTree.ts` |
 | `ModelBinding` | `export interface ModelBinding {` | `src/core/kernel/types.ts` |
@@ -276,6 +277,7 @@
 | `formatAccessRequest` | `export function formatAccessRequest(request: AccessRequest): string {` | `src/core/tools/accessRequest.ts` |
 | `formatShellOutput` | `export function formatShellOutput(` | `src/core/tools/bash.ts` |
 | `restrictAccess` | `export function restrictAccess(a: ToolAccess, b: ToolAccess): ToolAccess {` | `src/core/tools/access.ts` |
+| `accessRank` / `checkToolsConvergence` | 总序数值 + 清单收敛校验（类书写/实例更新共用） | `src/core/tools/access.ts` |
 | `validateArgs` | `export function validateArgs(input: unknown, schema: ToolParametersSchema): string \| undefined {` | `src/core/tools/validate.ts` |
 
 
@@ -289,7 +291,7 @@
 | `ShellRunner` | bash 工具执行端口（超时/截断参数在 core 侧，进程在宿主） | `shell/cli/bash.createNodeShellRunner` |
 | `ToolCapability` | 工具统一形状 + `init?(ToolInitContext)` 生命周期；kind 三分类（internal/extension/custom） | registry.register / runInit 矩阵装载 |
 | `ContextStrategyModule` | note/role/assemble/process/actions 五面；注册同名覆盖内置 | 策略注册表 / `.stem/context/` / extension 点名 |
-| `LineageTree` | 权限与模型的唯一门面：attach/detach/replay、effectiveAccess、modelOf/setModel（不级联）、nodeConfigOf、canReach | Kernel 内部（tools 经 AccessResolver 查询） |
+| `LineageTree` | 权限与模型的唯一门面：attach/detach/replay、effectiveAccess、modelOf、nodeConfigOf、canReach（能力面无直改 setter；运行期变更 = kernel.updateAgent 写行后全树 replay，快照层保证改父不动子） | Kernel 内部（tools 经 AccessResolver 查询） |
 | `Pilot` | user0 扮演接口（一切外部驱动经它）：sendMessage/instantiate(model 可选)/setModel/replyAccess/runContextAction/subscribe | 各 shell |
 | `EventHub`/`PilotEvent` | stream/letter/status/notice 判别联合，多订阅者（SSE 直转） | `system.pilot.subscribe` |
 

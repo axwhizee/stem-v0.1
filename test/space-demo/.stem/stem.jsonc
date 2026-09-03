@@ -39,7 +39,7 @@
       "context_edit": "allow",
       "context_apply": "allow",
       "telemetry_query": "allow",
-      "agent_set_model": "allow",
+      "agent_update": "ask",
       // SKILL.md 兼容装载器（custom 约定 id，.stem/tools/skill/ 安装后生效）。
       "skill": "allow",
       "agent_class_create": "ask",

@@ -9,6 +9,7 @@
 
 import type { ToolCapability } from '../tools'
 import type { ToolAccess } from '../tools'
+import { checkToolsConvergence } from '../tools'
 import type { AccessReply } from '../tools'
 import type { AccessProfile } from '../lineage'
 import type { ModelOrigin } from '../lineage'
@@ -31,7 +32,7 @@ export function createSystemTools(kernel: Kernel): ToolCapability[] {
     agentAncestry(kernel),
     agentDescendants(kernel),
     agentTerminate(kernel),
-    agentSetModel(kernel),
+    agentUpdate(kernel),
     busSend(kernel),
     busParticipants(kernel),
     telemetryQuery(kernel),
@@ -180,11 +181,6 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
   }
 }
 
-/** 访问动作严格度总序（deny ≺ ask ≺ allow ≺ ignore——与台账 restrictAccess 同一语义骨架）。 */
-function accessRank(action: ToolAccess): number {
-  return action === 'deny' ? 0 : action === 'ask' ? 1 : action === 'allow' ? 2 : 3
-}
-
 /** 模型参数解析（S6/R6 严格式）：仅接受 `提供商/模型`，两段非空；非法 → undefined。 */
 function parseModelArg(value: string): { provider: string; id: string } | undefined {
   const slash = value.indexOf('/')
@@ -202,29 +198,6 @@ const MODEL_ORIGIN_LABELS: Record<ModelOrigin, string> = {
   home: '家学 = config.user.model',
 }
 
-/**
- * 类清单收敛校验（方案 D6"工具路径只允许收敛"，总序版）：
- * 逐键要求**序不升**（deny ≺ ask ≺ allow ≺ ignore，单链无同级——
- * 藏匿祖先 allow 改 ignore 判为扩张被拒，ignore→allow 曝光为收敛放行；
- * deny 不可撤销、ask 不得升为执行免询问均由本序自然覆盖，无需特判）；
- * 新键放行（键即白名单 = 自我限定，实际能力仍由族谱台账收敛兜底，扩张不可达）。
- */
-export function checkToolsConvergence(
-  current: Readonly<Record<string, ToolAccess>> | undefined,
-  patch: Readonly<Record<string, ToolAccess>>,
-): string[] {
-  const violations: string[] = []
-  for (const [key, next] of Object.entries(patch)) {
-    // current undefined = 类层不设限（继承父档案形）——无类层比较基线，逐键放行；
-    // 扩张不可达的真实保证在族谱台账物化（子永宽不过父的生效面）。
-    const prev = current?.[key]
-    if (prev === undefined || next === prev) continue
-    if (accessRank(next) > accessRank(prev)) {
-      violations.push(`${key}: ${prev} → ${next}（扩张被拒）`)
-    }
-  }
-  return violations
-}
 
 /** 列出 agent 类。 */
 function agentClassList(kernel: Kernel): ToolCapability {
@@ -305,33 +278,77 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
  * 无特权通道）；改后下一轮送信生效，**不级联**已出生子孙（R6 族规=出生快照）；
  * 显式层随实例行落盘（R14，重启延续）。provider 未接通/模型不在白名单 → 用到才硬错。
  */
-function agentSetModel(kernel: Kernel): ToolCapability {
+function agentUpdate(kernel: Kernel): ToolCapability {
   return {
-    id: 'agent_set_model',
+    id: 'agent_update',
     description:
-      '切换 agent 的运行时模型（缺省目标 = 你自己；祖先可改后代）。model 为 "提供商/模型"（提供商须已注册于 config providers）。下一轮生效，不影响已出生子孙的继承快照；改动随实例持久化（重启延续）。',
-    accessKey: 'agent_set_model',
+      '更新 agent 实例的运行参数（缺省目标 = 你自己；祖先可改后代，**只许收紧不许放宽**）。' +
+      'model = "提供商/模型"（下一轮生效，不级联已出生子孙的快照；随实例持久化）。' +
+      'tools = {键:访问} 收敛补丁：提及键合并、逐键只许更严（deny≺ask≺allow≺ignore 单链），放宽会被逐键拒绝——' +
+      '想藏起祖先给的能力（allow→ignore）同样是被拒的扩张。' +
+      'grantTools = {键:访问} 清单形整表替换：你给出的就是全部可用清单，未列键一律 deny——' +
+      '免于逐个填 deny 的负担，但每键仍被祖先显式判定封顶（ask 洗不成 allow）。tools 与 grantTools 互斥。' +
+      'displayName = 实例显示名。类定义/父子拓扑/上下文策略/系统提示不在本通道（改类文件走 agent_class_update，拓扑是族谱事实）。',
+    accessKey: 'agent_update',
     kind: 'internal',
     category: 'system',
     parameters: {
       type: 'object',
       properties: {
         agentId: { type: 'string', description: '目标 agent id（可选，缺省为调用者自身；仅自身或祖先可改）' },
-        model: { type: 'string', description: '新模型（"提供商/模型"，必填）' },
+        model: { type: 'string', description: '新模型 "提供商/模型"（可选）' },
+        displayName: { type: 'string', description: '新显示名（可选）' },
+        tools: { type: 'object', description: '收敛补丁：访问键 → allow/ask/deny/ignore，逐键只许收紧' },
+        grantTools: { type: 'object', description: '清单形整表替换（与 tools 互斥）：给出的即全部清单，其余 deny' },
       },
-      required: ['model'],
     },
     execute: async (input, ctx) => {
-      const args = input as { agentId?: string; model: string }
+      const args = input as {
+        agentId?: string
+        model?: string
+        displayName?: string
+        tools?: Record<string, ToolAccess>
+        grantTools?: Record<string, ToolAccess>
+      }
       const target = args.agentId ?? ctx.agentId
       if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), makeAgentID(target))) {
-        return { text: `无权切换该 agent 的模型（可见域 = 自身 + 族谱后代）: ${target}` }
+        return { text: `无权更新该 agent（可见域 = 自身 + 族谱后代）: ${target}` }
       }
-      const model = parseModelArg(args.model)
-      if (model === undefined) return { text: MODEL_FORMAT_HINT }
-      await kernel.setAgentModel(target, model, { by: ctx.agentId })
-      const binding = kernel.lineage.modelOf(target)
-      return { text: `已切换 ${target} 的模型为 ${args.model}（下一轮生效；当前生效档案 = ${binding?.ref.provider ?? model.provider}/${binding?.ref.id ?? model.id}·${binding?.origin ?? 'explicit'}）` }
+      if (args.tools !== undefined && args.grantTools !== undefined) {
+        return { text: 'tools（收敛补丁）与 grantTools（清单整表替换）互斥，一次只用一种' }
+      }
+      const bad = [...Object.entries(args.tools ?? {}), ...Object.entries(args.grantTools ?? {})].find(
+        ([, v]) => !['allow', 'ask', 'deny', 'ignore'].includes(String(v)),
+      )
+      if (bad !== undefined) return { text: `非法访问值 ${String(bad[1])}（键 ${bad[0]}）：allow/ask/deny/ignore 之一` }
+      let model: ModelRef | undefined
+      if (args.model !== undefined) {
+        const parsed = parseModelArg(args.model)
+        if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
+        model = parsed
+      }
+      if (model === undefined && args.displayName === undefined && args.tools === undefined && args.grantTools === undefined) {
+        return { text: '至少给出一个更新字段（model / displayName / tools / grantTools）；现档案见 agent_inspect' }
+      }
+      try {
+        await kernel.updateAgent({
+          agentId: target,
+          by: ctx.agentId,
+          ...(model !== undefined ? { model } : {}),
+          ...(args.displayName !== undefined ? { displayName: args.displayName } : {}),
+          ...(args.tools !== undefined ? { toolsPatch: args.tools } : {}),
+          ...(args.grantTools !== undefined ? { toolsGrant: args.grantTools } : {}),
+        })
+      } catch (e) {
+        const err = e as { kind?: string; violations?: string[] }
+        if (err.kind === 'agent_update_expanded') {
+          return { text: `扩张被拒（总序 deny ≺ ask ≺ allow ≺ ignore，只许顺链收紧）：\n${(err.violations ?? []).map((v) => `  - ${v}`).join('\n')}` }
+        }
+        throw e
+      }
+      const cfg = kernel.lineage.nodeConfigOf(target)
+      const modelEcho = cfg?.model !== undefined ? `${cfg.model.ref.provider}/${cfg.model.ref.id}·${cfg.model.origin}` : '-'
+      return { text: `已更新 ${target}（下一轮送信生效；收缩已沿族谱下传重算）。现模型 = ${modelEcho}；生效清单见 agent_inspect。` }
     },
   }
 }
@@ -786,6 +803,8 @@ function telemetryBrief(event: LogEvent): string {
       return `${event.from}→${event.to}`
     case 'kernel.instance.terminated':
       return 'terminated'
+    case 'kernel.instance.updated':
+      return `by=${event.by} fields=[${event.fields.join(',')}]`
     case 'kernel.model.set':
       return `model→${event.provider}/${event.model}${event.by !== undefined ? ` by=${event.by}` : ''}`
     case 'kernel.instance.interrupted':

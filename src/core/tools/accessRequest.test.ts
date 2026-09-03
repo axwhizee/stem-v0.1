@@ -60,6 +60,20 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     await execution
   })
 
+  test('总序复核：挂起期间该键被收敛为 deny——迟到的 always 被铁律压死且不写豁免', async () => {
+    // 模拟 agent_update 在途改严：resolver 读活表（同一台账查询端口，零新依赖）。
+    const table: Record<string, ToolAccess | undefined> = { 'a1/read': 'ask' }
+    const { bus, asked } = makeBus({ resolve: tableResolver(table) })
+    const execution = bus.assert({ accessKey: 'read', agentId: 'a1' })
+    await tick()
+    assert.equal(asked.length, 1)
+    const req = asked[0] as { id: string }
+    table['a1/read'] = 'deny' // 根在答复前经 agent_update 把该键收严
+    await bus.reply({ requestId: req.id, reply: 'always' }, 'user0')
+    await assert.rejects(execution, (e: unknown) => (e as { kind?: string }).kind === 'access_rejected')
+    assert.deepEqual(bus.listApprovals(), [], 'deny 复核的拒绝不得留下 always 豁免备忘')
+  })
+
   test('族谱无判定 → 落 defaultAccess（internal ignore 放行 / 缺省 ask）', async () => {
     const { bus, asked } = makeBus()
     await bus.assert({ accessKey: 'agent_list', agentId: 'a1', defaultAccess: 'ignore' })

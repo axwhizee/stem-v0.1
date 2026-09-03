@@ -15,7 +15,7 @@
 
 | 类型 | 卷 | 义务 |
 |---|---|---|
-| **实况卷** | AGENTS.md · docs/architecture.md · docs/api.md · docs/dev-guide.md · docs/llm-playbook.md · 本卷 · README | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
+| **实况卷** | AGENTS.md · docs/architecture.md · docs/api.md · docs/dev-guide.md · 本卷 · README | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
 | **历史卷** | docs/log.md · prompts.md（plan 卷如 brain-plan/test-plan 落地即随批退役，沿革由 log 承载） | 承载"当时发生了什么/定了什么"。**只追加不回改**（偏差记 log，plan 卷是执行依据非实况） |
 
 **plan 卷生命周期**（用户裁决）：阶段计划卷（`*-plan.md`）是实施期的执行依据；
@@ -93,7 +93,9 @@
 - `ToolKind = internal | extension | custom`；`ToolAccess = allow | ask | deny | ignore`；类 `tools` Record **键即白名单=自我限定**，`{}` = 本地封闭，**未设（undefined）= 完整继承父生效档案**（internal `assistant` 占位类即此形）。
 - 改 `ToolKind`/工具 shape/`AgentClass.tools`/`ToolContext` 时全量对拍：`src/core/tools/`、`extension/tools/`、`DEFAULT_USER_TOOLS`、系统工具 schema、族谱台账、webui/dashboard 展示面。
 - 权限与模型**一律走族谱树门面**（attach/detach/replay + effectiveAccess/modelOf/canReach）；禁止 kernel/tools 再拼第二套判定链（AccessLedger 是内部实现，禁止直连）。
-- `grant` 是系统特权通道：`InstantiateOptions.accessMode` 不得出现在任何模型工具参数里。
+- 严格度**总序** `deny ≺ ask ≺ allow ≺ ignore`（按监督度：ignore=看不见的执行最宽）：一切权限书写面（类文件 update / 实例 agent_update / 台账物化）同一把尺，只许顺链收缩；藏匿（allow→ignore）判扩张被拒。
+- `grant` = 清单形整表替换 + 逐键祖先显式**封顶**（无扩张面）：`InstantiateOptions.accessMode` 仍为策略/宿主专用；模型侧清单便利走 `agent_update.grantTools`（受限语义使其安全等价于逐键填表）。
+- 运行期实例参数写面唯一 = `kernel.updateAgent`（agent_update 工具 / pilot 共用；改后全树 replay），禁止新增散点 setter。
 - ask 是消息交换不是系统通道：改审批流程 = 改 `<access_request>` 消息形状，考虑根信箱可读性（实参披露是待裁决项，见 log）。
 
 ## 6. 测试规范

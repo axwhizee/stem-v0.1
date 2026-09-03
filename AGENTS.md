@@ -12,7 +12,7 @@
 
 1. **全体 agent 绝对平等**：user0 是内置 `user` 类的普通实例（`parentId=null` 即根），无任何权限/身份特判（根可见性 = 树结构天然全视，审批权 = `access_reply` 答复义务，皆结构性事实）。根唯一独有的是**面板性**：经 kernel 根接线 `assemble:false`（不组装不跑 LLM 轮，信件由扮演它的外部 shell 消费）——"扮演接口"的身份而非特权。一切差异仅由类/实例配置与族谱收敛产生。
 2. **机制大于判断**：能靠既有机制表达的需求不新增组件。ask 审批是**消息交换**（`access_request` → 根信箱 → `access_reply`），不是系统耦合通道；上下文删除 = `markInvalid` + 组装时 `legalize`。
-3. **权限与模型收敛走族谱树**：生效权限 = **族谱位置的函数**（注册期 attach/replay 物化，内部 AccessLedger；跨 agent 操作统一树谓词 `canReach`；tools 经 `AccessResolver` 端口查询，kernel 无编排）。**键即白名单=自我限定**（未列=本地 deny；祖先**显式** deny/ask 锁子孙，`deny≺ask≺allow/ignore` 不可撤销；类 tools 未设 = 完整继承父档案，空表 = 本地封闭）；`grant` = 系统机制特权（模型工具路径不可达）；session always = ask 免询问备忘（非权限层）。**模型同门面，四级律**：显式（实例行）> 类基因 > 出生快照 > 父继承 > 家学（config.user.model 必填锚点；setModel 不级联子女，快照随实例行跨重启）。
+3. **权限与模型收敛走族谱树**：生效权限 = **族谱位置的函数**（注册期 attach/replay 物化，内部 AccessLedger；跨 agent 操作统一树谓词 `canReach`；tools 经 `AccessResolver` 端口查询，kernel 无编排）。**键即白名单=自我限定**（未列=本地 deny；祖先**显式**判定锁子孙，严格度**总序** `deny≺ask≺allow≺ignore` 只许顺链收缩——藏匿/放宽皆扩张被拒；类 tools 未设 = 完整继承父档案，空表 = 本地封闭）；`grant` = 清单形整表替换（给定即全部能力、未列一律 deny、逐键经祖先显式**封顶**——无扩张面，模型侧经 agent_update.grantTools 可达，系统侧 spawn/宿主专用）；session always = ask 免询问备忘（非权限层，deny 在途复核压死）。**模型同门面，四级律**：显式（实例行）> 类基因 > 出生快照 > 父继承 > 家学（config.user.model 必填锚点；setModel 不级联子女，快照随实例行跨重启）。
 4. **模块自治**：初始化/装配在 core（`createStemSystem` 组合根，平台能力经接口注入）；shell 只做平台适配 + UI；外部与 core 的一切交互经模块接口（pilot = user0 扮演接口）。
 5. **少即是多**：工具生命周期（`init`）扩展优先于新建子系统；internal 工具列表不固化、随开发增长。
 6. **架构分层**：`shell`（交互层，最外）→ `core`（agents 生态 + 系统工具 + bash = 最小系统）→ `extension`（矩阵扩展层：tools/agent/context 目录形态资源）。
@@ -62,7 +62,7 @@ test/                      # 测试工作区：support/（kernelHarness/mockSse 
                            #   + space-demo/（演示空间）+ space-v10/（验收现场）
 docs/                      # 实况卷 architecture.md（机制详情以此为准）/ api.md（接口清单）/
                            #   dev-guide.md（扩展食谱）/ contributor.md（工程纪律）/
-                           #   llm-playbook.md（LLM 实测反馈+提示词指南）/ scenarios.md（目标场景）
+                           #   scenarios.md（目标场景）
                            #   历史卷 log.md（日志）/ prompts.md（需求，不提交）；plan 卷落地即退役
 ```
 
@@ -78,6 +78,7 @@ docs/                      # 实况卷 architecture.md（机制详情以此为�
 - **持久化**：个体层 SQLite write-through（消息/实例/空间）；类/策略/工具 = 文件真相不进 DB；一空间一库一进程，`stem [path]`>env>cwd 定位；重启 = 装载+归一化+replay+零重放。→ arch 4.15
 - **配置**：`.stem/stem.jsonc` 唯一载体（providers.key_env 永不承载明文密钥；user = user0 完整类对象含家学 model 锚点；R12 未知顶层键 fail-fast；目录即真相、config 永不回写）。→ arch 4.12
 - **进化闭环（人启动）**：agent_class_create/update（同名覆盖、tools 只许收敛、落盘 `.stem/agent/`、只影响后续实例、panel/user 类拒绝）+ telemetry_query（可见域日志）+ 重启新实例携带新基因。→ arch 4.6；待实施生理层 = brain-plan
+- **实例参数唯一写面**：`agent_update`（缺省目标=自身，canReach）= model / displayName / tools 收敛 patch / grantTools 清单整表（两形式互斥）；写实例行 → 族谱全树 replay（收缩沿链下传、改父不动子靠快照）。类定义/拓扑/策略/提示词永不入此通道。→ arch 2.2/4.3/4.4
 - **事件流**：PilotEvent（stream/letter/status/notice）经 EventHub 多订阅者，shell/webui 统一订阅。→ arch 2.4
 
 ## 测试与提交（全文 = contributor §6/§7）

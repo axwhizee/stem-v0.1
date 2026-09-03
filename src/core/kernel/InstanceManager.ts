@@ -57,12 +57,12 @@ export interface InstanceManager {
   /** 轮末账目（turnCount/totalCost 的唯一累加通道——经装饰器即写穿落行，
    *  杜绝「引用直改不落库」的记账滞后；Runtime 每轮收尾调用一次）。 */
   readonly recordTurnEnd: (agentId: AgentID, stats: { readonly turns: number; readonly cost: number }) => Promise<void>
-  readonly takeover: (agentId: AgentID, patch: Partial<AgentInstancePatch>) => Promise<void>
   /**
-   * 运行改写模型显式层（S6/R14 set_model 通道）：实例行 model 就地更新
-   * （写穿装饰器负责落盘）；族谱树重绑由 kernel 编排。
+   * 运行期实例参数更新（agent config 统一通道的行写半段，取代原
+   * takeover/setModel 散点）：只写提及字段（displayName / toolOverride /
+   * model 显式层），写穿装饰器负责落行——族谱重算由 kernel.updateAgent 编排。
    */
-  readonly setModel: (agentId: AgentID, model: ModelRef) => Promise<void>
+  readonly update: (agentId: AgentID, patch: Partial<AgentInstancePatch>) => Promise<void>
   /**
    * 写出生快照（kernel attach 后调用；仅落在父继承/家学层的实例）：
    * 族规"改父不动子"的持久载体（S6 §5/R14），replay 时优先于父现值。
@@ -181,15 +181,18 @@ export class DefaultInstanceManager implements InstanceManager {
     instance.totalCost += stats.cost
   }
 
-  async takeover(agentId: AgentID, patch: Partial<AgentInstancePatch>): Promise<void> {
+  async update(agentId: AgentID, patch: Partial<AgentInstancePatch>): Promise<void> {
     const instance = await this.get(agentId)
-    if (patch.displayName !== undefined) instance.displayName = patch.displayName
-  }
-
-  async setModel(agentId: AgentID, model: ModelRef): Promise<void> {
-    const instance = await this.get(agentId)
-    // 就地改写（对象引用被 Runtime/装饰器共享，替换对象会使旧引用脱钩）。
-    ;(instance as { model?: ModelRef }).model = model
+    // 就地改写（对象引用被 Runtime/装饰器共享，替换对象会使旧引用脱钩）；
+    // readonly 是对外面契约，本方法是 kernel 授权后的唯一行写出口。
+    const mutable = instance as {
+      displayName?: string
+      toolOverride?: Readonly<Record<string, ToolAccess>>
+      model?: ModelRef
+    }
+    if (patch.displayName !== undefined) mutable.displayName = patch.displayName
+    if (patch.toolOverride !== undefined) mutable.toolOverride = patch.toolOverride
+    if (patch.model !== undefined) mutable.model = patch.model
   }
 
   async setModelSnapshot(agentId: AgentID, snapshot: ModelBinding): Promise<void> {

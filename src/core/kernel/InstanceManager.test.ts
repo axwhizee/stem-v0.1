@@ -84,13 +84,13 @@ describe('DefaultInstanceManager', () => {
     )
   })
 
-  test('updateStatus / takeover', async () => {
+  test('updateStatus / update', async () => {
     const { manager, spaceId } = await makeManager()
     const a = await manager.instantiate({ className: cls.name, parentId: makeAgentID('user0'), userPrompt: 'hi', spaceId })
     await manager.updateStatus(a.id, 'thinking')
     assert.equal((await manager.get(a.id)).status, 'thinking')
 
-    await manager.takeover(a.id, { displayName: '改名后' })
+    await manager.update(a.id, { displayName: '改名后' })
     assert.equal((await manager.get(a.id)).displayName, '改名后')
   })
 })

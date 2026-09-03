@@ -61,12 +61,12 @@
 
 - **`ignore`（internal 默认隐藏）**：`kind=internal` 的 core 系统工具默认 `ignore`，除非清单显式声明；隐藏是可见性控制，越权由 `deny` 负责。
 - **能力物化（算法 = `lineage/AccessLedger.ts`（树内部实现），S2′）**：生效权限 = 族谱位置的函数，注册两步物化为标准形 `{explicit, fallback}`：
-  - **减法（converge，默认）**：自身清单（类 tools + 实例 toolOverride）逐键与父档案显式判定取严（`restrictAccess`，`deny≺ask≺{allow,ignore}`，同级自身值优先）；清单已定义则 `fallback:'deny'`（**键即白名单**：自我限定，未列 = 本地 deny）；清单 undefined = 完整继承父档案（含父封闭）。**祖先匿名封闭不下传**（父 `{read}` 不锁死子新申请 `{write}`），但**祖先显式 deny/ask 锁死全体后代**（缺席≠否决，显式判定才生效）。
-  - **加法（grant，系统通道专用）**：整表替换（免除逐个填 deny），未列一律 deny；指定键仍受祖先链**显式 deny 铁律**鉴权（deny 不可被 grant 豁免）。仅策略 spawn / pilot 初始化可达，`agent_instantiate` 工具路径不可设——模型永远只能收敛。
+  - **减法（converge，默认）**：自身清单（类 tools + 实例 toolOverride）逐键与父档案显式判定取严（`restrictAccess`，**严格度总序 deny ≺ ask ≺ allow ≺ ignore**——单链无同级，按监督度排：ignore 是看不见的执行 = 最宽，allow 清单可审；藏匿祖先 allow 与放宽同判扩张被拒）；清单已定义则 `fallback:'deny'`（**键即白名单**：自我限定，未列 = 本地 deny）；清单 undefined = 完整继承父档案（含父封闭）。**祖先匿名封闭不下传**（父 `{read}` 不锁死子新申请 `{write}`），但**祖先显式 deny/ask 锁死全体后代**（缺席≠否决，显式判定才生效）。
+  - **加法（grant，清单形整表替换）**：给出的清单 = 全部能力面（免除逐个填 deny，未列一律 deny）；指定键逐键以直接父摊平显式判定**封顶取严**——ask 洗不成 allow，deny 铁律是封顶的最严特例；祖先匿名本地封闭不受追及（与减法"不下传"对称）。承载两处：策略 spawn / pilot 初始化（`InstantiateOptions.accessMode`，模型工具路径不可设）与 **`agent_update.grantTools`**（模型侧清单便利——受限语义使"盖过祖先"不再有扩张面，安全等价于逐键填表）。
   - 查询 `effectiveAccess(agentId,key) = explicit[key] ?? fallback ?? undefined`（undefined → tools 落默认：internal ignore / 其余 ask）。注册 attach / 销毁 detach / 重启按族谱拓扑序 replay 重放，不入库（纯派生态）。
 - **查询反转（解耦）**：`tools` 侧只认注入端口 `AccessResolver`（`materialize`/`execute` 经它向台账查询，**不再随身传 accessLayers**，`ToolContext` 瘦身为 `{agentId,spaceId}`）；`lineage→tools` 仅共享四态纯代数 `restrictAccess`（type-only + 无状态，tools 绝不 import lineage）。`config.user.tools` = user0 根类清单（族谱首层）。
 - **可见域（S5.1）**：`canReach(viewer, target)` = 自身 ∨ viewer 是 target 祖先（根天然全视）——`context_*`、`telemetry_query`、中断/销毁权的跨 agent 操作面统一收敛到这一个树谓词；kernel 不再持独立台账字段（编排下沉树，kernel 只接线）。
-- **全参数统一解析律（S6/R6）**：模型与权限同门面——生效模型 = **显式（实例行 model）> 类基因（AgentClass.model）> 父继承 > 家学（根 user 类 = config.user.model，全链锚点）**，attach 期与权限同批物化为 `ModelBinding{ref, origin}`（origin 四态 git-blame 语义：home 值随链下传不改标）；`setModel` 重绑自身为 explicit、**不级联**子女（族规 = 出生快照，快照随实例行 `modelSnapshot` 持久、跨重启有效）；Runtime 经 `resolveModel` 端口取本轮快照（改模型 = 下轮送信自然生效）；工具面 `agent_set_model`（internal 缺省 ignore、授权 canReach、审计 `kernel.model.set`）与 `pilot.setModel` 同权——**无第二通道**。
+- **全参数统一解析律（S6/R6）**：模型与权限同门面——生效模型 = **显式（实例行 model）> 类基因（AgentClass.model）> 父继承 > 家学（根 user 类 = config.user.model，全链锚点）**，attach 期与权限同批物化为 `ModelBinding{ref, origin}`（origin 四态 git-blame 语义：home 值随链下传不改标）；改父**不级联**子女（族规 = 出生快照保护：快照随实例行 `modelSnapshot` 持久，replay 重解析时优先于父现值，跨重启/跨重放有效）；Runtime 经 `resolveModel` 端口取本轮快照（改模型 = 下轮送信自然生效）；**运行期改写唯一通道 = `kernel.updateAgent`**（agent_update 工具与 pilot.setModel 薄壳共用入口；写实例行 → 族谱全树 replay 重物化，树无 setModel 直改口；审计 `kernel.model.set` + `kernel.instance.updated`）。
 - **ask 消息化（扁平化）**：命中 ask 时 `core/tools/accessRequest.ts`（`AccessAskBus`）把申请投递到**申请者族谱根信箱**（`<access_request>` 消息，机制同向模型发消息）并挂起；根经 `access_reply` 回复（once/always/reject+feedback）。**无 agent 特判**——user0 的 ask 发给自己，由扮演它的 shell 经 pilot 确认。
 - **session 豁免备忘（S2′ 修正语义）**：`always` 批准 = 该 `(agentId,accessKey)` 后续 **ask 免询问**（静默放行），仅当前实例生效、不传播后代；它是 ask 环节的备忘，**不是权限层**（不参与单调收敛，绝不豁免 deny/ignore）。旧实现把 allow 规则混进分层取严 → always 压不住重复弹窗，且跨 agent 泄漏。
 
@@ -148,12 +148,13 @@
 
 - 实例化必填：`className` + `userPrompt`（字符串，根可为空串）+ `parentId`（根为 null）；父必须已存在（根除外）；`agentId` 可选（默认随机 4 位，冲突报错）。
 - `parentId` 即创建者；根（parentId=null）无祖先 → 天然不可销毁。
+- **运行期实例写面唯一化**：`update(agentId, patch: AgentInstancePatch{displayName?, toolOverride?, model?})` 取代原 takeover/setModel 散点（写穿装饰器落行——三个字段全随实例行 JSON 持久，零 schema 迁移，重启 replay 天然承接）；授权/校验/族谱重算/审计编排在 `kernel.updateAgent`。
 
 ### 4.4 LineageTree（`core/lineage/`，族谱树：拓扑 + 能力物化 + 可见域门面）
 
 - 事实源（manager 持有 parentId）+ 查询视图（实时推导）；`getInstance`/`getAllInstances` 由组合根注入。
 - **唯一权限变更/查询面**（S5.1 门面合一）：`attach/detach/replay + effectiveAccess/profileOf`（语义见 2.2，`AccessLedger.ts` 降为内部实现、算法与语义矩阵测试随迁零改动）；销毁/中断权与上下文/观测面操作权统一为 `canReach` 谓词；`lineage→tools` 仅共享 `restrictAccess` 纯代数。
-- **模型配置相**（S6/R6/R14）：attach 输入 = kernel 算好的原始层 `{instanceModel（实例行显式）, classModel（类基因）, snapshot（出生快照）}`，按**显式 > 类基因 > 出生快照 > 父继承 > 家学**物化 `ModelBinding{ref, origin}`（home 值随链下传不改标，git-blame 语义）；`modelOf/setModel（重绑自身为 explicit，**不级联**已出生子女）/nodeConfigOf（access+model 整像，agent_inspect 出示）`；replay 与权限相同拓拓扑序。持久边界：显式层随实例行 `model`、快照随行 `modelSnapshot`（行 JSON 零迁移）——族规"改父不动子"跨重启不失效。
+- **模型配置相**（S6/R6/R14）：attach 输入 = kernel 算好的原始层 `{instanceModel（实例行显式）, classModel（类基因）, snapshot（出生快照）}`，按**显式 > 类基因 > 出生快照 > 父继承 > 家学**物化 `ModelBinding{ref, origin}`（home 值随链下传不改标，git-blame 语义）；`modelOf/nodeConfigOf`（access+model 整像，agent_inspect 出示）——**模型与权限均无直改口**（重构裁决）：运行期变更 = kernel 写实例行后 `replayLineage()` 全树重放（启动恢复与更新共用该单点；权限收缩沿链下传自动重算，"改父不动子"由快照层数据结构天然保证，replay 幂等）。持久边界：显式层随实例行 `model`、快照随行 `modelSnapshot`（行 JSON 零迁移）——族规"改父不动子"跨重启不失效。
 
 ### 4.5 ToolCapabilityRegistry（`core/tools/`）
 
@@ -175,13 +176,14 @@
 | `telemetry_query` | 运行日志观测（进化闭环"观测"翼）：可见域 = 自身 + 族谱后代（canReach）；行式压缩 + 类型前缀通配 + 时间窗 + limit 截尾 |
 | `agent_instantiate` / `agent_list` / `agent_inspect` | 创建实例（父=调用者）/ 列出 / 详情 |
 | `agent_ancestry` / `agent_descendants` / `agent_terminate` | 祖先链 / 后代 / 终止（销毁权 + recursive） |
+| `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：model / displayName / tools 收敛 patch（总序拒扩张）/ grantTools 清单整表（逐键封顶）——吸收原 agent_set_model；审计双事件 |
 | `bus_send` / `bus_participants` | 发消息 / 参与者列表 |
 | `context_wait` | 等待指定 agent 回复（其回复作为 tool 结果填充） |
 | `context_export` / `context_overview` / `context_remove` / `context_edit` | 导出 jsonl / 概览 / 删除过时消息（markInvalid）/ 重写消息（system 除外） |
 | `context_apply` | 执行上下文策略专有动作（如 classic compact；仅自身或祖先） |
 | `access_reply` | 批准/拒绝访问申请（once/always/reject；授权权=申请者的族谱根） |
 
-> 系统工具 `kind=internal` → 默认 `ignore`，示例模板在 `tools` 显式 `allow`。`DEFAULT_USER_TOOLS`（S5.2 起）含 `telemetry_query:'allow'`（观测）与 `agent_class_update:'ask'`（书写，与 create 同高危列）。
+> 系统工具 `kind=internal` → 默认 `ignore`，示例模板在 `tools` 显式 `allow`。`DEFAULT_USER_TOOLS` 含 `telemetry_query:'allow'`（观测）、`agent_class_update:'ask'`（类书写）与 **`agent_update:'ask'`**（实例参数改写，与类书写同高危列；原 agent_set_model 的 allow 档随吸收退役）。
 
 ### 4.7 extension 工具层：fs 五件套 + web 两件（`extension/tools/`，kind=extension）
 
@@ -203,6 +205,7 @@
 ### 4.9 工具访问确认（`core/tools/accessRequest.ts`，取代 AccessManager/PanelBus）
 
 - 生效访问经注入 `AccessResolver` 向族谱台账查询（无判定 → defaultAccess：internal ignore / 其余 ask）；`assert`（allow/ignore 通过 / deny 抛错 / ask 投递申请到根信箱并挂起）+ `reply(input, by)`（根授权校验 once/always/reject）。
+- **在途复核（总序防御）**：reply once/always 落地前重查该键现生效值——挂起期间被 `agent_update` 收敛为 deny 的，迟到的批准被铁律压死（reject 回文本带因，不写 always 备忘；复用 resolvePort，零新依赖）。
 - **无元 agent 短路**：user0 也是普通 agent，其 ask 发给自己，由扮演它的 shell 经 pilot 确认（`replyAccess`）。
 - **session 豁免备忘**：always = 该 `(agent,accessKey)` 免询问放行（仅本实例；非权限层，不破 deny/ignore）——见 2.2。
 - `autoApprove`（config）时 ask 直接放行（deny 仍拒绝）。

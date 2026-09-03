@@ -99,10 +99,10 @@ export interface LineageTree {
   /** 生效模型（解析链四级律的物化结果；未绑定/无锚 = undefined）。 */
   readonly modelOf: (agentId: string) => ModelBinding | undefined
   /**
-   * 运行时换模型（set_model 通道）：本节点重绑为 explicit 并记录输入
-   * （replay 可完整重建）；**不级联**——已物化的子女出生快照不动。
+   * 运行期模型显式层重绑**不设直改口**（重构裁决）：唯一通道 =
+   * kernel.updateAgent 写实例行后 replay 全树重解析——子女出生快照层
+   * 优先于父现值，"不级联"由数据结构天然保证，无需特判逻辑。
    */
-  readonly setModel: (agentId: string, ref: ModelRef) => void
   /** 节点配置整像（权限 + 模型；未绑定 = undefined）。 */
   readonly nodeConfigOf: (agentId: string) => NodeConfig | undefined
 
@@ -243,14 +243,6 @@ export class DefaultLineageTree implements LineageTree {
 
   modelOf(agentId: string): ModelBinding | undefined {
     return this.modelBindings.get(agentId)
-  }
-
-  setModel(agentId: string, ref: ModelRef): void {
-    const record = this.modelInputs.get(agentId)
-    if (record === undefined) return // 未绑定节点（kernel 通道保证不发生；防御性 no-op）
-    this.modelInputs.set(agentId, { ...record, input: { ...record.input, instanceModel: ref } })
-    // 只重绑自身：子女出生快照不动（R6"族规=出生快照"，setModel 不级联）。
-    this.modelBindings.set(agentId, { ref, origin: 'explicit' })
   }
 
   nodeConfigOf(agentId: string): NodeConfig | undefined {

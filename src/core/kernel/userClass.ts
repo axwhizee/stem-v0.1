@@ -50,7 +50,7 @@ export const DEFAULT_USER_TOOLS: Readonly<Record<string, ToolAccess>> = {
   agent_class_list: 'allow',
   // 运行时模型面（S6/R7）：根经本表自改/代查改后代（可见域 = 根天然全视；
   // 家学锚点本体 config.user.model 只可经配置文件改，工具面改的是实例显式层）。
-  agent_set_model: 'allow',
+  agent_update: 'ask',
   bus_send: 'allow',
   bus_participants: 'allow',
   // 观察面：运行日志查询（telemetry；纯查询无副作用，可见域=树位置函数）。

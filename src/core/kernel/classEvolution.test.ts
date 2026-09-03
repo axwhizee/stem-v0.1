@@ -9,7 +9,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../gateway'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
-import { checkToolsConvergence } from './systemTools'
+import { checkToolsConvergence } from '../tools'
 import { USER_ID } from './Kernel'
 import { makeAgentClassID, makeAgentID, type AgentClass } from './types'
 
@@ -155,7 +155,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     const before = store.saved.length
     const result = await updateViaTool(tools, { name: 'gated', tools: { bash: 'allow' }, systemPrompt: 'sneak' })
     assert.match(result.text, /只能收敛/)
-    assert.match(result.text, /bash: ask → allow（扩张被拒）/)
+    assert.match(result.text, /bash: ask → allow（扩张被拒，只许收敛）/)
     assert.equal(store.saved.length, before, '违规 → 零落盘')
     assert.equal(kernel.templates.getSync(makeAgentClassID('gated'))!.systemPrompt, 'p', '违规 → 零注册表变更（整单原子拒绝）')
   })

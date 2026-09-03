@@ -34,9 +34,23 @@ import type { Logger } from '../logging'
 import { forget, InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
 import type { AccessAskBus, AccessResolver, ToolAccess } from '../tools'
-import { DefaultAccessAskBus, formatAccessRequest } from '../tools'
+import { DefaultAccessAskBus, formatAccessRequest, checkToolsConvergence } from '../tools'
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
+
+/** agent_update 统一通道入参（tools 两形式互斥；语义见 updateAgent）。 */
+export interface AgentUpdateSpec {
+  readonly agentId: string
+  /** 发起者；缺省 = 跳过可见域判定（pilot 信任通道）。 */
+  readonly by?: string
+  readonly displayName?: string
+  readonly model?: ModelRef
+  /** 收敛 patch：提及键合并，逐键对现自身清单只许收敛。 */
+  readonly toolsPatch?: Readonly<Record<string, ToolAccess>>
+  /** 清单形整表替换：未列一律 deny，逐键经祖先显式封顶。与 toolsPatch 互斥。 */
+  readonly toolsGrant?: Readonly<Record<string, ToolAccess>>
+}
+
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import assistantTemplate from './builtin/Assistant.json'
 import { DefaultTemplateRegistry } from './TemplateRegistry'
@@ -54,7 +68,7 @@ import type { LineageTree } from '../lineage'
 import { createSystemTools } from './systemTools'
 import { createUserClass, USER_CLASS_ID } from './userClass'
 import type { UserClassConfig } from './userClass'
-import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentSpaceID, ProjectRef } from './types'
+import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, ProjectRef } from './types'
 import { makeAgentClassID, makeAgentID } from './types'
 
 /**
@@ -288,21 +302,7 @@ export class Kernel {
    * 根（parentId=null，即 user0）沿用 registerRootAgent 的面板接线（assemble:false + letter 事件）。
    */
   private wireRestoredInstances(): void {
-    // 能力相重放（族谱拓扑序，纯派生态不入库；S6 模型相随行——
-    // 实例行 model = 显式层载体（R14），类基因从模板注册表重新解析）。
-    this.lineage.replay(
-      this.restoredInstances.map((instance) => ({
-        agentId: instance.id as string,
-        parentId: instance.parentId as string | null,
-        own: this.ownAccessOf(instance.id),
-        model: {
-          instanceModel: instance.model,
-          classModel: this.templates.getSync(instance.classRef)?.model,
-          // 出生快照随行恢复（族规跨重启，S6 §5）；无快照的旧行 = 直接按链再解析。
-          ...(instance.modelSnapshot !== undefined ? { snapshot: instance.modelSnapshot } : {}),
-        },
-      })),
-    )
+    this.replayLineage()
     for (const instance of this.restoredInstances) {
       const template = this.templates.getSync(instance.classRef)
       const isRoot = instance.parentId === null
@@ -324,6 +324,29 @@ export class Kernel {
         ...(isRoot ? {} : { onHold: (id: string) => forget(this.runtime.notifyHold(makeAgentID(id)), 'kernel:notifyHold', (event) => this.emitLog(event)) }),
       }), 'kernel:registerContext', (event) => this.emitLog(event))
     }
+  }
+
+  /**
+   * 族谱全树重放（能力相物化的唯一重算入口，两条链路共用）：
+   * entries 由实例行 + 类档案现值派生（own = 类 tools ∪ toolOverride，
+   * model 原始层含出生快照）——启动恢复与运行期 agent_update 之后都走
+   * 这里：权限收缩沿链下传自动重算，模型显式层重解析、子女快照层稳定
+   * （"不级联"由数据结构保证，无特判逻辑）。纯派生态 = 重放幂等。
+   */
+  private replayLineage(): void {
+    this.lineage.replay(
+      this.instances.listAllSync().map((instance) => ({
+        agentId: instance.id as string,
+        parentId: instance.parentId as string | null,
+        own: this.ownAccessOf(instance.id),
+        model: {
+          instanceModel: instance.model,
+          classModel: this.templates.getSync(instance.classRef)?.model,
+          // 出生快照随行优先（族规跨重启/跨重放，S6 §5）；无快照 = 按链再解析。
+          ...(instance.modelSnapshot !== undefined ? { snapshot: instance.modelSnapshot } : {}),
+        },
+      })),
+    )
   }
 
   /** 某 agent 的自身清单（类 tools 与实例 toolOverride 合并；台账 bind 的输入，undefined = 不设限）。 */
@@ -363,7 +386,7 @@ export class Kernel {
       classId: instance.classRef,
       parentId: '',
     })
-    if (displayName !== instance.displayName) await this.instances.takeover(makeAgentID(USER_ID), { displayName })
+    if (displayName !== instance.displayName) await this.instances.update(makeAgentID(USER_ID), { displayName })
     await this.contextManager.register({
       agentId: USER_ID,
       systemPrompt: template.systemPrompt,
@@ -573,21 +596,78 @@ export class Kernel {
   }
 
   /**
-   * 运行改写模型（S6/R7/R14；agent_set_model 工具与 pilot 通道共用入口）。
-   * 顺序 = 实例行（持久载体，写穿落库）→ 树配置相（重绑 explicit）。
-   * **不级联**：已物化的子女出生快照不动（R6 族规）；新子女随新档案。
-   * 授权（canReach）由调用方工具/pilot 层负责，本方法不做可见域判定。
+   * 实例参数统一更新（agent config 面的唯一运行期写通道——
+   * agent_update 工具与 pilot 通道共用；合并吸收原 set_model 散点）。
+   *
+   * 顺序 = 可见域鉴权 → 总序校验（toolsPatch 对现自身清单只许收敛，扩张
+   * 逐键拒绝）→ 实例行写（写穿持久）→ **族谱全树 replay**（收缩沿链下传
+   * 自动重算；模型不级联由子女出生快照层天然保证）。
+   * by 缺省 = 跳过可见域判定（信任调用方——pilot 宿主通道语义）。
+   */
+  async updateAgent(spec: AgentUpdateSpec): Promise<void> {
+    const id = makeAgentID(spec.agentId)
+    if (spec.by !== undefined && !this.lineage.canReach(makeAgentID(spec.by), id)) {
+      throw { kind: 'agent_update_denied', agentId: spec.agentId, by: spec.by }
+    }
+    const instance = this.instances.getSync(id)
+    if (!instance) throw { kind: 'agent_not_found', agentId: spec.agentId }
+    const fields: string[] = []
+    const patch: AgentInstancePatch = {}
+    if (spec.toolsPatch !== undefined) {
+      // 收敛 patch：对目标**当前生效显式面**（链摊平 + 自身值）逐键总序校验。
+      const surface = this.lineage.profileOf(spec.agentId)?.explicit ?? {}
+      const violations = checkToolsConvergence(surface, spec.toolsPatch)
+      if (violations.length > 0) {
+        throw { kind: 'agent_update_expanded', agentId: spec.agentId, violations }
+      }
+      // 合并写 override = 生效显式面全量 + patch——若以"类 ∪ 现 override"为基线，
+      // 继承形实例（类无表）首更时父档案里的键会被静默挤出（own 跳变封闭面
+      // + fallback deny = 能力清零悬崖）；以显式摊平面为基线则更新只动提及键。
+      patch.toolOverride = { ...surface, ...spec.toolsPatch }
+      fields.push('tools')
+    } else if (spec.toolsGrant !== undefined) {
+      // 清单形整表替换（受限 grant）：未列一律 deny；逐键封顶由台账物化保证。
+      patch.toolOverride = spec.toolsGrant
+      fields.push('toolsGrant')
+    }
+    if (spec.model !== undefined) {
+      patch.model = spec.model
+      fields.push('model')
+    }
+    if (spec.displayName !== undefined) {
+      patch.displayName = spec.displayName
+      fields.push('displayName')
+    }
+    if (fields.length === 0) return
+    await this.instances.update(id, patch)
+    this.replayLineage()
+    if (spec.model !== undefined) {
+      this.emitLog({
+        type: 'kernel.model.set',
+        at: Date.now(),
+        agentId: spec.agentId,
+        provider: spec.model.provider,
+        model: spec.model.id,
+        by: spec.by ?? 'pilot',
+      })
+    }
+    this.emitLog({
+      type: 'kernel.instance.updated',
+      at: Date.now(),
+      agentId: spec.agentId,
+      by: spec.by ?? 'pilot',
+      fields,
+    })
+  }
+
+  /**
+   * 运行改写模型薄壳（pilot/宿主通道）：委托 updateAgent 统一通道。
+   * 不传 by = 跳过可见域判定（历史契约：授权由调用层负责）。
    */
   async setAgentModel(agentId: string, model: ModelRef, opts?: { by?: string }): Promise<void> {
-    const id = makeAgentID(agentId)
-    await this.instances.setModel(id, model)
-    this.lineage.setModel(agentId, model)
-    this.emitLog({
-      type: 'kernel.model.set',
-      at: Date.now(),
+    await this.updateAgent({
       agentId,
-      provider: model.provider,
-      model: model.id,
+      model,
       ...(opts?.by !== undefined ? { by: opts.by } : {}),
     })
   }

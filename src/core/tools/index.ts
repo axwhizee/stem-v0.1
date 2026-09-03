@@ -30,7 +30,7 @@ export type {
 
 export { validateArgs } from './validate'
 
-export { restrictAccess } from './access'
+export { restrictAccess, accessRank, checkToolsConvergence } from './access'
 
 export type { ShellRunOptions, ShellRunResult, ShellRunner, BashToolSettings } from './bash'
 export { createBashTool, formatShellOutput, BASH_DEFAULTS } from './bash'

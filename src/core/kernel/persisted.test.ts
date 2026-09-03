@@ -29,13 +29,13 @@ function rowOf(store: MemoryInstanceStore, id: string): AgentInstance | undefine
 }
 
 describe('PersistedInstanceManager write-through', () => {
-  test('instantiate / updateStatus / takeover 全字段快照落行', async () => {
+  test('instantiate / updateStatus / update 全字段快照落行', async () => {
     const { manager, store } = makePersisted()
     const created = await manager.instantiate({
       className: cls.name, parentId: null, userPrompt: '', spaceId: makeAgentSpaceID('s'), agentId: 'a1',
     })
     await manager.updateStatus(created.id, 'thinking')
-    await manager.takeover(created.id, { displayName: 'renamed' })
+    await manager.update(created.id, { displayName: 'renamed' })
 
     const row = rowOf(store, 'a1')
     assert.equal(row?.status, 'thinking')

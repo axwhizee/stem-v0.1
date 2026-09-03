@@ -110,7 +110,7 @@ try {
   ok('internal 工具在场（bash/access_reply）', toolsAll.some((t) => t.id === 'bash') && toolsAll.some((t) => t.id === 'access_reply'))
   ok('extension 纯关（extensions.tools=[]）', !toolsAll.some((t) => t.id === 'read'))
   const mat = sys.tools.materialize('user0').map((d) => { const x = d as { name: string }; return x.name })
-  ok('族谱物化 user0 能力面', mat.includes('access_reply') && mat.includes('agent_class_create') && mat.includes('agent_set_model'), JSON.stringify(mat))
+  ok('族谱物化 user0 能力面', mat.includes('access_reply') && mat.includes('agent_class_create') && mat.includes('agent_update'), JSON.stringify(mat))
 
   // ---------- S2 端到端消息（pilot→子实例 → LLM 轮 → 回信信箱） ----------
   console.log('S2 端到端（user0 面板模型：发信给实例，实例跑轮，回信归位）')
