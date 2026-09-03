@@ -25,3 +25,5 @@ prompts.md
 test/space-demo/ref-tools/websearch.ts
 test/space-demo/ref-tools/deepsearch.ts
 test/space-v10/.artifacts/
+
+tmp/
