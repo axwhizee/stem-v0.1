@@ -28,10 +28,12 @@
 //      （deny = 不可豁免的铁律）；祖先的匿名兜底（其自身白名单未列键）
 //      是本地封闭，不锁死子女的新申请；
 //   3. 不设限（清单 undefined）= 完整继承父档案（含父的本地封闭与摊平判定）
-//      ——子能力面永不宽于父；同级（allow/ignore）自身值优先（可见性自决）；
-//   4. 加法入口 grant（系统机制专用特权，agent_instantiate 工具路径不可达）：
-//      整表替换——免除逐个填 deny 的麻烦，未列出键一律 deny；
-//      但指定键仍经祖先链**显式 deny** 鉴权（deny 是不可豁免的铁律）。
+//      ——子能力面永不宽于父。严格度总序 deny ≺ ask ≺ allow ≺ ignore
+//      （"同级自决"条款已废：藏匿祖先 allow 判为扩张，物化自动压回）。
+//   4. 加法入口 grant（清单形整表替换，受限语义）：免除逐个填 deny 的
+//      麻烦，未列出键一律 deny；指定键仍逐键经直接父（摊平）显式判定
+//      **封顶取严**——ask 洗不成 allow，deny 铁律是封顶的最严特例；
+//      祖先的匿名本地封闭不受 grant 追及（不下传原则一致）。
 //
 // 依赖：type-only + restrictAccess 纯函数（tools 四态代数），零运行时耦合；
 // 反向 tools 不 import 本模块（经 AccessResolver 端口消费，kernel 接线）。
@@ -124,11 +126,13 @@ function computeProfile(
   parentProfile: AccessProfile | undefined,
 ): AccessProfile {
   if (entry.mode === 'grant') {
-    // 加法：整表替换（覆盖祖先的 allow/ask/匿名封闭），未列出键一律 deny；
-    // 但指定键仍受祖先链显式 deny 铁律约束（deny 不可被 grant 豁免）。
+    // 受限清单形整表替换：未列一律 deny；逐键以直接父摊平显式判定封顶
+    // （总序取严——ask/deny 盖不过，deny 铁律即封顶最严特例；父匿名封闭
+    // 不在显式表上，不构成否决——与减法"匿名不下传"对称）。
     const explicit: Record<string, ToolAccess> = {}
     for (const [key, action] of Object.entries(entry.own ?? {})) {
-      explicit[key] = parentProfile?.explicit[key] === 'deny' ? 'deny' : action
+      const cap = parentProfile?.explicit[key]
+      explicit[key] = cap === undefined ? action : restrictAccess(action, cap)
     }
     return { explicit, fallback: 'deny' }
   }
@@ -145,8 +149,8 @@ function computeProfile(
   const explicit: Record<string, ToolAccess> = {}
   for (const [key, action] of Object.entries(entry.own)) {
     const inherited = parentProfile?.explicit[key]
-    // restrictAccess(a, b)：同级取 a —— 传 (自身, 祖先) 使自身值优先
-    //（allow/ignore 同级：可见性由本 agent 自决）。
+    // restrictAccess(a, b)：总序取严、无同级——传 (自身, 祖先) 即
+    // "自身永不超过祖先显式判定"（藏匿/放宽均被压回，收缩单向）。
     explicit[key] = inherited === undefined ? action : restrictAccess(action, inherited)
   }
   return { explicit, fallback: 'deny' }

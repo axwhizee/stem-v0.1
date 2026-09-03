@@ -8,20 +8,21 @@
 //         ask    暴露 + 执行时挂起（投递申请到族谱根信箱）
 //         deny   不暴露 + 拒绝（链上显式 deny = 不可豁免的铁律）
 //         ignore 不暴露（默认隐藏）+ 等同 allow（隐藏的 allow）
-//   偏序（单调收缩用）：deny ≺ ask ≺ {allow, ignore}。
-//   allow/ignore 同级（执行等价、可见性不同）——合并时同级由调用方
-//   决定归属（台账规则：自身值优先，可见性自决）。
+//   严格度**总序**（2026-09 裁决，取代旧偏序 {allow,ignore} 同级）：
+//   deny ≺ ask ≺ allow ≺ ignore——按"监督度"排：ignore = 看不见的执行，
+//   监督最弱 = 最宽；allow 暴露于清单可审；ask 有人审闸；deny 关闭。
+//   继承/更新/物化一律顺链只许向右收缩（藏匿祖先 allow 是扩张，禁止）。
 // ============================================================
 
 import type { ToolAccess } from './types'
 
 /**
- * 动作偏序下的严格度比较：deny < ask < {allow, ignore}。
- * ignore 与 allow 同级（ignore 是隐藏的 allow）。
+ * 严格度总序：deny(0) ≺ ask(1) ≺ allow(2) ≺ ignore(3)，值小 = 更严。
+ * ignore 最宽（隐藏但可执行、清单不可见）；allow→ignore 即扩张被拒。
  */
-const RANK: Readonly<Record<ToolAccess, number>> = { deny: 0, ask: 1, allow: 2, ignore: 2 }
+const RANK: Readonly<Record<ToolAccess, number>> = { deny: 0, ask: 1, allow: 2, ignore: 3 }
 
-/** 取更严格者（单调收缩：任何一环收紧，结果收紧；同级取第一个参数）。 */
+/** 取更严格者（单调收缩总序：任何一环收紧，结果收紧；无同级 tiebreak）。 */
 export function restrictAccess(a: ToolAccess, b: ToolAccess): ToolAccess {
   return RANK[a]! <= RANK[b]! ? a : b
 }

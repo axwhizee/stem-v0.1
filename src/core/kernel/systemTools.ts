@@ -180,9 +180,9 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
   }
 }
 
-/** 访问动作强弱序（deny ≺ ask ≺ allow/ignore 同级——与台账 restrictAccess 同一语义骨架）。 */
+/** 访问动作严格度总序（deny ≺ ask ≺ allow ≺ ignore——与台账 restrictAccess 同一语义骨架）。 */
 function accessRank(action: ToolAccess): number {
-  return action === 'deny' ? 0 : action === 'ask' ? 1 : 2
+  return action === 'deny' ? 0 : action === 'ask' ? 1 : action === 'allow' ? 2 : 3
 }
 
 /** 模型参数解析（S6/R6 严格式）：仅接受 `提供商/模型`，两段非空；非法 → undefined。 */
@@ -203,10 +203,10 @@ const MODEL_ORIGIN_LABELS: Record<ModelOrigin, string> = {
 }
 
 /**
- * 类清单收敛校验（S5.2，方案 D6"工具路径只允许收敛"）：
- * 逐键要求**序不升**（deny≺ask≺allow/ignore；同级互转放行 = 可见性自决，
- * 与台账"同级取自身值"同构——deny 不可撤销、ask 不得升为执行免询问均由
- * 本序自然覆盖，无需特判）；
+ * 类清单收敛校验（方案 D6"工具路径只允许收敛"，总序版）：
+ * 逐键要求**序不升**（deny ≺ ask ≺ allow ≺ ignore，单链无同级——
+ * 藏匿祖先 allow 改 ignore 判为扩张被拒，ignore→allow 曝光为收敛放行；
+ * deny 不可撤销、ask 不得升为执行免询问均由本序自然覆盖，无需特判）；
  * 新键放行（键即白名单 = 自我限定，实际能力仍由族谱台账收敛兜底，扩张不可达）。
  */
 export function checkToolsConvergence(

@@ -44,10 +44,10 @@ describe('checkToolsConvergence（纯校验矩阵：序不升 + deny 铁律）',
     c: 'deny',
     d: 'ignore',
   }
-  test('allow 收敛到 ask/deny/ignore 全放行（含同级可见性自决）', () => {
+  test('allow 收敛到 ask/deny 放行；改 ignore 藏匿判扩张被拒（总序）', () => {
     assert.deepEqual(checkToolsConvergence(cur, { a: 'ask' }), [])
     assert.deepEqual(checkToolsConvergence(cur, { a: 'deny' }), [])
-    assert.deepEqual(checkToolsConvergence(cur, { a: 'ignore' }), [])
+    assert.equal(checkToolsConvergence(cur, { a: 'ignore' }).length, 1, 'allow→ignore = 藏匿扩张，拒')
   })
   test('ask 不得升为 allow/ignore（不可移除人审闸），只可降 deny', () => {
     assert.equal(checkToolsConvergence(cur, { b: 'allow' }).length, 1)
@@ -59,7 +59,7 @@ describe('checkToolsConvergence（纯校验矩阵：序不升 + deny 铁律）',
       assert.equal(checkToolsConvergence(cur, { c: next }).length, 1, `deny→${next} 必须被拒`)
     }
   })
-  test('ignore 同级回 allow 放行（可见性自决），升不出更强执行面', () => {
+  test('ignore 最宽：升到 allow/ask/deny 皆收敛方向全放行（曝光/加闸/关闭）', () => {
     assert.deepEqual(checkToolsConvergence(cur, { d: 'allow' }), [])
     assert.equal(checkToolsConvergence(cur, { d: 'ask' }).length, 0, 'ignore→ask：执行面收敛（加人审闸）')
     assert.deepEqual(checkToolsConvergence(cur, { d: 'deny' }), [])
