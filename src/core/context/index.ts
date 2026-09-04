@@ -21,6 +21,9 @@ export type {
   ContextStrategyModule,
   StrategyAgentSpec,
   StrategyApi,
+  StrategyInitContext,
+  StrategyInitFs,
+  StrategyLogEvent,
   StrategyRegistry,
 } from './strategies'
 export {
@@ -29,6 +32,7 @@ export {
   createBuiltinStrategyRegistry,
   createClassicStrategy,
   createNoneStrategy,
+  createCortexStrategy,
   classicAssemble,
 } from './strategies'
 

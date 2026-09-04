@@ -20,7 +20,9 @@
 // ============================================================
 
 import type { ChatMessage, ModelRef } from '../../gateway'
-import type { ToolAccess } from '../../tools'
+import type { ToolAccess, ToolCapability } from '../../tools'
+import type { LogSink } from '../../logging'
+import type { ContextCompacted, ContextDreamed } from '../../logging/events'
 import type { AssembleInput, AssembleResult, StoredMessage } from '../types'
 
 /** 上下文策略配置（缺省在此；S3 起可被 config.context 覆盖）。 */
@@ -80,8 +82,45 @@ export interface StrategyApi {
    * 等待其最终回信（标准邮局往返；worker 完成后自动归档回收）。
    */
   readonly spawn: (task: string, spec: StrategyAgentSpec) => Promise<string>
-  /** 日志出口（策略级事件：context.compacted 等）。 */
-  readonly log: (event: { type: 'context.compacted'; agentId: string; outcome: 'compacted' | 'skipped' | 'failed'; compactedCount: number; message: string }) => void
+  /** 本箱最近一次 spawn 的 worker 实例 id（策略机制工具的身份解析通道；未 spawn 过 = undefined）。 */
+  readonly lastWorkerId?: () => string | undefined
+  /** 本箱策略扮演 agent id（role 懒生成后才有值）。 */
+  readonly roleAgentId?: () => string | undefined
+  /**
+   * 行内改写单行内容（合成行的再生通道——目录轮转等纯内容更新用，
+   * 不新增行不破坏配对结构；涉及结构合法性时由策略自行保证）。
+   */
+  readonly updateMessage?: (id: string, message: ChatMessage) => Promise<void>
+  /** 宿主 agent 类模板的 custom 自由槽（策略基因参数载体，如 cortex 的 dreamAt）。 */
+  readonly custom?: Readonly<Record<string, unknown>>
+  /** 日志出口（策略级事件；at 由管理员注入）。 */
+  readonly log: (event: StrategyLogEvent) => void
+}
+
+/** 策略可上报的日志事件（LogEvent 中去掉管理员补的 at）。 */
+export type StrategyLogEvent = Omit<ContextCompacted, 'at'> | Omit<ContextDreamed, 'at'>
+
+/** 策略 init 期的文件系统能力（宿主注入的窄口；写面缺省 = 空间只读，策略须降级）。 */
+export interface StrategyInitFs {
+  readonly listFiles: (dir: string) => Promise<readonly string[]>
+  readonly readText: (file: string) => Promise<string>
+  readonly writeText?: (file: string, content: string) => Promise<void>
+  readonly ensureDir?: (dir: string) => Promise<void>
+}
+
+/**
+ * 策略装载期上下文（组合根注入；先于工具 initAll 执行——
+ * registerTool 注册的工具可参与 init 生命周期）。
+ */
+export interface StrategyInitContext {
+  /** 当前空间根（`.stem/` 所在目录；策略数据目录据此定位）。 */
+  readonly projectRoot: string
+  readonly fs: StrategyInitFs
+  /** 全局上下文配置（window 等——类级 custom 参数经 StrategyApi.custom 逐宿主给）。 */
+  readonly settings: ContextSettings
+  readonly log: LogSink
+  /** 注册策略自带工具（kind='custom'，同策略信任级；同名覆盖幂等）。 */
+  readonly registerTool: (tool: ToolCapability) => Promise<void>
 }
 
 /** 上下文策略模块（独立子模块的统一形状；assemble 必须，其余按策略能力）。 */
@@ -101,4 +140,9 @@ export interface ContextStrategyModule {
   readonly process?: (api: StrategyApi) => Promise<void>
   /** 策略专有动作（pilot / context_apply 工具 / CLI 通道调用）。 */
   readonly actions?: Record<string, (api: StrategyApi, args: string) => Promise<string>>
+  /**
+   * 装载期初始化（可选；组合根在工具 initAll 之前逐策略调用一次）：
+   * 建数据目录、registerTool 注册策略自带工具、全局参数校验等。
+   */
+  readonly init?: (ctx: StrategyInitContext) => Promise<void>
 }

@@ -38,8 +38,8 @@
 ### 2.1 全体 agent 绝对平等，user0 是 `user` 类实例
 
 **一句话**：所有 agent（含 user0）是同一套机制的实例；user0 的特殊之处仅在于 `parentId = null`（根）与采用内置 `user` 类。
-
-- **user0 = `user` 类的普通实例**：内置根模板 `core/kernel/userClass.ts`，类配置 = **`config.user` 完整对象**（description/systemPrompt/tools/contextStrategy/model/sendCountdown 全可配——元 agent 人格进配置文件；tools 缺省走内置 `DEFAULT_USER_TOOLS`，含 access_reply 根义务 + bash 对外操作面）。在 **pilot 初始化流程内**实例化（`createPilot → kernel.registerRootAgent`），与其它 agent 走完全相同的 `instantiate` 路径，无任何权限/流程特判；S6/R11 起挂**真实项目空间**（旧 `getOrCreate('user0')` 伪空间行废除，老卷 v2 迁移归并）。
+ 
+- **user0 = `user` 类的普通实例**：内置根模板 `core/kernel/userClass.ts`，类配置 = **`config.user` 完整对象**（description/systemPrompt/tools/contextStrategy/model/sendCountdown 全可配——元 agent 人格进配置文件；tools 缺省走内置 `DEFAULT_USER_TOOLS`，含 access_reply 根义务 + bash 对外操作面 + 记忆笔记面 `cortex_add_note/del_note`（allow 常开，S8）。在 **pilot 初始化流程内**实例化（`createPilot → kernel.registerRootAgent`），与其它 agent 走完全相同的 `instantiate` 路径，无任何权限/流程特判；S6/R11 起挂**真实项目空间**（旧 `getOrCreate('user0')` 伪空间行废除，老卷 v2 迁移归并）。
 - **AgentClass（模板）**：`name（即 id）/ description / systemPrompt / tools（Record<访问键, ask|deny|allow|ignore>，键即白名单=自我限定）/ contextStrategy / model / sendCountdown / panel（模块扮演面板：不组装不跑 LLM）/ custom（自由扩展位）`。
 - **AgentInstance**：`id / classRef / parentId / displayName / spaceId / status / turnCount / totalCost / userPrompt / toolOverride / model（模型显式层，S6/R14）/ modelSnapshot（出生快照，族规跨重启）`；`parentId` 即族谱父（= 创建者，user0 为 null 即根），创建时确定、不可变（`creatorId` 已合并）。
 - **LineageTree 族谱树门面**（`core/lineage/`，实例层派生事实唯一面，S5.1）：三相——**拓扑**（getParent/getChildren/getAncestors/getDescendants/getRoot/isAncestorOf，基于 InstanceManager 实时推导，parentId 单一事实源）、**能力**（attach/detach/replay + effectiveAccess/profileOf + **模型配置相** modelOf/setModel/nodeConfigOf（S6：全参数统一解析律，见 2.2 末），原 AccessLedger 降为树内部实现、算法不变）、**可见域**（canReach = 自身∨祖先代查，跨 agent 操作统一谓词）。红线：纯派生不入库、零运行时状态、零类层依赖（自身清单与模型原始层由 kernel 算好传入）。
@@ -64,21 +64,23 @@
   - **减法（converge，默认）**：自身清单（类 tools + 实例 toolOverride）逐键与父档案显式判定取严（`restrictAccess`，**严格度总序 deny ≺ ask ≺ allow ≺ ignore**——单链无同级，按监督度排：ignore 是看不见的执行 = 最宽，allow 清单可审；藏匿祖先 allow 与放宽同判扩张被拒）；清单已定义则 `fallback:'deny'`（**键即白名单**：自我限定，未列 = 本地 deny）；清单 undefined = 完整继承父档案（含父封闭）。**祖先匿名封闭不下传**（父 `{read}` 不锁死子新申请 `{write}`），但**祖先显式 deny/ask 锁死全体后代**（缺席≠否决，显式判定才生效）。
   - **加法（grant，清单形整表替换）**：给出的清单 = 全部能力面（免除逐个填 deny，未列一律 deny）；指定键逐键以直接父摊平显式判定**封顶取严**——ask 洗不成 allow，deny 铁律是封顶的最严特例；祖先匿名本地封闭不受追及（与减法"不下传"对称）。承载两处：策略 spawn / pilot 初始化（`InstantiateOptions.accessMode`，模型工具路径不可设）与 **`agent_update.grantTools`**（模型侧清单便利——受限语义使"盖过祖先"不再有扩张面，安全等价于逐键填表）。
   - 查询 `effectiveAccess(agentId,key) = explicit[key] ?? fallback ?? undefined`（undefined → tools 落默认：internal ignore / 其余 ask）。注册 attach / 销毁 detach / 重启按族谱拓扑序 replay 重放，不入库（纯派生态）。
-- **查询反转（解耦）**：`tools` 侧只认注入端口 `AccessResolver`（`materialize`/`execute` 经它向台账查询，**不再随身传 accessLayers**，`ToolContext` 瘦身为 `{agentId,spaceId}`）；`lineage→tools` 仅共享四态纯代数 `restrictAccess`（type-only + 无状态，tools 绝不 import lineage）。`config.user.tools` = user0 根类清单（族谱首层）。
+- **查询反转（解耦）**：`tools` 侧只认注入端口 `AccessResolver`（`materialize`/`execute` 经它向台账查询，**不再随身传 accessLayers**，`ToolContext = {agentId,spaceId,signal?,callId?,parent?}`（S8 起附 `parent`=调用者直接父 id，策略机制工具据此分流 worker/agent 通道））；`lineage→tools` 仅共享四态纯代数 `restrictAccess`（type-only + 无状态，tools 绝不 import lineage）。`config.user.tools` = user0 根类清单（族谱首层）。
 - **可见域（S5.1）**：`canReach(viewer, target)` = 自身 ∨ viewer 是 target 祖先（根天然全视）——`context_*`、`telemetry_query`、中断/销毁权的跨 agent 操作面统一收敛到这一个树谓词；kernel 不再持独立台账字段（编排下沉树，kernel 只接线）。
 - **全参数统一解析律（S6/R6）**：模型与权限同门面——生效模型 = **显式（实例行 model）> 类基因（AgentClass.model）> 父继承 > 家学（根 user 类 = config.user.model，全链锚点）**，attach 期与权限同批物化为 `ModelBinding{ref, origin}`（origin 四态 git-blame 语义：home 值随链下传不改标）；改父**不级联**子女（族规 = 出生快照保护：快照随实例行 `modelSnapshot` 持久，replay 重解析时优先于父现值，跨重启/跨重放有效）；Runtime 经 `resolveModel` 端口取本轮快照（改模型 = 下轮送信自然生效）；**运行期改写唯一通道 = `kernel.updateAgent`**（agent_update 工具与 pilot.setModel 薄壳共用入口；写实例行 → 族谱全树 replay 重物化，树无 setModel 直改口；审计 `kernel.model.set` + `kernel.instance.updated`）。
 - **ask 消息化（扁平化）**：命中 ask 时 `core/tools/accessRequest.ts`（`AccessAskBus`）把申请投递到**申请者族谱根信箱**（`<access_request>` 消息，机制同向模型发消息）并挂起；根经 `access_reply` 回复（once/always/reject+feedback）。**无 agent 特判**——user0 的 ask 发给自己，由扮演它的 shell 经 pilot 确认。
 - **session 豁免备忘（S2′ 修正语义）**：`always` 批准 = 该 `(agentId,accessKey)` 后续 **ask 免询问**（静默放行），仅当前实例生效、不传播后代；它是 ask 环节的备忘，**不是权限层**（不参与单调收敛，绝不豁免 deny/ignore）。旧实现把 allow 规则混进分层取严 → always 压不住重复弹窗，且跨 agent 泄漏。
 
-### 2.2b 上下文管理策略（`core/context/strategies/`，S1′）
+### 2.2b 上下文管理策略（`core/context/strategies/`，S1′/S8）
 
-**一句话**：每种策略 = 独立子模块，实现统一契约 `ContextStrategyModule`；触发点 = user_prompt 信件抵达、终点 = 完整上下文就绪后唤醒快递员；策略可导出专有动作（如 compact）经 pilot / `context_apply` 调用。
+**一句话**：每种策略 = 独立子模块，实现统一契约 `ContextStrategyModule`；触发点 = user_prompt 信件抵达、终点 = 完整上下文就绪后唤醒快递员；策略可导出专有动作（compact/dream）经 pilot / `context_apply` / CLI 调用；策略可自带工具与数据目录（装载期 `init`）。
 
 - **两段式生命周期**：`process`（异步许可：可做摘要/整理、经系统通道造 agent，返回即"就绪"）与 `assemble`（纯函数同步：送信快照）分离——快递员永不异步、只发不组装（组装权归管理员）。`ContextRegistration.contextStrategy` 开辟时确定（上下文属性），未知策略注册期 fail-fast（恢复接线兜底默认，不炸启动）。
-- **classic（对齐 opencode compact）**：完整历史直出 + 逼近窗口阈值时把轮边界之前的旧段交摘要 worker 精炼为一条 `<context_summary>`（tag='summary'）、旧消息 `markInvalid`（**仓库/DB 语料保留，压缩可逆可审计**，opencode 无此优势）。轮边界压缩 + append-only → 前缀缓存稳定。触发 = user_prompt 抵达（`process`），另导出 `actions.compact`（手动/自动共用实现）。参数 `config.context.{window,compact}`。
-- **模块扮演 agent（role）**：策略需造工具 agent 时，懒生成一个自己的扮演 agent（父 = **宿主 agent**，故 terminate 级联回收；`AgentClass.panel=true` 面板态：不组装、不跑 LLM、收信由策略模块消费）——是"pilot 扮演 user0"的同构推广，赋予代码模块族谱位/信箱/权限面。worker（内置 `summarizer` 规格，策略硬编码，父 = role，`contextStrategy:'none'`）经邮局正规往返 + 回信配对 `waitForReply` 兑现，用完即 terminate 归档。
-- **递归终止**：role/worker 均 `panel` 或 `none` 策略（无 process、不再 spawn），天然断套娃；策略失败绝不卡死送信（catch + 降级照常唤醒，双保险）。
-- **用户策略加载（`.stem/context/*.ts`）**：init 管线扫描默认导出 `ContextStrategyModule` 注册进注册表（同名覆盖内置 = 用户主权），与 `.stem/tools/` 同构——"让 agent 自己写上下文策略"的加载通道。
+- **契约增量面（S8/cortex 落地）**：`init?(ctx)` 装载期钩子（组合根在工具 `initAll` 之前逐策略执行；`StrategyInitContext = {projectRoot, fs(读+可选写口), settings, log, registerTool}`——策略自带 custom 工具经窄口注册进全局表）；`StrategyApi.custom`（宿主类 custom 自由槽透传 = 策略基因参数载体）+ `lastWorkerId()/roleAgentId()/updateMessage()`（worker 身份与合成行再生通道）；`ToolContext.parent`（调用者直接父 id）。
+- **classic（急救室，对齐 opencode compact）**：完整历史直出 + 逼近窗口阈值时把轮边界之前的旧段交摘要 worker 精炼为一条 `<context_summary>`（tag='summary'）、旧消息 `markInvalid`（**仓库/DB 语料保留，压缩可逆可审计**，opencode 无此优势）。轮边界压缩 + append-only → 前缀缓存稳定。触发 = user_prompt 抵达（`process`，await 压缩完成再就绪），另导出 `actions.compact`。参数 `config.context.{window,compact}`。compact 是 classic **私有动作**——参数不与其它策略混用。
+- **cortex（睡眠生理，S8）**："上下文 = 专注度资源"。三层外挂记忆：LTM 长期（JSON，仓库 tool 行 tag='ltm' + `.stem/mem/<id>/.memory.json` **单向镜像**永不回灌）/ 笔记层（`.stem/mem/<id>/<主题>.md`，agent 与 dream 双可写，目录行 tag='note' 磁盘巡检 in-place 再生）/ STM 短期（tag='stm' 行，无文件）。**教学样板组装**：记忆组 = 仓库真实行（锚点 user tag='cortex' 一次写不轮替 + 载体 assistant 虚拟调用 `cortex_load_ltm/notes/stm` 三枚——不注册，幻觉点名 = unknown 无害 + 三 tool 行配对），assemble 恒直出。触发 = `estimatedTokens() ≥ custom.cortex.dreamAt`（缺省 256k；**阈值激活**无 timer，轮替即瞬降水位 = 一数字三职责）→ **异步点火不等收口**（本轮送信照常）；dream worker（类 `cortex-dream`，父 = role 面板，grant 表 `{set_ltm,set_stm,add_note,del_note}` 全 allow，`none` 断递归）二段事务：先 `cortex_set_ltm` 后 `cortex_set_stm`（期间可增删笔记——全部只写**全局梦 token 暂存区**，工具面零 fs 零特权；**全局串行锁**消解 worker 身份歧义）→ 双 set 齐才轮替（旧组+快照实时行 markInvalid、新组五行 append、镜像、`context.dreamed` 事件），半途 = 不轮替水位不动下拍重触发。**agent 主权面**：`cortex_add_note/del_note` 进根表 allow（继承形全树白拿，非 cortex 类可用、目录按 caller 建）；`set_*` 根表不列 = 全树匿名 deny（dream 专属）。水位线无独立存储（= 现行记忆组最大 turn 行序推导，重启零漂移）。`actions.dream` 手动提前做梦。参数仅两件：`custom.cortex = {dreamAt?, consolidateModel?}`——无硬预算，总结尺度在 dream 提示词（随实测调）。方案史 = log.md（brain-plan→cortex R0→R1→R2 三版收敛）。
+- **模块扮演 agent（role）**：策略需造工具 agent 时，懒生成一个自己的扮演 agent（父 = **宿主 agent**，故 terminate 级联回收；`AgentClass.panel=true` 面板态：不组装、不跑 LLM、收信由策略模块消费）——是"pilot 扮演 user0"的同构推广，赋予代码模块族谱位/信箱/权限面。worker（`summarizer`/`cortex-dream` 规格，策略硬编码，父 = role，`contextStrategy:'none'`）经邮局正规往返 + 回信配对 `waitForReply` 兑现，用完即 terminate 归档。role 的 `tools` 语义要点：**不设 = 匿名不封顶**（cortex role 须如此，否则空表本地封闭会锁死 worker grant 键——`ensureSystemTemplate` 对 `spec.tools` undefined 原样透传）。
+- **递归终止**：role/worker 均 `panel` 或 `none` 策略（无 process、不再 spawn），天然断套娃；策略失败绝不卡死送信（catch + 降级照常唤醒，双保险；cortex 自动链另走 fire-and-forget）。
+- **用户策略加载（`.stem/context/*.ts`）**：init 管线扫描默认导出 `ContextStrategyModule` 注册进注册表（同名覆盖内置 = 用户主权），与 `.stem/tools/` 同构——"让 agent 自己写上下文策略"的加载通道；用户策略同样享有 `init` 装载期。
 
 ### 2.3 Pilot：user0 扮演接口（驾驶舱）
 
@@ -101,7 +103,7 @@
 
 ### 2.6 消息库：tag + 双索引 + legalize
 
-- **tag**（`StoredMessage.tag?: string`）：可选，标记合成消息（summary/impression/meta）；**strategy 是上下文属性**（实例化时确定），组装器按 agent 策略解释 tag。
+- **tag**（`StoredMessage.tag?: string`）：可选，标记合成消息。**现状词表六元**（S8 收口，不再扩）：`''`（原生行）/ `summary`（classic 压缩）/ `cortex`（cortex 锚点与载体行）/ `ltm` / `note` / `stm`（三层记忆行）；**strategy 是上下文属性**（实例化时确定），组装器按 agent 策略解释 tag。记忆族 tag（cortex/ltm/note/stm）在卸载/清理选择集中恒被排除（dream 造的空间不被其它机制误伤）。
 - **双索引**：`turn`（轮序号，user 消息开启新轮，system 为第 0 轮）+ `indexInTurn`（轮内 0-based 顺序）；Repository 自动维护。
 - **legalize**（`core/context/legalize.ts` 纯函数）：组装 delivery 时统一过——悬空 tool_calls 裁剪 / 孤儿 tool 剔除 / tool→user 相邻插边界。保证删除/修改（`context_remove`/`context_edit` = markInvalid/updateMessage）后的上下文仍可经 gateway 发送。
 - **导出/概览**（context 模块，纯数据转换，无权限概念）：`exportJsonl` / `overview`；Kernel 做权限编排，系统工具 `context_export`/`context_overview`（可见域 = canReach：自身或后代，祖先可代查）。
@@ -183,7 +185,7 @@
 | `context_apply` | 执行上下文策略专有动作（如 classic compact；仅自身或祖先） |
 | `access_reply` | 批准/拒绝访问申请（once/always/reject；授权权=申请者的族谱根） |
 
-> 系统工具 `kind=internal` → 默认 `ignore`，示例模板在 `tools` 显式 `allow`。`DEFAULT_USER_TOOLS` 含 `telemetry_query:'allow'`（观测）、`agent_class_update:'ask'`（类书写）与 **`agent_update:'ask'`**（实例参数改写，与类书写同高危列；原 agent_set_model 的 allow 档随吸收退役）。
+> 系统工具 `kind=internal` → 默认 `ignore`，示例模板在 `tools` 显式 `allow`。`DEFAULT_USER_TOOLS` 含 `telemetry_query:'allow'`（观测）、`agent_class_update:'ask'`（类书写）与 **`agent_update:'ask'`**（实例参数改写，与类书写同高危列；原 agent_set_model 的 allow 档随吸收退役）；cortex 策略工具不在系统工具表内（策略 init 经 `registerTool` 注册的 custom 件），根表只列笔记面两键——`cortex_set_ltm/set_stm` 刻意不列 = 对全树匿名 deny（dream worker 出生 grant 表显式 allow 是唯一放行通道）。
 
 ### 4.7 extension 工具层：fs 五件套 + web 两件（`extension/tools/`，kind=extension）
 
@@ -282,5 +284,6 @@
 - TypeScript + tsx（运行/测试，**dependencies**——镜像 `--omit=dev` 不剔除）+ node:test；运行时依赖 jsonc-parser / yaml；**node >= 23.4**（`node:sqlite` 免 flag）。
 - 发布形态：Docker（`node:24-slim` + 非 root + `/data` volume + HEALTHCHECK `/api/health`）——**容器即 bash 的安全边界**，挂载 volume = 爆炸半径。
 - 个体层存储：SQLite（`node:sqlite` DatabaseSync）write-through，经 core 端口注入（4.15）；缺省纯内存（测试 harness 不受影响）。
+- 运行时数据文件（S8）：`.stem/mem/<agentId>/`（cortex 笔记正文 + `.memory.json` 镜像）——**派生/外挂文件不进 DB**（记忆真相在仓库行，镜像单向永不回灌；笔记文件由策略 fs 口读写，磁盘 = 正文真相）。
 - 族谱存储：无独立存储（parentId 挂在实例上，LineageTree 实时推导；实例行本身持久化即族谱持久）。
 - LLM 端点：真实 go/zen（`https://opencode.ai/zen/go/v1/chat/completions`）或 mock SSE 兜底。

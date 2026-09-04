@@ -97,9 +97,9 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 | 点位 | 契约/位置 | 时机 | 语义与边界 |
 |---|---|---|---|
 | `ContextStrategyModule` 五面 | `src/core/context/strategies/types.ts` | — | `name`（注册键）/ `note`（追加宿主 systemPrompt，模型知晓自身记忆机制）/ `role`（StrategyAgentSpec 模块扮演）/ `assemble`（**纯函数**）/ `process`（异步许可）/ `actions`（Record<名,(api,args)=>string>） |
-| `StrategyApi` 能力包 | 管理员构造注入 | process/actions 内 | list/listValid/append(tag)/markInvalid/estimatedTokens/settings/spawnRole/spawnWorker/terminateWorker/waitForReply…——策略**不直连 kernel** |
+| `StrategyApi` 能力包 | 管理员构造注入 | process/actions 内 | list/listValid/append(tag)/markInvalid/updateMessage/estimatedTokens/settings/custom（宿主类基因槽）/spawn（role+worker 正规往返含回收）/lastWorkerId·roleAgentId（身份通道）/log——策略**不直连 kernel**；fs 与工具注册走 `init(ctx)`（`StrategyInitContext = {projectRoot,fs,settings,log,registerTool}`，cortex 为参考样板） |
 | 触发/终点 | 管理员 wake 链 | user_prompt 抵达 → 唤醒快递员 | 重入合并、失败兜底不卡死（契约义务） |
-| `tag` 词表 | 策略自定（classic: summary/impression/meta） | append 合成消息时 | 组装器按该 agent 策略解释 tag；**strategy 不入库为 tag 的一部分**（上下文属性） |
+| `tag` 词表 | 策略自定；**现状六元收口**（''/summary/cortex/ltm/note/stm） | append 合成消息时 | 组装器按该 agent 策略解释 tag；**strategy 不入库为 tag 的一部分**（上下文属性）；新策略要新 tag 先议后扩 |
 | 面板态 | `AgentClass.panel=true` → 恒绑 none 策略 | — | 不组装不跑 LLM（user0/role 承载）；`contextStrategy` 字段对其无意义 |
 | 落位 | `.stem/context/<名>.ts` / `extension/context/` | runInit | 同名覆盖内置 = 用户主权（classic 全量直出+compact 为参照实现） |
 

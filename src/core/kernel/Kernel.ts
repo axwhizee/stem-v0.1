@@ -311,6 +311,7 @@ export class Kernel {
         sendCountdownMs: isRoot ? template?.sendCountdown ?? 0 : template?.sendCountdown,
         assemble: !isRoot && template?.panel !== true,
         contextStrategy: template?.contextStrategy,
+        custom: template?.custom,
         restore: this.repository.has(instance.id),
         // 面板 diff 基线：恢复箱内的全部消息 id（防重启后旧信当新信重放）。
         initialSentIds: this.repository.has(instance.id) ? this.repository.list(instance.id).map((m) => m.id) : [],
@@ -393,6 +394,7 @@ export class Kernel {
       sendCountdownMs: template.sendCountdown ?? 0,
       assemble: false,
       contextStrategy: template.contextStrategy,
+      custom: template.custom,
       onDelivery: (delivery) => {
         if (delivery.kind !== 'user') return
         // 来信统一经事件流发布（letter 事件；含 access_request 消息化申请）。
@@ -470,6 +472,7 @@ export class Kernel {
       sendCountdownMs: template.sendCountdown,
       assemble: !isPanel,
       contextStrategy: template.contextStrategy,
+      custom: template.custom,
       onDelivery: isPanel
         ? () => {}
         : (delivery) => this.handleDelivery(delivery),
@@ -533,7 +536,9 @@ export class Kernel {
       name,
       description: spec.description,
       systemPrompt: spec.systemPrompt,
-      tools: spec.tools ?? {},
+      // tools 缺省 = 完整继承祖先链（策略若要 worker 拿 grant 键，role 面板
+      // 不得写空表锁死子孙——空表 = 本地封闭且显式锁树）；显式给出才整表落地。
+      ...(spec.tools !== undefined ? { tools: spec.tools } : {}),
       sendCountdown: spec.sendCountdown ?? 0,
       contextStrategy: spec.contextStrategy ?? 'none',
       ...(spec.panel !== undefined ? { panel: spec.panel } : {}),

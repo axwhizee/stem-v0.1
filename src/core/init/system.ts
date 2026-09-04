@@ -20,6 +20,7 @@ import type { ModelGateway, UsageEvent } from '../gateway'
 import type { Logger } from '../logging'
 import type { MessageStore, TimerFactory } from '../context'
 import { DEFAULT_CONTEXT_SETTINGS } from '../context'
+import type { StrategyInitFs } from '../context'
 import type { InstanceStore } from '../kernel'
 import type { ClassStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
@@ -167,6 +168,40 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     strategyRegistry: kernel.contextManager.strategies,
     ...(deps.logger !== undefined ? { onLog: { log: (event) => deps.logger!.log(event) } } : {}),
   })
+
+  // 策略装载期 init（S8/cortex）：先于工具 initAll——策略经 registerTool
+  // 注入自带工具（custom 信任级），新注册工具照常参与下方 init 生命周期。
+  const strategyRegistry = kernel.contextManager.strategies
+  const strategyInitFs: StrategyInitFs = {
+    listFiles: (dir) => deps.fs.listFiles(dir),
+    readText: (file) => deps.fs.readText(file),
+    ...(deps.classFs !== undefined
+      ? {
+          writeText: (file: string, content: string) => deps.classFs!.writeText(file, content),
+          ensureDir: (dir: string) => deps.classFs!.ensureDir(dir),
+        }
+      : {}),
+  }
+  for (const name of strategyRegistry.names()) {
+    const module = strategyRegistry.resolve(name)
+    if (!module?.init) continue
+    try {
+      await module.init({
+        projectRoot: deps.config.paths.projectRoot,
+        fs: strategyInitFs,
+        settings: settings ?? DEFAULT_CONTEXT_SETTINGS,
+        log: { log: (event) => { deps.logger?.log(event) } },
+        registerTool: (tool) => tools.register(tool, { replace: true }),
+      })
+    } catch (cause) {
+      deps.logger?.log({
+        type: 'kernel.orphan.error',
+        at: Date.now(),
+        site: `strategy.init(${name})`,
+        error: cause instanceof Error ? cause.message : JSON.stringify(cause),
+      })
+    }
+  }
 
   // Pilot（user0 扮演接口）：pilot 初始化内实例化根 agent user0（user 类，普通实例）。
   const pilot = await createPilot({ kernel })

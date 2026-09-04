@@ -110,3 +110,29 @@ custom.cortex = {
 ## 9. 否决记录（累积防翻案）
 
 ①删 courier/tick 信/kernel 开关（历史三连）；②MEMORY.md 独立文件层（R1：仓库即真相；本版兑现为镜像单向）；③整理者零工具纯文本契约（R1：schema 合同取代）；④工具缺省 ignore（=隐藏可执行，误用；根表不列天然 deny）；⑤timer 睡眠节律（R1：阈值激活）；⑥同步等待整理（R1：异步不拦信）；⑦userPrompt 首信充当锚点（R2 用户裁：首信无代表性——策略自写介绍行）；⑧note 作为独立仓库行（R1）→ 目录对代理化（R2：正文在文件、目录在记忆组）；⑨recentFloor 保留实时轮（R2：梦后零保留——STM 取代实时区，这才是 brain-simu 的兑现）；⑩minDelta/ceiling/watermark 多闸（R2：轮替自带瞬降，一个 dreamAt 三职责）；⑪硬性记忆预算截断（R2：提示词指导，假配置项不做）。
+
+## 10. 续做锚（上下文压缩后的开工须知——本节与 §1-§9 同为准绳）
+
+**已入代码的裁决 = 不可再议的地板**：权限总序、受限 grant（逐键封顶）、`agent_update` 唯一实例写面、ask 在途 deny 复核、`test:feas` 守卫（rc>1=skip）——落码于 `2a060ef`/`c5de891`，四卷文档已对拍一致。dream 的一切权限形态建立在它们之上。
+
+**开工时的一处事实修正**：§5.2（AssembleInput + estimatedTokens）**取消**——StoredMessage 行自带 `tokens` 字段（真实值差分归位/估算兜底同源），策略 assemble 内 sum valid 行即得水位，无需契约新字段。§5 契约新增件实为两件：策略 `init?` + `context.dreamed` 事件。
+
+**S8.1 起步精确指路（均已核实）**：
+- 契约与注册：`src/core/context/strategies/types.ts`（+`init?(ctx)`）；registry 注册口 = `ToolCapabilityRegistry.register(tool, opts?)`（异步）；`DEFAULT_USER_TOOLS` 在 `src/core/kernel/userClass.ts`（+两键 allow）。
+- init 调用位：组合根 `src/core/init/system.ts`——**L176 附近 `tools.initAll` 之前**逐策略执行 init（ctx 携带 fs/projectRoot/log/registerTool 窄口闭包）。
+- 事件线三处同 `context.compacted` 形状：`logging/events.ts`（interface+union）、`logging/Logger.ts`（格式化 case + eventInvolvesAgent 归组）、`kernel/systemTools.ts`（telemetryBrief case）。
+- 四工具落 `strategies/cortex/` 新目录（入口仿 classic.ts + index 出口）；per-agent 运行态 = 策略模块内 Map（dream 双 set 暂存、在途位、水位线、目录缓存）；add_note 的 name 校验 `^[a-z0-9][a-z0-9-]{0,40}$` 且保留字 `memory`（撞 `.memory.json`）。
+- 测试参照系：`strategies/classic.test.ts`（策略测试形状）、`test/support/kernelHarness`（fake 注入）。
+
+**操作纪律（本会话血泪，全生效）**：
+- 每条 bash 前置 `export PATH="$HOME/.nvm/versions/node/v24.16.0/bin:$PATH"`（忘带 = Windows npx GBK 乱码）；起服务 `timeout 60 bash test/feasibility/tools/up.sh [webui|dashboard]`（幂等）。
+- **写文件一律用 Write/Edit 工具——不用 `&&` 长链夹 heredoc**（cdb9290 事故：git rm 因 staged 拒绝、链上半段静默未执行、commit 照跑留下空壳卷；修复靠跟进笔）。git rm 前先 `git status` 查 staged。
+- 基线 = typecheck 0 + `npm test` **323/323** + 离线双档 29/9；每批过线才 commit（`git -c user.name="OwlCat" -c user.email="owlcat@local"`，message 无进度代号）。
+- drvfs 偶发 NotFound = 重试；在线验收需密钥（注入法 contributor §8，opencode 网关走 OPENCODE_API_KEY，space-v10 有 provider 配置）。
+
+**悬点（开工时问用户或顺路核，勿擅动）**：
+- `.gitignore` 有用户手改 +2 行未提交——S8.2 笔记文件持久化语义定稿时一并问明（若为 `.stem/mem` 豁免规则则对齐采纳）。
+- 旧 playbook 卷（已退役，`git show d274f3b:docs/llm-playbook.md` 可取回）的"错误文本行动化/步数告知"等改进未排——是否混入 S8 批次听用户。
+- docker 验收（15/16 的唯一开放项）与本事无关，仍等点头。
+
+**提交节奏**：S8.1 → S8.2 → S8.3 各一批 conventional commit；每批按 contributor §1.3 对拍（AGENTS 策略速查行、architecture 2.2b/2.6 tag 词表、api.md 契约面、dev-guide 策略食谱）+ log.md 追加。全部落地即本卷退役（plan 卷纪律）。

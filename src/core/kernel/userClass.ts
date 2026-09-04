@@ -64,6 +64,12 @@ export const DEFAULT_USER_TOOLS: Readonly<Record<string, ToolAccess>> = {
   context_remove: 'allow',
   context_edit: 'allow',
   context_apply: 'allow',
+  // 记忆笔记面（S8/cortex）：add/del_note 常开（继承形全树白拿；非 cortex
+  // 类 agent 也可用——目录按 caller 建，值在挂 cortex 策略的类才兑现）。
+  // set_ltm/set_stm **不列** = 全树匿名 deny——记忆固化是 dream worker
+  // （受限 grant 表显式放行）专属事务，agent 本体碰不到。
+  cortex_add_note: 'allow',
+  cortex_del_note: 'allow',
   // 高危面：始终经根确认（user0 的 ask 发给自己，由 shell 弹窗/CLI 确认）。
   // 类书写面（S5.2 进化）：创建/更新均落盘 `.stem/agent/`，根批准才生效。
   agent_class_create: 'ask',

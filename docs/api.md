@@ -40,7 +40,7 @@
 | `ContextManagerOptions` | `export interface ContextManagerOptions {` | `src/core/context/ContextManager.ts` |
 | `ContextRegistration` | `export interface ContextRegistration {` | `src/core/context/ContextManager.ts` |
 | `ContextSettings` | `export interface ContextSettings {` | `src/core/context/strategies/types.ts` |
-| `ContextStrategyModule` — 上下文策略契约（note/role/assemble/process/actions） | `export interface ContextStrategyModule {` | `src/core/context/strategies/types.ts` |
+| `ContextStrategyModule` — 上下文策略契约（note/role/assemble/process/actions/init） | `export interface ContextStrategyModule {` | `src/core/context/strategies/types.ts` |
 | `Courier` | `export interface Courier {` | `src/core/context/Courier.ts` |
 | `CourierOptions` | `export interface CourierOptions {` | `src/core/context/Courier.ts` |
 | `CourierRegistration` | `export interface CourierRegistration {` | `src/core/context/Courier.ts` |
@@ -70,6 +70,7 @@
 | `createBuiltinStrategyRegistry` | `export function createBuiltinStrategyRegistry(extra: readonly ContextStrategyModule[] = []): StrategyRegistry {` | `src/core/context/strategies/index.ts` |
 | `createClassicStrategy` | `export function createClassicStrategy(): ContextStrategyModule {` | `src/core/context/strategies/classic.ts` |
 | `createNoneStrategy` | `export function createNoneStrategy(): ContextStrategyModule {` | `src/core/context/strategies/none.ts` |
+| `createCortexStrategy` | `export function createCortexStrategy(): ContextStrategyModule {` | `src/core/context/strategies/cortex/cortex.ts` |
 | `estimateTokens` | `export function estimateTokens(message: ChatMessage): number {` | `src/core/context/Repository.ts` |
 | `legalize` | `export function legalize(messages: readonly ChatMessage[]): ChatMessage[] {` | `src/core/context/legalize.ts` |
 | `messageSeqOf` | `export function messageSeqOf(id: string): number {` | `src/core/context/store.ts` |
@@ -290,7 +291,7 @@
 | `ConfigStore` / `InitFs` / `InitToolLoader` / `ClassFs` | 配置读写、目录扫描（listFiles/listDirs/readText）、动态 import、类落盘 | `shell/cli/config.createNodeConfigBundle` |
 | `ShellRunner` | bash 工具执行端口（超时/截断参数在 core 侧，进程在宿主） | `shell/cli/bash.createNodeShellRunner` |
 | `ToolCapability` | 工具统一形状 + `init?(ToolInitContext)` 生命周期；kind 三分类（internal/extension/custom） | registry.register / runInit 矩阵装载 |
-| `ContextStrategyModule` | note/role/assemble/process/actions 五面；注册同名覆盖内置 | 策略注册表 / `.stem/context/` / extension 点名 |
+| `ContextStrategyModule` | note/role/assemble/process/actions/init 六面；注册同名覆盖内置；init 先于工具 initAll（registerTool 窄口注策略自带工具） | 策略注册表 / `.stem/context/` / extension 点名 |
 | `LineageTree` | 权限与模型的唯一门面：attach/detach/replay、effectiveAccess、modelOf、nodeConfigOf、canReach（能力面无直改 setter；运行期变更 = kernel.updateAgent 写行后全树 replay，快照层保证改父不动子） | Kernel 内部（tools 经 AccessResolver 查询） |
 | `Pilot` | user0 扮演接口（一切外部驱动经它）：sendMessage/instantiate(model 可选)/setModel/replyAccess/runContextAction/subscribe | 各 shell |
 | `EventHub`/`PilotEvent` | stream/letter/status/notice 判别联合，多订阅者（SSE 直转） | `system.pilot.subscribe` |

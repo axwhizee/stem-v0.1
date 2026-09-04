@@ -235,6 +235,9 @@ export class DefaultRuntime implements Runtime {
         const ctx: ToolContext = {
           agentId: instance.id,
           spaceId: instance.spaceId,
+          // 直接父 id（策略机制工具据此识别"dream worker 调用"——族谱事实的
+          // 最小透传；普通工具无视）。
+          parent: instance.parentId ?? '',
         }
         const results = await Promise.all(
           toolCalls.map(async (call): Promise<ChatMessage> => {

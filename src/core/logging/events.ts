@@ -221,12 +221,28 @@ export interface ContextCompacted {
   readonly message: string
 }
 
+/** 做梦完成记录（cortex 策略 dream：记忆组轮替 + 实时段归档，语料保留）。 */
+export interface ContextDreamed {
+  readonly type: 'context.dreamed'
+  readonly at: number
+  /** 宿主 agent id（做梦 worker 本身不进账——它是策略机制的临时肢体）。 */
+  readonly agentId: string
+  /** dream 事务是否落定（双 set 齐）。false = 半途而废，水位线未动。 */
+  readonly consolidated: boolean
+  /** 本次归档的旧行数（旧记忆组 + 快照内实时轮）。 */
+  readonly invalidRows: number
+  /** 本次 dream 触碰（写/删）的笔记篇数。 */
+  readonly notesTouched: number
+  readonly message: string
+}
+
 export type LogEvent =
   | KernelOrphanError
   | ToolInvoked
   | ApiRequestRecorded
   | ContextAssembled
   | ContextCompacted
+  | ContextDreamed
   | MailboxCountdown
   | MailboxDelivered
   | AgentClassRegistered

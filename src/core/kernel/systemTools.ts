@@ -789,6 +789,8 @@ function telemetryBrief(event: LogEvent): string {
       return `assemble=${event.assemble} n=${event.messageCount}`
     case 'context.compacted':
       return `${event.outcome} n=${event.compactedCount}`
+    case 'context.dreamed':
+      return `${event.consolidated ? 'dreamed' : 'aborted'} invalid=${event.invalidRows} notes=${event.notesTouched}`
     case 'mailbox.countdown':
       return event.action
     case 'mailbox.delivered':

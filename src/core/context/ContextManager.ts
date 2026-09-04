@@ -59,6 +59,8 @@ export interface ContextRegistration {
   readonly assemble?: boolean
   /** 上下文管理策略名（缺省 = 注册表 default 'classic'；未知 → 注册期报错）。 */
   readonly contextStrategy?: string
+  /** 宿主类模板 custom 自由槽（策略基因参数，如 cortex 的 dreamAt；经 StrategyApi 透传）。 */
+  readonly custom?: Readonly<Record<string, unknown>>
   /** 送信回调（agent → kernel；user/扮演面板 → 模块/面板）。 */
   readonly onDelivery: (delivery: MailDelivery) => void
   /** 倒计时结束但无信可送时调用（agent → 进入 hold）。 */
@@ -86,6 +88,10 @@ interface InternalBox {
   processDirty: boolean
   /** 该策略的扮演 agent（懒生成；spawn worker 的父与回信收集点）。 */
   roleAgentId: string | undefined
+  /** 宿主类 custom 自由槽（apiFor 透传给策略）。 */
+  readonly custom?: Readonly<Record<string, unknown>>
+  /** 最近一次 spawn 的 worker id（策略工具通道身份解析）。 */
+  lastWorkerId: string | undefined
   /** 各成分最近就绪时间（毫秒，供日志）。 */
   lastLetterAt: number | undefined
   lastHistoryAt: number | undefined
@@ -209,6 +215,8 @@ export class DefaultContextManager implements ContextManager {
       processing: false,
       processDirty: false,
       roleAgentId: undefined,
+      lastWorkerId: undefined,
+      ...(registration.custom !== undefined ? { custom: registration.custom } : {}),
       lastLetterAt: undefined,
       lastHistoryAt: undefined,
       lastToolAt: undefined,
@@ -512,12 +520,19 @@ export class DefaultContextManager implements ContextManager {
           box.roleAgentId = await this.spawnRole(box.agentId, role)
         }
         const workerId = await this.spawnWorker(box.roleAgentId, task, spec)
+        box.lastWorkerId = workerId
         try {
           return await this.waitForReply(box.roleAgentId, workerId, this.settings.compact.replyTimeoutMs)
         } finally {
           // 回收：worker 任务完成即销毁（消息归档保语料，进化素材不丢）。
           await this.terminateWorker(workerId, box.roleAgentId)
         }
+      },
+      custom: box.custom,
+      lastWorkerId: () => box.lastWorkerId,
+      roleAgentId: () => box.roleAgentId,
+      updateMessage: async (id, message) => {
+        await this.repository.updateMessage(box.agentId, id, message)
       },
       log: (event) => {
         this.onLog?.({ ...event, at: Date.now() } as LogEvent)
