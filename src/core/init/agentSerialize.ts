@@ -26,6 +26,7 @@ export const AGENT_KNOWN_KEYS: ReadonlySet<string> = new Set([
   'description',
   'tools',
   'send_countdown',
+  'max_steps',
   'context_strategy',
   'model',
 ])
@@ -58,6 +59,7 @@ export function serializeAgentClass(cls: AgentClass): string {
     description: cls.description,
     tools: { ...cls.tools },
     ...(cls.sendCountdown !== undefined ? { send_countdown: cls.sendCountdown } : {}),
+    ...(cls.maxSteps !== undefined ? { max_steps: cls.maxSteps } : {}),
     ...(cls.contextStrategy !== undefined ? { context_strategy: cls.contextStrategy } : {}),
     ...(cls.model !== undefined ? { model: `${cls.model.provider}/${cls.model.id}` } : {}),
   }

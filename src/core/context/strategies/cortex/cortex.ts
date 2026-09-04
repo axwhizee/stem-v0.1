@@ -13,6 +13,8 @@
 
 import { classicAssemble } from '../classic'
 import type { StrategyAgentSpec, StrategyApi, StrategyInitContext, StrategyInitFs } from '../types'
+import type { AgentClass } from '../../../kernel/types'
+import { makeAgentClassID } from '../../../kernel/types'
 import type { ContextStrategyModule } from '../types'
 import type { ModelRef } from '../../../gateway'
 import { CortexRuntime } from './state'
@@ -26,8 +28,8 @@ import type { DreamDeps } from './dream'
 /** cortex 扮演 agent（做梦 worker 的父与回信收集点；面板态）。
  *  tools 刻意**不设**（≠ classic 的 {}）：空表 = 本地封闭且显式锁子孙，
  *  会把 worker grant 表里的 cortex_set_* 全锁死；不设 = 匿名不封顶。 */
-export const CORTEX_ROLE: StrategyAgentSpec = {
-  className: 'strategy-cortex',
+export const CORTEX_ROLE: AgentClass = {
+  name: makeAgentClassID('strategy-cortex'),
   description: 'cortex 策略扮演 agent：做梦 worker 的父与回信收集点（审计信箱，模块扮演，无 LLM 轮）',
   systemPrompt:
     '（模块扮演面板）cortex 上下文策略的执行体：接收做梦 worker 的回信并留档审计；不参与 LLM 组装。',

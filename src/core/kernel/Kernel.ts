@@ -25,7 +25,6 @@ import type {
   MailDelivery,
   Repository,
   Courier,
-  StrategyAgentSpec,
   StrategyRegistry,
 } from '../context'
 import { DefaultRepository, DefaultCourier, DefaultContextManager, PersistedRepository } from '../context'
@@ -52,7 +51,6 @@ export interface AgentUpdateSpec {
 }
 
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
-import assistantTemplate from './builtin/Assistant.json'
 import { DefaultTemplateRegistry } from './TemplateRegistry'
 import type { TemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
@@ -66,19 +64,17 @@ import type { Runtime } from './Runtime'
 import { DefaultLineageTree } from '../lineage'
 import type { LineageTree } from '../lineage'
 import { createSystemTools } from './systemTools'
-import { createUserClass, USER_CLASS_ID } from './userClass'
-import type { UserClassConfig } from './userClass'
+import { ASSISTANT, buildUserClass } from './builtin/agents'
+import type { UserClassConfig } from './builtin/agents'
 import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, ProjectRef } from './types'
-import { makeAgentClassID, makeAgentID } from './types'
+import { makeAgentClassID, makeAgentID, USER_CLASS_ID } from './types'
 
 /**
- * 内置模板（S7 矩阵 internal 层：core 自带 `kernel/builtin/*.json`）。
- * assistant = 占位类：不写 tools 键（undefined）= 实例完整继承父档案
- * （族谱台账语义），模型不设 = 落四级解析链——internal 只保底一张白纸。
+ * 内置模板（S9 类形态统一：唯一定义域 `kernel/builtin/agents.ts`）。
+ * = assistant 占位类（tools 不写 = 完整继承父档案，模型落四级解析链——
+ * internal 保底一张白纸）；user 类不在内（config 驱动，构造期 buildUserClass 装配）。
  */
-export const BUILTIN_TEMPLATES: readonly AgentClass[] = [
-  assistantTemplate as unknown as AgentClass,
-]
+export const BUILTIN_TEMPLATES: readonly AgentClass[] = [ASSISTANT]
 
 /** 用户面板固定 id。 */
 export const USER_ID = 'user0'
@@ -159,10 +155,13 @@ export class Kernel {
   private readonly project?: ProjectRef
   /** 启动期从持久化端口恢复出的实例（构造末尾接线上下文用；空 = 首启/纯内存）。 */
   private readonly restoredInstances: readonly AgentInstance[]
+  /** user0 出生显示名（S9：config.user.displayName，缺省 'User'——实例参数经配置面给）。 */
+  private readonly rootDisplayName: string
 
   constructor(options: KernelOptions) {
+    this.rootDisplayName = options.userClass?.displayName ?? 'User'
     this.templates = new DefaultTemplateRegistry([
-      createUserClass(options.userClass),
+      buildUserClass(options.userClass),
       ...(options.templates ?? BUILTIN_TEMPLATES),
     ])
 
@@ -257,6 +256,7 @@ export class Kernel {
       // S6/R6：模型解析归口族谱树四级律（defaultModel 单层链已拆除）。
       resolveModel: (agentId) => this.lineage.modelOf(agentId as string)?.ref,
       maxSteps: options.maxSteps,
+      templates: this.templates,
       estimateCost: options.estimateCost,
       timer: options.timer,
       onEvent: (agentId, event) => this.events.emit({ type: 'stream', agentId, event }),
@@ -268,7 +268,7 @@ export class Kernel {
     this.tools?.setRecordSink?.((record, ctx) => {
       forget(this.contextManager.appendToolRecord(ctx.agentId, record), 'kernel:appendToolRecord', (event) => this.emitLog(event))
       if (record.status === 'success' && record.result) {
-        if (record.result.metadata?.contextWait) return // context_wait：等待填充，不 append
+        if (record.result.metadata?.contextWait) return // 挂起通道（wait/pause）：等待填充，不 append
         forget(this.contextManager.appendHistory(ctx.agentId, {
           role: 'tool',
           content: record.result.text,
@@ -360,7 +360,7 @@ export class Kernel {
   }
 
   /** 注册根 agent（user0）：从内置 user 类实例化（parentId=null 即根，与其他实例等同）。 */
-  async registerRootAgent(displayName = 'User'): Promise<AgentID> {
+  async registerRootAgent(displayName?: string): Promise<AgentID> {
     const template = await this.templates.get(USER_CLASS_ID)
     // S6/R11：根挂**真实项目空间**（废除旧 getOrCreate('user0') 伪空间行——
     // 全体平等原则下根不需要专属空间；老卷残留由宿主存储层 v2 迁移归并）。
@@ -387,7 +387,9 @@ export class Kernel {
       classId: instance.classRef,
       parentId: '',
     })
-    if (displayName !== instance.displayName) await this.instances.update(makeAgentID(USER_ID), { displayName })
+    // 出生显示名：显式参数 > config.user.displayName > 'User'。
+    const rootName = displayName ?? this.rootDisplayName
+    if (rootName !== instance.displayName) await this.instances.update(makeAgentID(USER_ID), { displayName: rootName })
     await this.contextManager.register({
       agentId: USER_ID,
       systemPrompt: template.systemPrompt,
@@ -490,6 +492,15 @@ export class Kernel {
       }
     }
 
+    // wait 配对先于首信投递（S9 竞态根除：子存在的任何输出都晚于 hold）。
+    if (opts.hold !== undefined && instance.parentId !== null) {
+      await this.contextManager.registerHold(instance.id, {
+        ownerId: instance.parentId,
+        toolCallId: opts.hold.toolCallId,
+        ...(opts.hold.timeoutMs !== undefined ? { timeoutMs: opts.hold.timeoutMs } : {}),
+      })
+    }
+
     // userPrompt 作为首封信投递（from=父，管理员打戳）；面板 role 无任务信。
     if (instance.userPrompt !== '') {
       await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt }, instance.parentId ?? USER_ID)
@@ -502,9 +513,9 @@ export class Kernel {
    * 父 = 宿主 agent（级联回收 + 族谱诚实）；grant 加法权限面；已存在则复用
    * （重启后 roleAgentId 指针丢失时按 classRef 找回，天然幂等）。
    */
-  async spawnRoleAgent(hostAgentId: string, role: StrategyAgentSpec): Promise<string> {
+  async spawnRoleAgent(hostAgentId: string, role: AgentClass): Promise<string> {
     const host = makeAgentID(hostAgentId)
-    const className = makeAgentClassID(role.className)
+    const className = role.name
     const existing = this.lineage
       .getChildren(host)
       .map((id) => this.instances.getSync(id))
@@ -517,34 +528,28 @@ export class Kernel {
   }
 
   /** 策略工具 worker 创建（父 = 扮演 agent；任务 = userPrompt 首信；回收交调用方）。 */
-  async spawnStrategyWorker(roleAgentId: string, task: string, spec: StrategyAgentSpec): Promise<string> {
+  async spawnStrategyWorker(roleAgentId: string, task: string, spec: AgentClass): Promise<string> {
     const role = makeAgentID(roleAgentId)
     await this.ensureSystemTemplate(spec)
     const roleInstance = this.instances.getSync(role)
     if (!roleInstance) throw { kind: 'agent_not_found', agentId: role }
     return this.instantiateInSpace(
-      { className: makeAgentClassID(spec.className), parentId: role, userPrompt: task, accessMode: 'grant' },
+      { className: spec.name, parentId: role, userPrompt: task, accessMode: 'grant' },
       roleInstance.spaceId,
     )
   }
 
-  /** 策略声明的系统模板 ensure（幂等；策略硬编码自身人设——决策 C）。 */
-  private async ensureSystemTemplate(spec: StrategyAgentSpec): Promise<void> {
-    const name = makeAgentClassID(spec.className)
-    if (this.templates.getSync(name)) return
+  /** 策略声明的系统模板 ensure（幂等；策略硬编码自身人设——决策 C）。
+   *  S9 类形态统一：入参即 AgentClass 本尊，**零字段映射**（旧 spec→class
+   *  手写搬运是配置漂移源，已根除）；仅缺省兜底两拍。 */
+  private async ensureSystemTemplate(cls: AgentClass): Promise<void> {
+    if (this.templates.getSync(cls.name)) return
     await this.templates.register({
-      name,
-      description: spec.description,
-      systemPrompt: spec.systemPrompt,
-      // tools 缺省 = 完整继承祖先链（策略若要 worker 拿 grant 键，role 面板
-      // 不得写空表锁死子孙——空表 = 本地封闭且显式锁树）；显式给出才整表落地。
-      ...(spec.tools !== undefined ? { tools: spec.tools } : {}),
-      sendCountdown: spec.sendCountdown ?? 0,
-      contextStrategy: spec.contextStrategy ?? 'none',
-      ...(spec.panel !== undefined ? { panel: spec.panel } : {}),
-      ...(spec.model !== undefined ? { model: spec.model } : {}),
+      ...cls,
+      sendCountdown: cls.sendCountdown ?? 0,
+      contextStrategy: cls.contextStrategy ?? 'none',
     })
-    this.emitLog({ type: 'kernel.class.registered', at: Date.now(), classId: spec.className })
+    this.emitLog({ type: 'kernel.class.registered', at: Date.now(), classId: cls.name })
   }
 
   /** 注册系统管理工具（agent_ 与 bus_ 前缀）到工具注册表。 */

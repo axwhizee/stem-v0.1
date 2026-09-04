@@ -80,6 +80,7 @@ export function eventInvolvesAgent(event: LogEvent, agentId: string): boolean {
     case 'kernel.model.set':
     case 'access.asked':
     case 'access.replied':
+    case 'kernel.step.limit':
     case 'context.compacted':
     case 'context.dreamed':
     case 'kernel.class.registered':

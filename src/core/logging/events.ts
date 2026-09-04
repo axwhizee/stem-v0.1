@@ -221,6 +221,15 @@ export interface ContextCompacted {
   readonly message: string
 }
 
+/** 步数上限到达记录（S9：类/全局 maxSteps 收束一轮工具循环；无限=永不出场）。 */
+export interface KernelStepLimit {
+  readonly type: 'kernel.step.limit'
+  readonly at: number
+  readonly agentId: string
+  readonly maxSteps: number
+  readonly message: string
+}
+
 /** 做梦完成记录（cortex 策略 dream：记忆组轮替 + 实时段归档，语料保留）。 */
 export interface ContextDreamed {
   readonly type: 'context.dreamed'
@@ -238,6 +247,7 @@ export interface ContextDreamed {
 
 export type LogEvent =
   | KernelOrphanError
+  | KernelStepLimit
   | ToolInvoked
   | ApiRequestRecorded
   | ContextAssembled

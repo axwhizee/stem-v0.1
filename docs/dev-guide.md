@@ -78,7 +78,7 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 | always 豁免备忘 | AccessAskBus per-agent | 只免询问，**不破 deny/ignore**（非权限层） |
 | `restrictAccess` 四态纯代数 | `src/core/tools/access.ts` | 层间合成的唯一算法（lineage 只共享此纯函数，tools 绝不 import lineage） |
 | `canReach(agentId)` 可见域 | `src/core/lineage` | 跨 agent 操作统一谓词（销毁/中断/telemetry/agent_update 全走它；自身∨祖先代查） |
-| `DEFAULT_USER_TOOLS` | `src/core/kernel/userClass.ts` | 根类缺省清单；`config.user.tools` 给出即**整表替换**（误删 `access_reply` = ask 死锁） |
+| `DEFAULT_USER_TOOLS` | `src/core/kernel/builtin/agents.ts` | 根类缺省清单（内置类唯一定义域：USER_DEFAULT/ASSISTANT/buildUserClass）；`config.user.tools` 给出即**整表替换**（误删 `access_reply` = ask 死锁） |
 | 祖先锁定律 | AccessLedger 语义矩阵 | 总序 `deny≺ask≺allow≺ignore` 顺链只许收缩；祖先匿名封闭不下传、显式判定才下传（藏匿/放宽皆扩张被拒） |
 
 ### E. 模型解析接入点（四级律的单点化）
@@ -96,7 +96,7 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 
 | 点位 | 契约/位置 | 时机 | 语义与边界 |
 |---|---|---|---|
-| `ContextStrategyModule` 五面 | `src/core/context/strategies/types.ts` | — | `name`（注册键）/ `note`（追加宿主 systemPrompt，模型知晓自身记忆机制）/ `role`（StrategyAgentSpec 模块扮演）/ `assemble`（**纯函数**）/ `process`（异步许可）/ `actions`（Record<名,(api,args)=>string>） |
+| `ContextStrategyModule` 六面 | `src/core/context/strategies/types.ts` | — | `name`（注册键）/ `note`（追加宿主 systemPrompt，模型知晓自身记忆机制）/ `role`（AgentClass——S9 类形态统一，策略 spec 与用户类同形状）/ `assemble`（**纯函数**）/ `process`（异步许可）/ `actions`（Record<名,(api,args)=>string>） |
 | `StrategyApi` 能力包 | 管理员构造注入 | process/actions 内 | list/listValid/append(tag)/markInvalid/updateMessage/estimatedTokens/settings/custom（宿主类基因槽）/spawn（role+worker 正规往返含回收）/lastWorkerId·roleAgentId（身份通道）/log——策略**不直连 kernel**；fs 与工具注册走 `init(ctx)`（`StrategyInitContext = {projectRoot,fs,settings,log,registerTool}`，cortex 为参考样板） |
 | 触发/终点 | 管理员 wake 链 | user_prompt 抵达 → 唤醒快递员 | 重入合并、失败兜底不卡死（契约义务） |
 | `tag` 词表 | 策略自定；**现状六元收口**（''/summary/cortex/ltm/note/stm） | append 合成消息时 | 组装器按该 agent 策略解释 tag；**strategy 不入库为 tag 的一部分**（上下文属性）；新策略要新 tag 先议后扩 |

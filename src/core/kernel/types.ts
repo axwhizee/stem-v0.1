@@ -22,6 +22,9 @@ export type AgentSpaceID = string & { readonly [agentSpaceId]: 'AgentSpaceID' }
 /** 项目/工作区引用（本阶段用字符串路径，后续可升级为 WorkspaceRef）。 */
 export type ProjectRef = string
 
+/** user 类 id（内置根模板；user0 采用此类实例化。S9 自 userClass.ts 迁来 types 之家）。 */
+export const USER_CLASS_ID = makeAgentClassID('user')
+
 export function makeAgentClassID(id: string): AgentClassID {
   return id as AgentClassID
 }
@@ -78,6 +81,11 @@ export interface AgentClass {
   readonly panel?: boolean
   /** 用户自定义元数据。 */
   readonly custom?: Readonly<Record<string, unknown>>
+  /**
+   * 单轮工具步数上限（S9；资源上限非权限——不进族谱律，不继承不封顶）。
+   * 解析 = 类基因 > 全局 config.maxSteps > 缺省无限；≤0/未设 = 无限制。
+   */
+  readonly maxSteps?: number
 }
 
 // ---------- 模型解析相（S6/R6 四级律；lineage 树与实例行共用形状） ----------

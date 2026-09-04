@@ -14,6 +14,8 @@
 
 import type { AssembleInput, AssembleResult, StoredMessage } from '../types'
 import type { ContextSettings, ContextStrategyModule, StrategyAgentSpec, StrategyApi } from './types'
+import type { AgentClass } from '../../kernel/types'
+import { makeAgentClassID } from '../../kernel/types'
 
 /** 经典组装：system + 全部有效消息原样直出（压缩由 process 阶段完成）。 */
 export function classicAssemble(input: AssembleInput): AssembleResult {
@@ -29,8 +31,8 @@ export function classicAssemble(input: AssembleInput): AssembleResult {
 }
 
 /** classic 扮演 agent 规格（懒生成，父 = 宿主 agent；面板态不跑 LLM）。 */
-export const CLASSIC_ROLE: StrategyAgentSpec = {
-  className: 'strategy-classic',
+export const CLASSIC_ROLE: AgentClass = {
+  name: makeAgentClassID('strategy-classic'),
   description: 'classic 策略扮演 agent：摘要 worker 的父与回信收集点（审计信箱，模块扮演，无 LLM 轮）',
   systemPrompt: '（模块扮演面板）classic 上下文策略的执行体：接收宿主 agent 委托的摘要任务 worker 的回信并留档审计；不参与 LLM 组装。',
   tools: {},
@@ -40,8 +42,8 @@ export const CLASSIC_ROLE: StrategyAgentSpec = {
 }
 
 /** 摘要 worker 规格（策略机制创建；零工具纯 LLM 总结）。 */
-export const SUMMARIZER_SPEC: StrategyAgentSpec = {
-  className: 'summarizer',
+export const SUMMARIZER_SPEC: AgentClass = {
+  name: makeAgentClassID('summarizer'),
   description: '系统摘要 worker：压缩精炼对话历史的专职任务 agent（策略机制创建，零工具）',
   systemPrompt:
     '你是 stem 系统的记忆压缩器。把给定的对话历史浓缩为一份结构化摘要，保留：①用户意图与要求；②关键事实/决定/结论；③已完成操作要点（文件与工具动作）；④未决问题与下一步。删除冗余、重复与过时信息，只输出摘要正文。',
@@ -102,7 +104,7 @@ async function compactNow(api: StrategyApi, trigger: 'auto' | 'manual'): Promise
     // S6/R6：摘要 worker 模型 = 类基因位（config context.compact.summarizeModel）；
     // 未配置则走出生链（父继承宿主 agent 档案 > 家学），不再有独立兜底常量。
     const summarizeModel = api.settings.compact.summarizeModel
-    const spec: StrategyAgentSpec = summarizeModel ? { ...SUMMARIZER_SPEC, model: summarizeModel } : SUMMARIZER_SPEC
+    const spec: AgentClass = summarizeModel !== undefined ? { ...SUMMARIZER_SPEC, model: summarizeModel } : SUMMARIZER_SPEC
     const summary = (await api.spawn(`${instruction}\n\n${transcript}`, spec)).trim()
     if (summary === '') {
       api.log({ type: 'context.compacted', agentId: api.agentId, outcome: 'skipped', compactedCount: 0, message: '摘要为空/超时' })

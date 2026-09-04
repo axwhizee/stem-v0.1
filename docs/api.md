@@ -27,7 +27,7 @@
 | `normalizeConfig` | `export function normalizeConfig(raw: Record<string, unknown>): StemConfig {` | `src/core/config/parse.ts` |
 | `parseConfigText` | `export function parseConfigText(text: string, file?: string): StemConfig {` | `src/core/config/parse.ts` |
 
-### 1.2 `context/` — 重建邮局（仓库/管理员/快递员/策略/持久端口）（42 项）
+### 1.2 `context/` — 重建邮局（仓库/管理员/快递员/策略/持久端口）（47 项）
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
@@ -60,7 +60,7 @@
 | `RepositoryState` | `export interface RepositoryState {` | `src/core/context/types.ts` |
 | `RestoredBox` | `export interface RestoredBox {` | `src/core/context/store.ts` |
 | `StoredMessage` | `export interface StoredMessage {` | `src/core/context/types.ts` |
-| `StrategyAgentSpec` | `export interface StrategyAgentSpec {` | `src/core/context/strategies/types.ts` |
+| `StrategyAgentSpec` | `export type StrategyAgentSpec = AgentClass`（S9 类形态统一，role/worker 与用户类同形状） | `src/core/context/strategies/types.ts` |
 | `StrategyApi` | `export interface StrategyApi {` | `src/core/context/strategies/types.ts` |
 | `StrategyRegistry` | `export interface StrategyRegistry {` | `src/core/context/strategies/registry.ts` |
 | `TimerFactory` — 计时端口（测试手动计时器注入点） | `export type TimerFactory = (fn: () => void, ms: number) => TimerHandle` | `src/core/context/Courier.ts` |
@@ -70,6 +70,9 @@
 | `createBuiltinStrategyRegistry` | `export function createBuiltinStrategyRegistry(extra: readonly ContextStrategyModule[] = []): StrategyRegistry {` | `src/core/context/strategies/index.ts` |
 | `createClassicStrategy` | `export function createClassicStrategy(): ContextStrategyModule {` | `src/core/context/strategies/classic.ts` |
 | `createNoneStrategy` | `export function createNoneStrategy(): ContextStrategyModule {` | `src/core/context/strategies/none.ts` |
+| `createCortexStrategy` | `export function createCortexStrategy(): ContextStrategyModule {` | `src/core/context/strategies/cortex/cortex.ts` |
+| `StrategyInitContext` / `StrategyInitFs` | 策略装载期契约（registerTool 窄口 + 可选 fs 写面；S8） | `src/core/context/strategies/types.ts` |
+| `CORTEX_ROLE` / `DREAM_WORKER_SPEC` | cortex 扮演面板 / 做梦 worker（AgentClass 形状，S9 统一） | `src/core/context/strategies/cortex/` |
 | `createCortexStrategy` | `export function createCortexStrategy(): ContextStrategyModule {` | `src/core/context/strategies/cortex/cortex.ts` |
 | `estimateTokens` | `export function estimateTokens(message: ChatMessage): number {` | `src/core/context/Repository.ts` |
 | `legalize` | `export function legalize(messages: readonly ChatMessage[]): ChatMessage[] {` | `src/core/context/legalize.ts` |
@@ -140,7 +143,7 @@
 | `runInit` | `export async function runInit(deps: InitDeps): Promise<InitReport> {` | `src/core/init/init.ts` |
 | `serializeAgentClass` | `export function serializeAgentClass(cls: AgentClass): string {` | `src/core/init/agentSerialize.ts` |
 
-### 1.6 `kernel/` — 内核（Kernel/模板/实例/空间/Runtime/user 类）（37 项）
+### 1.6 `kernel/` — 内核（Kernel/模板/实例/空间/Runtime/内置类表 builtin/agents）（37 项）
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
@@ -175,10 +178,10 @@
 | `RuntimeDeps` | `export interface RuntimeDeps {` | `src/core/kernel/Runtime.ts` |
 | `SpaceManager` | `export interface SpaceManager {` | `src/core/kernel/SpaceManager.ts` |
 | `TemplateRegistry` | `export interface TemplateRegistry {` | `src/core/kernel/TemplateRegistry.ts` |
-| `USER_CLASS_ID` | `export const USER_CLASS_ID = makeAgentClassID('user')` | `src/core/kernel/userClass.ts` |
+| `USER_CLASS_ID` | `export const USER_CLASS_ID = makeAgentClassID('user')` | `src/core/kernel/types.ts` |
 | `USER_ID` | `export const USER_ID = 'user0'` | `src/core/kernel/Kernel.ts` |
 | `createSystemTools` | `export function createSystemTools(kernel: Kernel): ToolCapability[] {` | `src/core/kernel/systemTools.ts` |
-| `createUserClass` | `export function createUserClass(cfg?: UserClassConfig): AgentClass {` | `src/core/kernel/userClass.ts` |
+| `buildUserClass` / `BUILTIN_AGENT_CLASSES` / `DEFAULT_USER_TOOLS` | 内置类唯一定义域（user 默认档 + assistant 白纸） | `src/core/kernel/builtin/agents.ts` |
 | `makeAgentClassID` | `export function makeAgentClassID(id: string): AgentClassID {` | `src/core/kernel/types.ts` |
 | `makeAgentID` | `export function makeAgentID(id: string): AgentID {` | `src/core/kernel/types.ts` |
 | `makeAgentSpaceID` | `export function makeAgentSpaceID(id: string): AgentSpaceID {` | `src/core/kernel/types.ts` |

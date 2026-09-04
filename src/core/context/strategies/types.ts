@@ -20,7 +20,8 @@
 // ============================================================
 
 import type { ChatMessage, ModelRef } from '../../gateway'
-import type { ToolAccess, ToolCapability } from '../../tools'
+import type { ToolCapability } from '../../tools'
+import type { AgentClass } from '../../kernel/types'
 import type { LogSink } from '../../logging'
 import type { ContextCompacted, ContextDreamed } from '../../logging/events'
 import type { AssembleInput, AssembleResult, StoredMessage } from '../types'
@@ -49,21 +50,13 @@ export const DEFAULT_CONTEXT_SETTINGS: ContextSettings = {
   compact: { enabled: true, threshold: 0.8, keepRecentTurns: 3, replyTimeoutMs: 60_000 },
 }
 
-/** 策略 agent 模板规格（role/worker 共用；kernel 首用即注册为内置模板）。 */
-export interface StrategyAgentSpec {
-  /** 模板名（首次使用时 ensure 进 TemplateRegistry）。 */
-  readonly className: string
-  readonly description: string
-  readonly systemPrompt: string
-  /** grant 加法权限面（整表替换 + 未列一律 deny；缺省 {} = 零工具）。 */
-  readonly tools?: Readonly<Record<string, ToolAccess>>
-  readonly model?: ModelRef
-  readonly sendCountdown?: number
-  /** true = 模块扮演面板（不跑 LLM 轮，只收信——宿主/收集器）。 */
-  readonly panel?: boolean
-  /** worker 的上下文策略（缺省 'none'：工具 agent 不再触发策略处理，断递归）。 */
-  readonly contextStrategy?: string
-}
+/**
+ * 策略 agent 模板规格 = **AgentClass 本尊**（S9 类形态统一：role/worker 与
+ * 用户类同形状，契约字段语义 = AgentClass 各字段；kernel 首用即 ensure 注册）。
+ * 要点：role 面板的 `tools` 若"不设" = 匿名不封顶（worker grant 通道需要）；
+ * 显式空表 = 本地封闭并锁子孙。
+ */
+export type StrategyAgentSpec = AgentClass
 
 /** 策略运行时 API（管理员按宿主 agent 构造注入）。 */
 export interface StrategyApi {

@@ -56,6 +56,8 @@ export interface StemUserClass {
   readonly model?: ModelRef
   /** 送信倒计时毫秒（缺省 0 = 直接获得回复）。 */
   readonly sendCountdown?: number
+  /** user0 出生显示名（S9；缺省 'User'——实例参数不上类，运行期改走 agent_update）。 */
+  readonly displayName?: string
 }
 
 /** 上下文策略配置块（`config.context`；classic 的 compact 参数面）。 */

@@ -18,7 +18,7 @@
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                       │
 │   init/     createStemSystem（组合根）· runInit（目录即真相，不回写）    │
 │   kernel/   Kernel · TemplateRegistry · InstanceManager · SpaceManager │
-│             Runtime（被动驱动）· userClass（内置 user 类）               │
+│             Runtime（被动驱动）· builtin/agents（内置类表）                  │
 │   pilot/    Pilot（user0 扮演接口）· events/（PilotEvent + EventHub）    │
 │   lineage/  LineageTree（族谱树：拓扑+能力+可见域）· context/（重建邮局）│
 │   tools/    ToolCapabilityRegistry（init 生命周期）· access · accessRequest│
@@ -39,7 +39,7 @@
 
 **一句话**：所有 agent（含 user0）是同一套机制的实例；user0 的特殊之处仅在于 `parentId = null`（根）与采用内置 `user` 类。
  
-- **user0 = `user` 类的普通实例**：内置根模板 `core/kernel/userClass.ts`，类配置 = **`config.user` 完整对象**（description/systemPrompt/tools/contextStrategy/model/sendCountdown 全可配——元 agent 人格进配置文件；tools 缺省走内置 `DEFAULT_USER_TOOLS`，含 access_reply 根义务 + bash 对外操作面 + 记忆笔记面 `cortex_add_note/del_note`（allow 常开，S8）。在 **pilot 初始化流程内**实例化（`createPilot → kernel.registerRootAgent`），与其它 agent 走完全相同的 `instantiate` 路径，无任何权限/流程特判；S6/R11 起挂**真实项目空间**（旧 `getOrCreate('user0')` 伪空间行废除，老卷 v2 迁移归并）。
+- **user0 = `user` 类的普通实例**：内置根模板在 `core/kernel/builtin/agents.ts` 统一类表（S9 类形态统一：userClass.ts 与 Assistant.json 双轨退役；`buildUserClass(config.user)` 构造注册），类配置 = **`config.user` 完整对象**（description/systemPrompt/tools/contextStrategy/model/sendCountdown/displayName 全可配——元 agent 人格进配置文件；tools 缺省走内置 `DEFAULT_USER_TOOLS`，含 access_reply 根义务 + bash 对外操作面 + 记忆笔记面 `cortex_add_note/del_note`（allow 常开，S8）。在 **pilot 初始化流程内**实例化（`createPilot → kernel.registerRootAgent`），与其它 agent 走完全相同的 `instantiate` 路径，无任何权限/流程特判；S6/R11 起挂**真实项目空间**（旧 `getOrCreate('user0')` 伪空间行废除，老卷 v2 迁移归并）。
 - **AgentClass（模板）**：`name（即 id）/ description / systemPrompt / tools（Record<访问键, ask|deny|allow|ignore>，键即白名单=自我限定）/ contextStrategy / model / sendCountdown / panel（模块扮演面板：不组装不跑 LLM）/ custom（自由扩展位）`。
 - **AgentInstance**：`id / classRef / parentId / displayName / spaceId / status / turnCount / totalCost / userPrompt / toolOverride / model（模型显式层，S6/R14）/ modelSnapshot（出生快照，族规跨重启）`；`parentId` 即族谱父（= 创建者，user0 为 null 即根），创建时确定、不可变（`creatorId` 已合并）。
 - **LineageTree 族谱树门面**（`core/lineage/`，实例层派生事实唯一面，S5.1）：三相——**拓扑**（getParent/getChildren/getAncestors/getDescendants/getRoot/isAncestorOf，基于 InstanceManager 实时推导，parentId 单一事实源）、**能力**（attach/detach/replay + effectiveAccess/profileOf + **模型配置相** modelOf/setModel/nodeConfigOf（S6：全参数统一解析律，见 2.2 末），原 AccessLedger 降为树内部实现、算法不变）、**可见域**（canReach = 自身∨祖先代查，跨 agent 操作统一谓词）。红线：纯派生不入库、零运行时状态、零类层依赖（自身清单与模型原始层由 kernel 算好传入）。
@@ -116,14 +116,14 @@
 
 - **仓库（Repository）**：上下文本体的唯一存储（`message / agentId / at / tokens / valid / from / tag? / turn / indexInTurn`）；任何消息先入库，触发 onChange。两标记分工：**tag = 是什么**（合成消息出处，strategy 写），**tokens = 多大**（计量：网关真实值优先、估算兜底，来源不设第二标记）。
 - **token 真实计量（累积差分归位）**：gateway `usage` 事件（openaiCompatible 流式 `include_usage`）→ Runtime 双通道——① assistant 行 append 时**直记** `outputTokens`；② `contextManager.attributeUsage` 把**相邻请求 inputTokens 差分**（扣除上轮 output）按估算占比归位到两轮之间新入库的 tool/user 行（`Repository.setTokens` 静默修订不触发 onChange，persisted 写穿零 schema 迁移）。护栏：首轮只记基线（整段 prompt 含 schemas 无行级可分性）、差分非负（compact 跳变回落估算）、基线纯内存（重启/compact 自愈）。compact 阈值与 totalCost 随真实口径自动升级。
-- **管理员（ContextManager）**：打发送者戳（user 消息用 from 生成 `<sender id>`）、context_wait 判定（命中挂起 → 作为 tool 结果填充）、**策略 process（异步，user_prompt 抵达触发）→ 就绪后唤醒快递员**、组装（按 agent 策略分发 + **legalize**；组装权归管理员——快递员只发不组装）；信箱配对 `waitForReply`（模块扮演 agent 的程序化等待原语）。
+- **管理员（ContextManager）**：打发送者戳（user 消息用 from 生成 `<sender id>`）、挂起等待判定（instantiate.wait 命中挂起 → 作为 tool 结果填充；可配超时自回填）、**策略 process（异步，user_prompt 抵达触发）→ 就绪后唤醒快递员**、组装（按 agent 策略分发 + **legalize**；组装权归管理员——快递员只发不组装）；信箱配对 `waitForReply`（模块扮演 agent 的程序化等待原语）。
 - **快递员（Courier）**：按 agentId 维护发送倒计时（初始 0 立即送；发送后开始；来信重置）；agent 送信快照经管理员委托（`buildAgentDelivery`）构造，面板（`assemble:false`）信件 diff 自持。
 - **消息 ≠ 上下文**：通信消息直接投递；上下文由管理员按模式组装。
 
 ### 唤醒语义（重要）
 
 - **只有外部来信唤醒快递员**：`deposit`（外部消息投递）才触发 `courier.notifyReady`；agent 自身的 `appendHistory`（assistant/tool 入库）**不**触发重投递——否则 agent 自回复会无限循环。
-- **context_wait 填充**：等待目标的回复命中挂起 → 作为 tool 结果填充到等待者 + 唤醒等待者。
+- **挂起等待填充（S9 挂起面）**：`agent_instantiate{wait}` 的回信命中挂起 → 作为 tool 结果填充到等待者 + 唤醒（hold 随实例化**先于首信注册** = 竞态从时序上根除；context_wait 工具已退役）；hold 可配 timeoutMs 超时自回填不永悬；`agent_pause` 到点自唤醒回填（期间来信照常进仓库堆积，醒后一次组装全见，无时长上限）；实例注销清全部挂起 timer 防孤儿。runtime 见 `contextWait` 标记**收束轮循环**（不空转）。
 
 ### 送信倒计时（快递员维护的局部量）
 
@@ -136,7 +136,7 @@
 ### 4.1 上下文三模块（`core/context/`）
 
 - **仓库（Repository.ts）**：`register` 时把 systemPrompt（= 人格 + 策略 note）作为首条 system message；`append` 触发 `onChange(agentId)`。
-- **管理员（ContextManager.ts）**：打戳 / context_wait 判定 / 策略 process 链（触发点 user_prompt 抵达，返回=就绪）/ 组装 `buildAgentDelivery`（策略分发 + `legalize`）/ `waitForReply` 配对 / `runStrategyAction`；`deposit` 经 wake 链唤醒快递员（重入 guard：处理中来信合并补跑；策略失败兜底照常唤醒）；`appendHistory` 不唤醒。面板（`assemble:false`，含 user0 与策略 role）恒绑 none 策略。
+- **管理员（ContextManager.ts）**：打戳 / 挂起等待判定（hold/pause 双通道）/ 策略 process 链（触发点 user_prompt 抵达，返回=就绪）/ 组装 `buildAgentDelivery`（策略分发 + `legalize`）/ `waitForReply` 配对 / `runStrategyAction`；`deposit` 经 wake 链唤醒快递员（重入 guard：处理中来信合并补跑；策略失败兜底照常唤醒）；`appendHistory` 不唤醒。面板（`assemble:false`，含 user0 与策略 role）恒绑 none 策略。
 - **快递员（Courier.ts）**：agent 收 `AgentDelivery`（含 `messageIds`，快照来自管理员委托——**只发不组装**）；`assemble:false` 注册（user0 / 模块扮演 role）只汇总 user 信件（`UserDelivery` diff）。
 
 ### 4.2 Runtime（`core/kernel/Runtime.ts`，被动驱动）
@@ -170,7 +170,7 @@
 - **治理 = 机制 + 分担，非询问**（对齐 pi）：**无 ask、无黑名单**（高频工具询问打断模型循环得不偿失）；事故半径三机制（硬超时缺省 120s / stdout·stderr 各 50k 截断 / cwd 缺省项目根，`config.bash` 可配 `path/defaultTimeoutMs/maxOutputChars/cwd`）；行为规范靠工具描述提示词（非交互式、有专职工具优先）；不想给某 agent shell → 模板白名单不列 `bash` 键（键即自我限定）。非零退出码不是工具失败（输出 + exit code 照常返回，模型自判）。
 - `DEFAULT_USER_TOOLS` 内置 `bash:'allow'`（`config.user.tools` 整表替换者自担）；宿主未注入 `shellRunner` 则不装配（`bootStem` 缺省注入，`shellRunner:false` 可关）。
 
-### 4.6 系统工具（`core/kernel/systemTools.ts`，kind=internal，19 个）
+### 4.6 系统工具（`core/kernel/systemTools.ts`，kind=internal，20 个）
 
 | 工具 | 作用 |
 |---|---|
@@ -180,7 +180,7 @@
 | `agent_ancestry` / `agent_descendants` / `agent_terminate` | 祖先链 / 后代 / 终止（销毁权 + recursive） |
 | `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：model / displayName / tools 收敛 patch（总序拒扩张）/ grantTools 清单整表（逐键封顶）——吸收原 agent_set_model；审计双事件 |
 | `bus_send` / `bus_participants` | 发消息 / 参与者列表 |
-| `context_wait` | 等待指定 agent 回复（其回复作为 tool 结果填充） |
+| `agent_pause` | 自主挂起攒信（ms 到点唤醒；期间信件自然堆积。等特定子回信走 agent_instantiate 的 wait） |
 | `context_export` / `context_overview` / `context_remove` / `context_edit` | 导出 jsonl / 概览 / 删除过时消息（markInvalid）/ 重写消息（system 除外） |
 | `context_apply` | 执行上下文策略专有动作（如 classic compact；仅自身或祖先） |
 | `access_reply` | 批准/拒绝访问申请（once/always/reject；授权权=申请者的族谱根） |
@@ -226,7 +226,7 @@
 
 **唯一配置文件**：`<projectRoot>/.stem/stem.jsonc`（或 `.stem/stem.json`）。
 
-- 配置项（S6/R12 全量有效原则：**未知顶层键 boot fail-fast**，`custom` 为唯一扩展位；历史键 model/tools/agents/strategies 出现即报错并给迁移指路——S4.2 静默丢弃兼容已废除）：**`providers`（模型提供商注册表：`base_url` 必填 http(s) / `key_env` 密钥环境变量名（**配置文件永不承载明文密钥**；缺省 = 匿名端点）/ `models` 启用白名单——R13；一切模型引用的 provider 必须在此注册）**、`autoApprove`、**`user`（user0 内嵌 agent 类完整对象：description/systemPrompt/tools/contextStrategy/**model（家学锚点，boot 必填硬校验——全链缺省的本体）**/sendCountdown）**、`maxSteps`、**`context`（window/compact：threshold/keepRecentTurns/summarizeModel（摘要 worker 类基因位，已接线）/instruction/replyTimeoutMs）**、**`bash`（path/defaultTimeoutMs/maxOutputChars/cwd）**、**`extensions`（S7 分键对象：`{tools?, agent?, context?}` = `extension/<键>/` 下启用的目录形态条目名；tools 缺省 = fs 五件套，agent/context 缺省 = 不启用；旧数组形态 fail-fast 指路）**、`sendCountdown`。**目录即真相**（S4.2）+ **config 即全部配置**（S6/R12）；首启模板 = `config/defaults.ts` 的 `DEFAULT_CONFIG_TEXT`（唯一预设 opencode-go 以模板数据存在，R2；文件缺失时 `defaultStemConfig()` 兼作内存等效——首启装配必有锚）。
+- 配置项（S6/R12 全量有效原则：**未知顶层键 boot fail-fast**，`custom` 为唯一扩展位；历史键 model/tools/agents/strategies 出现即报错并给迁移指路——S4.2 静默丢弃兼容已废除）：**`providers`（模型提供商注册表：`base_url` 必填 http(s) / `key_env` 密钥环境变量名（**配置文件永不承载明文密钥**；缺省 = 匿名端点）/ `models` 启用白名单——R13；一切模型引用的 provider 必须在此注册）**、`autoApprove`、**`user`（user0 内嵌 agent 类完整对象：description/systemPrompt/tools/contextStrategy/**model（家学锚点，boot 必填硬校验——全链缺省的本体）**/sendCountdown/displayName（S9 出生显示名）**）、`maxSteps`、**`context`（window/compact：threshold/keepRecentTurns/summarizeModel（摘要 worker 类基因位，已接线）/instruction/replyTimeoutMs）**、**`bash`（path/defaultTimeoutMs/maxOutputChars/cwd）**、**`extensions`（S7 分键对象：`{tools?, agent?, context?}` = `extension/<键>/` 下启用的目录形态条目名；tools 缺省 = fs 五件套，agent/context 缺省 = 不启用；旧数组形态 fail-fast 指路）**、`sendCountdown`。**目录即真相**（S4.2）+ **config 即全部配置**（S6/R12）；首启模板 = `config/defaults.ts` 的 `DEFAULT_CONFIG_TEXT`（唯一预设 opencode-go 以模板数据存在，R2；文件缺失时 `defaultStemConfig()` 兼作内存等效——首启装配必有锚）。
 - **系统装配**（`core/init/system.ts`，`createStemSystem(deps)` 组合根）：
   0. （可选 `stateStore` 注入）Kernel 构造内：内存核建好后先从 store 恢复（实例/消息/空间 + 状态归一化 + id 计数器续接 + 族谱树能力相 replay 重放），再套 write-through 装饰器，恢复出的实例在构造末尾统一接线上下文——装配顺序不变，恢复收敛在 Kernel 内；
   1. 读取配置（不存在 = `defaultStemConfig()` 内存等效，S6/R12；**家学硬校验 config.user.model**）→ 工具注册表 + Kernel（user 类 = config.user 对象，`contextSettings`/`maxSteps`/**`project`（项目空间身份，根挂真实空间）**注入；策略注册表内置 classic/none）；
@@ -255,7 +255,7 @@
 
 - **端口（core，零平台依赖）**：`context/store.ts` `MessageStore`（upsert/archiveAgent/loadBoxes/maxMessageSeq）；`kernel/store.ts` `InstanceStore`（实例 upsert/delete/loadAll + 空间 upsertSpace/deleteSpace/loadSpaces）。接口与默认内存实现同文件（`MemoryMessageStore`/`MemoryInstanceStore`，测试即用它观测持久化）。
 - **装饰器（core）**：`context/persisted.ts` `PersistedRepository`；`kernel/persisted.ts` `PersistedInstanceManager` / `PersistedSpaceManager`——全部委托内层内存实现 + 写穿。**terminate = 个体消亡**：实例/空间行删除，**消息行归档**（archived 标记，进化语料保留，恢复不加载、id 计数器避开历史序号）。
-- **恢复语义（Kernel 构造内，装配步骤 0）**：实例装载（**活跃状态归一化** thinking/holding → interrupted，halt 语义下消息闭合可恢复）→ 消息箱重放（反演 push 状态机还原 turn/indexInTurn 计数器 + `setCounterFloor` 防撞）→ 空间装载（spaceId 重启可解析）→ 上下文接线（`ContextRegistration.restore=true` 跳过仓库开辟；快递员 `initialSentIds` 预置 → **重启零重放**）→ user0 幂等（`createPilot` 检测根已存在即跳过）。悬空 context_wait 等待不恢复，交给组装期 **legalize** 自然兜底。
+- **恢复语义（Kernel 构造内，装配步骤 0）**：实例装载（**活跃状态归一化** thinking/holding → interrupted，halt 语义下消息闭合可恢复）→ 消息箱重放（反演 push 状态机还原 turn/indexInTurn 计数器 + `setCounterFloor` 防撞）→ 空间装载（spaceId 重启可解析）→ 上下文接线（`ContextRegistration.restore=true` 跳过仓库开辟；快递员 `initialSentIds` 预置 → **重启零重放**）→ user0 幂等（`createPilot` 检测根已存在即跳过）。悬空挂起等待（wait/pause 的内存 hold 与 timer）不恢复，交给组装期 **legalize** 自然兜底。
 - **SQLite 适配（shell/cli/storage/）**：`node:sqlite`（`DatabaseSync`）；行 = 记录全量 JSON + `agent_id/seq` 冗余列；`PRAGMA user_version` 迁移守卫（**当前 v2**：根伪空间归并——旧 project='user0' 伪行并入/转正为项目空间，JSON1 就地改写、幂等；`createSqliteStateStore(file, project)` 携空间身份供迁移）；rollback journal（9P/WAL-shm 安全）；默认 `<projectRoot>/.stem/stem.db`（`STEM_DB_PATH` 覆盖，`bootStem` 注入，缺省即持久，`stateStore:false` 显式纯内存）。**空间语义（S6/R3/R11）**：`.stem` = 世界——一进程 = 一空间 = 一 projectRoot = 一 `.stem` = 一 `stem.db`；定位 opencode-style（`stem [path]` > `STEM_PROJECT_ROOT` > cwd），无注册表无切换器，单实例 = 约定非机制（无锁）。
 - **已知边界**：`turnCount/totalCost` 经引用直改不经装饰器，最后一次状态变更时全字段快照收敛——最多丢"进行中的一轮"记账零头（消息本体不受影响）；单进程假设；webui/cli 重启后 user0 出现在 agent 列表（平等化后属正常视图，UI 未过滤）。
 
@@ -275,7 +275,7 @@
 3. 快递员: 经管理员委托取送信快照（策略 assemble + legalize）→ 发送 AgentDelivery → processDelivery
 4. agent: thinking → tool_call(agent_instantiate) → 创建子 agent（parentId=调用者，台账继承+收敛绑定）
 5. 子 agent: 首信投递 → 快递员发送 → thinking → tool_call(oc_get_time) → 工具结果入仓库
-6. 子 agent: 最终回复投递给创建者（context_wait 命中 → 作为 tool 结果填充）
+6. 子 agent: 最终回复投递给创建者（instantiate.wait 命中挂起 → 作为 tool 结果填充）
 7. 创建者: 续轮 → 回复用户 → 投递给 user0 → letter 事件 → shell/webui 展示
 ```
 

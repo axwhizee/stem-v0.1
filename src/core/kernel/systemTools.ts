@@ -36,7 +36,7 @@ export function createSystemTools(kernel: Kernel): ToolCapability[] {
     busSend(kernel),
     busParticipants(kernel),
     telemetryQuery(kernel),
-    contextWait(kernel),
+    agentPause(kernel),
     contextExport(kernel),
     contextOverview(kernel),
     contextRemove(kernel),
@@ -51,7 +51,7 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
   return {
     id: 'agent_class_create',
     description:
-      '创建新的 agent 类（模板）并回写 `.stem/agent/<name>.md`（目录即真相，重启后仍生效——进化书写面）。新名 = 变体并存（供谱系对照与回滚）；同名会被拒绝（覆盖现役请用 agent_class_update）。类定义角色设定（systemPrompt / tools 工具清单 / contextStrategy / model / sendCountdown），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。tools 为工具访问键到访问动作的映射（键即白名单，未列出的工具不可用；对继承面只能收敛）。',
+      '创建新的 agent 类（模板）并回写 `.stem/agent/<name>.md`（目录即真相，重启后仍生效——进化书写面）。新名 = 变体并存（供谱系对照与回滚）；同名会被拒绝（覆盖现役请用 agent_class_update）。类定义角色设定（systemPrompt / tools 工具清单 / contextStrategy / model / sendCountdown / maxSteps），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。tools 为工具访问键到访问动作的映射（键即白名单，未列出的工具不可用；对继承面只能收敛）。',
     accessKey: 'agent_class_create',
     kind: 'internal',
     category: 'system',
@@ -65,6 +65,7 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
         contextStrategy: { type: 'string', description: '上下文管理策略（默认 classic）' },
         model: { type: 'string', description: '模型（"提供商/模型"，可选；缺省沿 父继承>家学 链解析）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒（可选，缺省 1000）' },
+        maxSteps: { type: 'number', description: '单轮工具步数上限（可选；≤0/未设 = 无限制——仅对确有需要限步的角色设置）' },
       },
       required: ['name', 'description'],
     },
@@ -77,6 +78,7 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
         contextStrategy?: string
         model?: string
         sendCountdown?: number
+        maxSteps?: number
       }
       let model: ModelRef | undefined
       if (args.model !== undefined) {
@@ -92,6 +94,7 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
         ...(args.contextStrategy !== undefined ? { contextStrategy: args.contextStrategy } : {}),
         ...(model !== undefined ? { model } : {}),
         ...(args.sendCountdown !== undefined ? { sendCountdown: args.sendCountdown } : {}),
+        ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
       }
       await kernel.registerAgentClass(cls, { persist: true, by: ctx.agentId })
       return {
@@ -125,6 +128,7 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
         contextStrategy: { type: 'string', description: '上下文策略名' },
         model: { type: 'string', description: '模型（"提供商/模型"）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒' },
+        maxSteps: { type: 'number', description: '单轮工具步数上限（≤0/未设 = 无限制）' },
       },
     },
     execute: async (input, ctx) => {
@@ -136,6 +140,7 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
         contextStrategy?: string
         model?: string
         sendCountdown?: number
+        maxSteps?: number
       }
       // 缺省目标 = 调用者所属类（自我进化主路径）。
       const selfClass = kernel.instances.getSync(makeAgentID(ctx.agentId))?.classRef
@@ -168,6 +173,7 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
         ...(args.systemPrompt !== undefined ? { systemPrompt: args.systemPrompt } : {}),
         ...(args.contextStrategy !== undefined ? { contextStrategy: args.contextStrategy } : {}),
         ...(args.sendCountdown !== undefined ? { sendCountdown: args.sendCountdown } : {}),
+        ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
         ...(model !== undefined ? { model } : {}),
         ...(mergedTools !== undefined ? { tools: mergedTools } : {}),
       }
@@ -224,7 +230,8 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
   return {
     id: 'agent_instantiate',
     description:
-      '创建新的 agent 实例。必填 className（模板名）与 userPrompt（作为该 agent 的首条 user 消息）；族谱父自动为调用者。可选 agentId（唯一）、model（"提供商/模型" 显式覆盖出生模型；缺省 = 类基因 > 你的继承链）、contextRefs（父仓库消息索引，深拷贝传入）、tools（对模板工具清单的临时收敛）。创建后返回 agent id；若需等待其返回结果，请调用 context_wait(agentId)。',
+      '创建新的 agent 实例。必填 className（模板名）与 userPrompt（作为该 agent 的首条 user 消息）；族谱父自动为调用者。可选 agentId（唯一）、model（"提供商/模型" 显式覆盖出生模型；缺省 = 类基因 > 你的继承链）、contextRefs（父仓库消息索引，深拷贝传入）、tools（对模板工具清单的临时收敛）。创建即返回 agent id。' +
+      'wait=true 时同步等待该 agent 的回信作为本次调用的结果进入你的上下文（创建与配对原子完成，回信不会漏接；可配 waitTimeoutMs 超时兜底）；不传 wait = 异步协作，其回复将作为普通信件到达。',
     accessKey: 'agent_instantiate',
     kind: 'internal',
     category: 'system',
@@ -237,6 +244,8 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
         model: { type: 'string', description: '显式模型 "提供商/模型"（可选；缺省按 类基因>父继承>家学 解析）' },
         contextRefs: { type: 'array', items: { type: 'string' }, description: '父仓库消息索引列表（消息 id 或轮索引），深拷贝传入新实例' },
         tools: { type: 'object', description: '工具清单补充：访问键 → ask/deny（对模板表临时收敛）' },
+        wait: { type: 'boolean', description: 'true = 创建并等待该 agent 回信作为本工具结果（推荐用于子任务委托）' },
+        waitTimeoutMs: { type: 'number', description: 'wait 超时毫秒（可选；超时回填提示行，不无限等待）' },
       },
       required: ['className', 'userPrompt'],
     },
@@ -248,6 +257,8 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
         model?: string
         contextRefs?: string[]
         tools?: Readonly<Record<string, ToolAccess>>
+        wait?: boolean
+        waitTimeoutMs?: number
       }
       let model: ModelRef | undefined
       if (args.model !== undefined) {
@@ -264,9 +275,17 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
           contextRefs: args.contextRefs,
           tools: args.tools,
           ...(model !== undefined ? { model } : {}),
+          // wait：hold 随实例化原子注册（Kernel 在首信投递前放置，竞态绝迹）；
+          // 本调用不回填结果，runtime 见 contextWait 标记收束本轮等唤醒。
+          ...(args.wait === true
+            ? { hold: { toolCallId: ctx.callId ?? '', ...(args.waitTimeoutMs !== undefined ? { timeoutMs: args.waitTimeoutMs } : {}) } }
+            : {}),
         },
         ctx.spaceId,
       )
+      if (args.wait === true) {
+        return { text: '', metadata: { contextWait: true } }
+      }
       return { text: `已创建 agent ${agentId}` }
     },
   }
@@ -513,29 +532,36 @@ function busParticipants(kernel: Kernel): ToolCapability {
 }
 
 /**
- * 等待指定 agent 的回复（context 模块工具）。
- * 注册后，该 agent 的 assistant_message 将作为本工具的 tool 结果进入上下文（而非普通信件）。
- * 本工具无常规 tool 结果（metadata.contextWait 标记使 kernel 跳过记录）；
- * 真正的结果由邮局在等待对象回信时填充。
+ * 自主挂起（S9）：agent 判断自己需要暂停攒信时调用——ms 到点自动唤醒，
+ * 期间来信照常进信箱（醒来后一次组装全部在场）。无时长上限（用户裁决：
+ * 数小时挂起合法；孤儿风险由 ContextManager 注销清理兜底）。
+ * 等特定子的回信不用它——用 agent_instantiate 的 wait 参数。
  */
-function contextWait(kernel: Kernel): ToolCapability {
+function agentPause(kernel: Kernel): ToolCapability {
   return {
-    id: 'context_wait',
+    id: 'agent_pause',
     description:
-      '等待指定 agent 的回复。配合 agent_instantiate 使用：创建子 agent 后调用 context_wait(agentId)（agentId 为 agent_instantiate 返回的 id），该 agent 的 assistant_message 将作为本工具的 tool 结果进入你的上下文，而不是作为普通来信。',
-    accessKey: 'context_wait',
+      '挂起自己一段时间：ms 后自动唤醒，期间收到的新信件全部堆积在上下文里，' +
+      '醒来时一次组装可见。适合"等待多方消息汇聚再判断"的节奏控制。',
+    accessKey: 'agent_pause',
     kind: 'internal',
-    category: 'context',
+    category: 'system',
     parameters: {
       type: 'object',
       properties: {
-        agentId: { type: 'string', description: '要等待其回复的 agent id（来自 agent_instantiate 的返回结果）' },
+        ms: { type: 'number', description: '挂起毫秒数（到点唤醒）' },
+        reason: { type: 'string', description: '挂起原因（可选，仅入审计日志）' },
       },
-      required: ['agentId'],
+      required: ['ms'],
+    },
+    validate: (input) => {
+      const a = input as { ms?: unknown }
+      if (typeof a.ms !== 'number' || !Number.isFinite(a.ms) || a.ms <= 0) return 'ms 必须是正数'
+      return undefined
     },
     execute: async (input, ctx) => {
-      const agentId = (input as { agentId: string }).agentId
-      await kernel.contextManager.registerHold(agentId, { ownerId: ctx.agentId, toolCallId: ctx.callId ?? '' })
+      const { ms } = input as { ms: number }
+      await kernel.contextManager.registerPause(ctx.agentId, { toolCallId: ctx.callId ?? '', ms })
       return { text: '', metadata: { contextWait: true } }
     },
   }
@@ -665,7 +691,7 @@ function contextApply(kernel: Kernel): ToolCapability {
   return {
     id: 'context_apply',
     description:
-      '执行该 agent 上下文管理策略的专有动作（如 classic 的 compact 手动压缩历史）。action 取值见系统提示中的 <stem_context>。仅能操作自身上下文（祖先可代子孙触发）。',
+      '执行该 agent 上下文管理策略的专有动作（如 classic 的 compact 手动压缩历史；cortex 的 dream 提前做梦固化记忆）。action 取值见系统提示中的 <stem_context>。仅能操作自身上下文（祖先可代子孙触发）。',
     accessKey: 'context_apply',
     kind: 'internal',
     category: 'context',
@@ -791,6 +817,8 @@ function telemetryBrief(event: LogEvent): string {
       return `${event.outcome} n=${event.compactedCount}`
     case 'context.dreamed':
       return `${event.consolidated ? 'dreamed' : 'aborted'} invalid=${event.invalidRows} notes=${event.notesTouched}`
+    case 'kernel.step.limit':
+      return `步数上限 ${event.maxSteps} 收束本轮`
     case 'mailbox.countdown':
       return event.action
     case 'mailbox.delivered':

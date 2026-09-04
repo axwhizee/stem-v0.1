@@ -42,7 +42,9 @@ export type { KernelOptions, ClassStore } from './Kernel'
 export { Kernel, BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 
 // 内置 user 类（根模板，user0 采用）
-export { USER_CLASS_ID, createUserClass } from './userClass'
+export { USER_CLASS_ID } from './types'
+export { BUILTIN_AGENT_CLASSES, DEFAULT_USER_TOOLS, USER_DEFAULT, ASSISTANT, buildUserClass } from './builtin/agents'
+export type { UserClassConfig } from './builtin/agents'
 
 // 系统管理工具
 export { createSystemTools } from './systemTools'

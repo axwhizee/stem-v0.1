@@ -10,6 +10,7 @@
 //     edit: ask
 //     bash: deny
 //   send_countdown: 1000       # 可选送信倒计时
+//   max_steps: 12                # 可选单轮工具步数上限（≤0/缺省 = 无限制）
 //   context_strategy: classic  # 可选上下文管理策略（strategies 注册表校验）
 //   model: provider/id         # 可选模型偏好
 //   <任意其它字段>             # 透传进 AgentClass.custom（自定义扩展位）
@@ -35,6 +36,8 @@ export interface AgentFrontmatter {
   /** 融合的工具访问：工具名 → allow|ask|deny|ignore（键即工具白名单）。 */
   readonly tools?: Readonly<Record<string, string>>
   readonly send_countdown?: number
+  /** 单轮工具步数上限（S9；≤0/未设 = 无限制）。 */
+  readonly max_steps?: number
   /** 上下文管理策略名（缺省 classic；注册期由策略注册表校验）。 */
   readonly context_strategy?: string
   /** 模型偏好（`提供商/模型`）。 */
@@ -55,6 +58,7 @@ export interface ParsedAgentFile {
   /** 工具白名单（= permission 的键，缺省空）。 */
   readonly tools: readonly string[]
   readonly sendCountdown?: number
+  readonly maxSteps?: number
   readonly contextStrategy?: string
   readonly model?: ModelRef
   readonly custom: Readonly<Record<string, unknown>>
@@ -91,6 +95,7 @@ export function parseAgentFile(text: string, filename: string): ParsedAgentFile 
     toolAccess,
     tools,
     ...(head.send_countdown !== undefined ? { sendCountdown: head.send_countdown } : {}),
+    ...(head.max_steps !== undefined ? { maxSteps: head.max_steps } : {}),
     ...(head.context_strategy !== undefined ? { contextStrategy: head.context_strategy } : {}),
     ...(model !== undefined ? { model } : {}),
     custom: head.extra,

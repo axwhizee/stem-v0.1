@@ -288,6 +288,7 @@ function parseAgentInto(
       // 融合：工具清单 = permission 的键 → 动作（键即白名单）。
       tools: parsed.toolAccess,
       ...(parsed.sendCountdown !== undefined ? { sendCountdown: parsed.sendCountdown } : {}),
+      ...(parsed.maxSteps !== undefined ? { maxSteps: parsed.maxSteps } : {}),
       ...(parsed.contextStrategy !== undefined ? { contextStrategy: parsed.contextStrategy } : {}),
       ...(parsed.model !== undefined ? { model: parsed.model } : {}),
       ...(Object.keys(parsed.custom).length > 0 ? { custom: parsed.custom } : {}),

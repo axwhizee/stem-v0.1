@@ -30,9 +30,15 @@ function deliveryFor(agentId: string, system = cls.systemPrompt): AgentDelivery 
 
 async function makeRuntime(
   gateway: FakeGateway,
-  extra?: { tools?: DefaultToolCapabilityRegistry; template?: AgentClass; resolveModel?: () => ModelRef | undefined },
+  extra?: {
+    tools?: DefaultToolCapabilityRegistry
+    template?: AgentClass
+    resolveModel?: () => ModelRef | undefined
+    maxSteps?: number
+  },
 ) {
-  const templates = new DefaultTemplateRegistry([extra?.template ?? cls])
+  const logs: import('../logging').LogEvent[] = []
+  const templates = new DefaultTemplateRegistry(extra?.template !== undefined ? [cls, extra.template] : [cls])
   const instances = new DefaultInstanceManager(templates)
   // 根 agent（user0）：普通实例（parentId=null），作为最终回复投递目标。
   await instances.instantiate({
@@ -55,7 +61,7 @@ async function makeRuntime(
   }
 
   const instance = await instances.instantiate({
-    className: cls.name,
+    className: extra?.template !== undefined ? extra.template.name : cls.name,
     parentId: makeAgentID('user0'),
     userPrompt: 'hi',
     spaceId: makeAgentSpaceID('space-1'),
@@ -72,8 +78,31 @@ async function makeRuntime(
     tools: extra?.tools,
     // S6/R6：模型解析归口族谱树四级律（端口 stub；原 templates+defaultModel 单层链已拆除）。
     resolveModel: extra?.resolveModel ?? (() => model),
+    // S9：类基因步数解析口 + 全局兜底 + 日志采集。
+    templates: extra?.template !== undefined ? new DefaultTemplateRegistry([extra.template]) : undefined,
+    ...(extra?.maxSteps !== undefined ? { maxSteps: extra.maxSteps } : {}),
+    onLog: { log: (event) => { logs.push(event) } },
   })
-  return { runtime, instances, contextManager, repository, letters, agentId: instance.id }
+  return { runtime, instances, contextManager, repository, letters, agentId: instance.id, logs }
+}
+
+/** 步数收束专项载体类 + 无限 tool-call 网关脚本。 */
+const loopTool: AgentClass = {
+  name: makeAgentClassID('looper'),
+  description: 'x',
+  systemPrompt: 'looper',
+  tools: { tick: 'allow' },
+  maxSteps: 2,
+}
+
+function endlessToolCall(counter: { n: number }) {
+  return (request: { system?: string }): Iterable<import('../gateway').LLMEvent> => {
+    counter.n += 1
+    return [
+      { type: 'tool-call', id: `t${String(counter.n)}`, name: 'tick', input: {} },
+      { type: 'finish', reason: 'tool_calls' },
+    ]
+  }
 }
 
 describe('DefaultRuntime（被动驱动）', () => {
@@ -255,5 +284,59 @@ describe('DefaultRuntime（被动驱动）', () => {
     assert.equal(resolveCalls, 1, '解析端口被咨询一次')
     assert.equal(gateway.requests.length, 0, '无锚不得触网关')
     assert.equal(instances.getSync(makeAgentID(agentId))?.status, 'interrupted')
+  })
+})
+
+describe('步数上限（S9：类基因 > 全局兜底 > 无限）', () => {
+  test('类基因 maxSteps=2：两轮工具后收束并发 kernel.step.limit', async () => {
+    const counter = { n: 0 }
+    const tools = new DefaultToolCapabilityRegistry()
+    await tools.register({
+      id: 'tick',
+      description: 'x',
+      parameters: { type: 'object', properties: {} },
+      execute: () => ({ text: 'tick' }),
+    })
+    const gateway = new FakeGateway(endlessToolCall(counter))
+    const { runtime, agentId, logs } = await makeRuntime(gateway, { tools, template: loopTool })
+    await runtime.processDelivery(deliveryFor(agentId, loopTool.systemPrompt))
+    assert.equal(gateway.requests.length, 2, '类基因上限两轮')
+    const ev = logs.find((e) => e.type === 'kernel.step.limit')
+    assert.ok(ev && ev.type === 'kernel.step.limit' && ev.maxSteps === 2, '撞限事件行动化')
+  })
+
+  test('缺省无限制：>5 轮工具长跑不被切断（旧默认 5 的回归锚）', async () => {
+    const counter = { n: 0 }
+    const tools = new DefaultToolCapabilityRegistry()
+    await tools.register({
+      id: 'tick',
+      description: 'x',
+      parameters: { type: 'object', properties: {} },
+      execute: () => ({ text: 'tick' }),
+    })
+    const seen = counter
+    const gateway = new FakeGateway((request) => {
+      seen.n += 1
+      if (seen.n >= 7) return [{ type: 'text-delta', text: 'done' }, { type: 'finish', reason: 'stop' }]
+      return [{ type: 'tool-call', id: `t${String(seen.n)}`, name: 'tick', input: {} }, { type: 'finish', reason: 'tool_calls' }]
+    })
+    const { runtime, agentId } = await makeRuntime(gateway, { tools })
+    await runtime.processDelivery(deliveryFor(agentId))
+    assert.equal(gateway.requests.length, 7, '七轮长跑无切断')
+  })
+
+  test('全局 config 兜底：无类基因时 deps.maxSteps=1 生效', async () => {
+    const counter = { n: 0 }
+    const tools = new DefaultToolCapabilityRegistry()
+    await tools.register({
+      id: 'tick',
+      description: 'x',
+      parameters: { type: 'object', properties: {} },
+      execute: () => ({ text: 'tick' }),
+    })
+    const gateway = new FakeGateway(endlessToolCall(counter))
+    const { runtime, agentId } = await makeRuntime(gateway, { tools, maxSteps: 1 })
+    await runtime.processDelivery(deliveryFor(agentId))
+    assert.equal(gateway.requests.length, 1)
   })
 })

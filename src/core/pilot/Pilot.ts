@@ -172,7 +172,7 @@ export class DefaultPilot implements Pilot {
 export async function createPilot(options: PilotOptions): Promise<Pilot> {
   const identity = options.identity ?? makeAgentID('user0')
   if (!options.kernel.instances.getSync(identity)) {
-    await options.kernel.registerRootAgent('User')
+    await options.kernel.registerRootAgent()
   }
   return new DefaultPilot({ ...options, identity })
 }

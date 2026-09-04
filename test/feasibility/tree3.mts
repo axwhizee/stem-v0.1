@@ -27,7 +27,7 @@ const { agentId } = await post('/api/instantiate', { className: 'creator', userP
 const org = String(agentId)
 await waitTurn(org, 1)
 let base = await turnOf(org)
-await post('/api/send', { to: org, text: '建两个孙辈并等待结果后汇总：1) agent_instantiate 类 worker（agentId 含 deptA），userPrompt=「read note.txt 报内容」；2) 再建 worker（agentId 含 deptB），userPrompt=「grep 搜 STEM 报命中数」。用 context_wait 收卷，最后列出两个结果。' })
+await post('/api/send', { to: org, text: '建两个孙辈并等待结果后汇总：1) agent_instantiate 类 worker（agentId 含 deptA），userPrompt=「read note.txt 报内容」；2) 再建 worker（agentId 含 deptB），userPrompt=「grep 搜 STEM 报命中数」。对两个孙辈都用 agent_instantiate 的 wait:true 收卷，最后列出两个结果。' })
 await waitTurn(org, base + 1)
 const agents = (await get('/api/agents')) as Array<{ id: string; parentId: string | null; classRef: string }>
 const grand = agents.filter((a) => a.parentId === org)

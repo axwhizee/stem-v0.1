@@ -10,7 +10,9 @@
 // ============================================================
 
 import type { ModelRef } from '../../../gateway'
-import type { StrategyAgentSpec, StrategyApi } from '../types'
+import type { StrategyApi } from '../types'
+import type { AgentClass } from '../../../kernel/types'
+import { makeAgentClassID } from '../../../kernel/types'
 import type { CortexRuntime } from './state'
 import type { CortexSettings } from './schema'
 import type { DreamSnapshot } from './memory'
@@ -19,8 +21,8 @@ import { renderLtm } from './schema'
 import type { StrategyInitFs } from '../types'
 
 /** dream worker 出生档案（受限 grant 表——plan §3；role 面板不设 tools 免锁子孙）。 */
-export const DREAM_WORKER_SPEC: StrategyAgentSpec = {
-  className: 'cortex-dream',
+export const DREAM_WORKER_SPEC: AgentClass = {
+  name: makeAgentClassID('cortex-dream'),
   description: 'cortex 做梦 worker：全景重放后重写三层记忆的专职任务 agent（策略机制创建，一拍一生死）',
   systemPrompt:
     '你是 stem 系统的"梦"——宿主 agent 的睡眠整理过程，不是对话者。' +
@@ -126,7 +128,7 @@ export async function runDream(api: StrategyApi, settings: CortexSettings, deps:
     const toc = await buildTocSafe(fs, deps.memDirOf(hostId))
     // 打包时带上的笔记正文 = 磁盘全部（体积由 dreamAt 线间接控制，无硬预算）。
     const noteBodies = await readAllNotes(fs, deps.memDirOf(hostId))
-    const spec: StrategyAgentSpec =
+    const spec: AgentClass =
       settings.consolidateModel !== undefined ? { ...DREAM_WORKER_SPEC, model: settings.consolidateModel } : DREAM_WORKER_SPEC
     await api.spawn(buildDreamTask(snapshot, toc, noteBodies), spec)
 

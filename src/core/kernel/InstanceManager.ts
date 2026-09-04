@@ -39,6 +39,12 @@ export interface InstantiateOptions {
    * 实例化时组装进新上下文空间（深拷贝）。
    */
   readonly contextRefs?: readonly string[]
+  /**
+   * 等待配对（S9，agent_instantiate.wait 内核编排；InstanceManager 无视此字段）：
+   * 注册"父等子回信"的 hold 先于首信投递——子的回复永不可能抢在配对之前，
+   * 竞态从时序上根除。toolCallId = 父本次工具调用（回信正规填充为 tool 行）。
+   */
+  readonly hold?: { readonly toolCallId: string; readonly timeoutMs?: number }
 }
 
 export interface InstanceManager {

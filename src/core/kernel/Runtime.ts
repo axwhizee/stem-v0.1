@@ -16,6 +16,7 @@ import { isAbortError, isGatewayError } from '../gateway'
 import type { LogSink } from '../logging'
 import type { AgentDelivery, ContextManager, Repository } from '../context'
 import type { ToolCapabilityRegistry, ToolContext } from '../tools'
+import type { AgentClass, AgentClassID } from './types'
 import type { InstanceManager } from './InstanceManager'
 import type { AgentID, AgentStatus } from './types'
 import { makeAgentID } from './types'
@@ -33,8 +34,10 @@ export interface RuntimeDeps {
    * kernel 接 lineage.modelOf。undefined = 全链无锚，见 processDelivery 防御）。
    */
   readonly resolveModel: (agentId: AgentID) => ModelRef | undefined
-  /** 最大循环步数（含工具轮；默认 5）。 */
+  /** 全局最大循环步数兜底（含工具轮；S9：**≤0/未设 = 无限制**，长程工作默认放开）。 */
   readonly maxSteps?: number
+  /** 类模板读取口（S9：类基因 maxSteps 每轮起点解析；缺省只看全局兜底）。 */
+  readonly templates?: { getSync: (name: AgentClassID) => AgentClass | undefined }
   readonly estimateCost?: (usage: UsageEvent | undefined) => number
   /** 流式事件全局透传（shell 面板显示用）。 */
   readonly onEvent?: (agentId: AgentID, event: LLMEvent) => void
@@ -73,7 +76,8 @@ export class DefaultRuntime implements Runtime {
   private readonly activeTurns = new Map<AgentID, Promise<void>>()
 
   constructor(private readonly deps: RuntimeDeps) {
-    this.maxSteps = deps.maxSteps ?? 5
+    // S9 语义修正：0/负/未设 = 无限制（旧实现 0 = 一步都不许跑，从未有意使用）。
+    this.maxSteps = deps.maxSteps ?? 0
     this.estimateCost = deps.estimateCost ?? (() => 0)
   }
 
@@ -148,6 +152,8 @@ export class DefaultRuntime implements Runtime {
     let roundReasoning: string[] = []
     // 工具物化：registry 经族谱台账查询本 agent 的生效访问（白名单/收敛已物化）。
     const tools = this.deps.tools ? this.deps.tools.materialize(instance.id) : undefined
+    // 步数上限解析（S9）：类基因 > 全局兜底；≤0 = 无限。
+    const stepLimit = this.deps.templates?.getSync(instance.classRef)?.maxSteps ?? this.maxSteps
     let steps = 0
 
     // 本轮中断控制器：注册进活跃表，供 kernel/宿主 abort（用户/进程中断）。
@@ -155,7 +161,7 @@ export class DefaultRuntime implements Runtime {
     this.controllers.set(instance.id, ctl)
 
     try {
-      while (steps < this.maxSteps) {
+      while (stepLimit <= 0 || steps < stepLimit) {
         roundText = []
         roundReasoning = []
         const toolCalls: ToolCallEvent[] = []
@@ -239,10 +245,18 @@ export class DefaultRuntime implements Runtime {
           // 最小透传；普通工具无视）。
           parent: instance.parentId ?? '',
         }
+        // 挂起语义（S9）：instantiate.wait / agent_pause 命中 contextWait 标记——
+        // 该调用本轮**不回填**（等 deposit/到点正规填充仓库行），轮循环收束为
+        // holding 等唤醒；不再空转一轮让模型看悬空调用。
+        let waiting = false
         const results = await Promise.all(
-          toolCalls.map(async (call): Promise<ChatMessage> => {
+          toolCalls.map(async (call): Promise<ChatMessage | null> => {
             try {
               const result = await this.deps.tools!.execute({ id: call.id, name: call.name, input: call.input }, ctx)
+              if (result.metadata?.contextWait === true) {
+                waiting = true
+                return null
+              }
               return { role: 'tool', content: result.text, toolCallId: call.id }
             } catch (cause) {
               const error = cause as { kind?: string; message?: string }
@@ -254,7 +268,19 @@ export class DefaultRuntime implements Runtime {
             }
           }),
         )
-        session = [...session, ...results]
+        session = [...session, ...results.filter((r): r is ChatMessage => r !== null)]
+        if (waiting) break
+        if (stepLimit > 0 && steps >= stepLimit) {
+          // 步数上限收束（有上限时才可能走到这）：留行动化提示（发新信即可续作）。
+          this.deps.onLog?.log({
+            type: 'kernel.step.limit',
+            at: Date.now(),
+            agentId: instance.id,
+            maxSteps: stepLimit,
+            message: `本轮已达步数上限 ${String(stepLimit)}（类/全局配置），已收束；如需续作请再发一信`,
+          })
+          break
+        }
       }
 
       // 统计走显式通道（累加即写穿落行——轮终态 holding 在循环内已置，

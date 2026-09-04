@@ -3,7 +3,7 @@
 //
 // 职责（重建邮局的逻辑层）：
 //   - 收到「上下文待处理事件」（仓库 onChange）→ 处理该 agent：
-//       1. context_wait 判定：from 命中挂起等待 → 作为 tool 结果填充到 owner；
+//       1. 挂起等待判定（instantiate wait）：from 命中挂起 → 作为 tool 结果填充到 owner；
 //       2. 打发送者戳：user 消息累积时用 from 元数据生成 `<sender id=...>`；
 //       3. **策略处理（process，异步）**：user_prompt 信件抵达触发，
 //          返回 = 完整上下文就绪 → 才提醒快递员（classic 的 compact 在此）；
@@ -20,11 +20,12 @@
 import type { ChatMessage } from '../gateway'
 import type { LogEvent } from '../logging'
 import type { ToolRecord } from '../tools'
-import type { Courier, CourierRegistration, TimerFactory } from './Courier'
+import type { Courier, CourierRegistration, TimerFactory, TimerHandle } from './Courier'
 import type { Repository } from './Repository'
 import type { AgentDelivery, AssembleInput, AssembleResult, MailDelivery, RepositoryState } from './types'
 import { legalize } from './legalize'
 import type { ContextStrategyModule, StrategyApi, StrategyAgentSpec, ContextSettings, StrategyRegistry } from './strategies'
+import type { AgentClass } from '../kernel/types'
 import { forget } from '../logging'
 import { createBuiltinStrategyRegistry, DEFAULT_CONTEXT_SETTINGS } from './strategies'
 
@@ -41,9 +42,9 @@ export interface ContextManagerOptions {
   /** 快递员（组合根注入）。 */
   readonly courier: Courier
   /** 创建策略扮演 agent（kernel 接线：grant + panel 模板 ensure + 实例化；父 = 宿主）。 */
-  readonly spawnRole?: (hostAgentId: string, role: StrategyAgentSpec) => Promise<string>
+  readonly spawnRole?: (hostAgentId: string, role: AgentClass) => Promise<string>
   /** 创建策略工具 worker（kernel 接线：grant + instantiate；任务 = userPrompt 首信）。 */
-  readonly spawnWorker?: (roleAgentId: string, task: string, spec: StrategyAgentSpec) => Promise<string>
+  readonly spawnWorker?: (roleAgentId: string, task: string, spec: AgentClass) => Promise<string>
   /** 回收策略工具 worker（kernel 接线：terminate → 消息归档保语料）。 */
   readonly terminateWorker?: (workerId: string, by: string) => Promise<void>
   /** 日志出口（组合根注入 → core/logging）。 */
@@ -79,8 +80,10 @@ interface InternalBox {
   readonly assemble: boolean
   /** 该 agent 的上下文策略模块（开辟时确定——上下文属性）。 */
   readonly strategy: ContextStrategyModule
-  /** 挂起等待：waitFor agent id → 挂起记录。 */
-  readonly pendingFills: Map<string, { waitFor: string; ownerId: string; toolCallId: string }>
+  /** 挂起等待：waitFor agent id → 挂起记录（可选超时 timer 防永悬）。 */
+  readonly pendingFills: Map<string, { waitFor: string; ownerId: string; toolCallId: string; timer?: TimerHandle }>
+  /** agent_pause 挂起：toolCallId → {到点 timer, 起始行数基线}（到点自唤醒；期间信件自然堆积）。 */
+  readonly pauseHolds: Map<string, { timer: TimerHandle; baseCount: number; ms: number }>
   /** 信箱配对：发件人 id → 回信兑现器（waitForReply 注册）。 */
   readonly waitPromises: Map<string, (text: string) => void>
   /** 策略处理中（重入 guard：处理期间的来信合并为一次补跑）。 */
@@ -102,13 +105,20 @@ export interface ContextManager {
   readonly register: (registration: ContextRegistration) => Promise<void>
   readonly unregister: (agentId: string) => Promise<void>
   /**
-   * 投信（from 为发送者 id，用于打戳与 context_wait 分流）。
+   * 投信（from 为发送者 id，用于打戳与挂起等待分流）。
    * 命中挂起等待 → tool 结果填充；user_prompt 抵达 → 触发策略 process，
    * 完整上下文就绪后才提醒快递员。
    */
   readonly deposit: (agentId: string, letter: ChatMessage, from?: string) => Promise<void>
-  /** 注册挂起等待：等待 waitFor 的回复作为 tool 结果填充到 owner 上下文。 */
-  readonly registerHold: (waitFor: string, opts: { ownerId: string; toolCallId: string }) => Promise<void>
+  /**
+   * 注册挂起等待：waitFor 的回复抵达时作为 tool 结果填充到 owner 上下文
+   * （instantiate wait 通道）；可选 timeoutMs 超时自回填防永悬。
+   */
+  readonly registerHold: (waitFor: string, opts: { ownerId: string; toolCallId: string; timeoutMs?: number }) => Promise<void>
+  /** 撤销挂起等待（instantiate 失败回滚等场景；幂等）。 */
+  readonly cancelHold: (ownerId: string, waitFor: string) => Promise<void>
+  /** agent_pause：挂起到点自唤醒并回填（期间信件照常堆积进仓库）。 */
+  readonly registerPause: (agentId: string, opts: { toolCallId: string; ms: number }) => Promise<void>
   /** 追加历史（runtime 复制 assistant；工具模块注入 tool 结果）。opts.tag 标记合成消息，opts.tokens 真实计量直记（缺省估算）。 */
   readonly appendHistory: (
     agentId: string,
@@ -165,8 +175,8 @@ export class DefaultContextManager implements ContextManager {
   private readonly courier: Courier
   /** token 差分归位基线（agentId → 上次请求 usage + 水位；纯内存，重启/compact 自愈）。 */
   private readonly tokenBases = new Map<string, { input: number; output: number; count: number }>()
-  private readonly spawnRole?: (hostAgentId: string, role: StrategyAgentSpec) => Promise<string>
-  private readonly spawnWorker?: (roleAgentId: string, task: string, spec: StrategyAgentSpec) => Promise<string>
+  private readonly spawnRole?: (hostAgentId: string, role: AgentClass) => Promise<string>
+  private readonly spawnWorker?: (roleAgentId: string, task: string, spec: AgentClass) => Promise<string>
   private readonly terminateWorker?: (workerId: string, by: string) => Promise<void>
   private readonly onLog?: (event: LogEvent) => void
 
@@ -211,6 +221,7 @@ export class DefaultContextManager implements ContextManager {
       assemble: registration.assemble ?? true,
       strategy,
       pendingFills: new Map(),
+      pauseHolds: new Map(),
       waitPromises: new Map(),
       processing: false,
       processDirty: false,
@@ -250,28 +261,75 @@ export class DefaultContextManager implements ContextManager {
       // 兑现全部等待（空文本 = 调用方按"未产出"处理，不悬挂）。
       for (const waiter of box.waitPromises.values()) waiter('')
       box.waitPromises.clear()
+      // 挂起 timer 全清（hold 超时与 pause 到点——箱灭即弃，防孤儿回填炸链）。
+      for (const fill of box.pendingFills.values()) fill.timer?.cancel()
+      for (const pause of box.pauseHolds.values()) pause.timer.cancel()
     }
     this.boxes.delete(agentId)
   }
 
-  async registerHold(waitFor: string, opts: { ownerId: string; toolCallId: string }): Promise<void> {
+  async registerHold(waitFor: string, opts: { ownerId: string; toolCallId: string; timeoutMs?: number }): Promise<void> {
     const box = this.require(opts.ownerId)
-    box.pendingFills.set(waitFor, { waitFor, ownerId: opts.ownerId, toolCallId: opts.toolCallId })
+    const entry: { waitFor: string; ownerId: string; toolCallId: string; timer?: TimerHandle } = {
+      waitFor, ownerId: opts.ownerId, toolCallId: opts.toolCallId,
+    }
+    if (opts.timeoutMs !== undefined) {
+      entry.timer = this.timer(() => {
+        // 超时未被回信命中 → 回填超时行并唤醒（hold 不永悬）。
+        if (this.boxes.get(opts.ownerId)?.pendingFills.get(waitFor) !== entry) return
+        this.boxes.get(opts.ownerId)!.pendingFills.delete(waitFor)
+        forget(this.#fillHold(opts.ownerId, entry.toolCallId, `等待 ${waitFor} 的回复超时（${String(opts.timeoutMs)}ms），未收到回信。`), 'cm:holdTimeout', this.onLog)
+      }, opts.timeoutMs)
+    }
+    box.pendingFills.set(waitFor, entry)
+  }
+
+  async cancelHold(ownerId: string, waitFor: string): Promise<void> {
+    const fill = this.boxes.get(ownerId)?.pendingFills.get(waitFor)
+    if (fill) {
+      fill.timer?.cancel()
+      this.boxes.get(ownerId)!.pendingFills.delete(waitFor)
+    }
+  }
+
+  async registerPause(agentId: string, opts: { toolCallId: string; ms: number }): Promise<void> {
+    const box = this.require(agentId)
+    const baseCount = this.repository.listValid(agentId).length
+    const entry: { timer: TimerHandle; baseCount: number; ms: number } = {
+      timer: { cancel: () => {} }, baseCount, ms: opts.ms,
+    }
+    entry.timer = this.timer(() => {
+      const live = this.boxes.get(agentId)
+      if (!live || live.pauseHolds.get(opts.toolCallId) !== entry) return
+      live.pauseHolds.delete(opts.toolCallId)
+      const arrived = Math.max(0, this.repository.listValid(agentId).length - baseCount)
+      forget(this.#fillHold(agentId, opts.toolCallId, `暂停 ${String(opts.ms)}ms 结束，期间新到 ${String(arrived)} 行（新信件已随本轮组装在场）。`), 'cm:pauseWake', this.onLog)
+    }, opts.ms)
+    box.pauseHolds.set(opts.toolCallId, entry)
+  }
+
+  /** hold/pause 共用的回填通道：append tool 行（配对 toolCallId）+ 唤醒快递员。 */
+  async #fillHold(ownerId: string, toolCallId: string, text: string): Promise<void> {
+    await this.repository.append(ownerId, {
+      message: { role: 'tool', content: text, toolCallId },
+    })
+    forget(this.courier.notifyReady(ownerId), 'cm:notifyReady:fill', this.onLog)
   }
 
   async deposit(agentId: string, letter: ChatMessage, from?: string): Promise<void> {
-    // context_wait 分流：发送者命中挂起等待 → 该回复作为 tool 结果填充（非信件）。
+    // 挂起等待分流（S9）：发送者命中 hold → 该回复作为 tool 结果填充（非信件）。
     // （轮内填充不触发策略 process——触发点是 user_prompt 信件。）
     if (from !== undefined) {
       const pending = this.findPendingFor(from)
       if (pending) {
         const owner = this.require(pending.ownerId)
+        pending.timer?.cancel()
         owner.pendingFills.delete(from)
         owner.lastHistoryAt = Date.now()
         await this.repository.append(pending.ownerId, {
           message: { role: 'tool', content: letter.content, toolCallId: pending.toolCallId },
         })
-        // 唤醒等待者（context_wait 填充就绪 → 快递员送信）。
+        // 唤醒等待者（instantiate wait 填充就绪 → 快递员送信）。
         forget(this.courier.notifyReady(pending.ownerId), 'cm:notifyReady:fill', this.onLog)
         return
       }
@@ -552,7 +610,7 @@ export class DefaultContextManager implements ContextManager {
     }
   }
 
-  private findPendingFor(senderId: string): { ownerId: string; toolCallId: string } | undefined {
+  private findPendingFor(senderId: string): { ownerId: string; toolCallId: string; timer?: TimerHandle } | undefined {
     for (const box of this.boxes.values()) {
       const pending = box.pendingFills.get(senderId)
       if (pending) return pending

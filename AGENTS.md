@@ -49,7 +49,7 @@ src/core/                  # 纯 TS 领域逻辑，零平台依赖（硬规则�
   ├── gateway/             # ModelGateway + providers/openaiCompatible + FakeGateway
   ├── init/                # createStemSystem 组合根 + runInit 矩阵装载 + agentParse/agentSerialize
   ├── kernel/              # Kernel + builtin/（Assistant 占位类）+ TemplateRegistry/
-  │                        #   InstanceManager/SpaceManager/Runtime + userClass + 持久化端口/装饰器
+  │                        #   InstanceManager/SpaceManager/Runtime + builtin/agents 类表 + 持久化端口/装饰器
   ├── lineage/             # LineageTree：拓扑 + 能力物化（权限/模型）+ 可见域 canReach 唯一门面
   ├── logging/             # LogEvent + Logger（注入 LogSink）+ forget（孤儿 promise 安全阀）
   ├── pilot/               # Pilot：user0 扮演接口（sendMessage/instantiate/setModel/replyAccess）
@@ -76,7 +76,7 @@ docs/                      # 实况卷 architecture.md（机制详情以此为�
 - **工具与访问**：kind 三分类（internal 缺省 ignore/extension 点名/custom 扫描）；ask 命中投 `<access_request>` 到申请者族谱根信箱，根经 access_reply 裁决（once/always/reject）。→ arch 2.2/4.5/4.9
 - **消息库**：StoredMessage tag（合成标记）+ turn/indexInTurn 双索引；tokens = 网关真实值差分归位、chars/4 兜底；remove/edit = markInvalid/update + legalize 保组装合法。→ arch 2.6
 - **持久化**：个体层 SQLite write-through（消息/实例/空间）；类/策略/工具 = 文件真相不进 DB；一空间一库一进程，`stem [path]`>env>cwd 定位；重启 = 装载+归一化+replay+零重放。→ arch 4.15
-- **配置**：`.stem/stem.jsonc` 唯一载体（providers.key_env 永不承载明文密钥；user = user0 完整类对象含家学 model 锚点；R12 未知顶层键 fail-fast；目录即真相、config 永不回写）。→ arch 4.12
+- **配置**：`.stem/stem.jsonc` 唯一载体（providers.key_env 永不承载明文密钥；user = user0 完整类对象含家学 model 锚点与 displayName 出生名；R12 未知顶层键 fail-fast；目录即真相、config 永不回写）。→ arch 4.12
 - **进化闭环（人启动）**：agent_class_create/update（同名覆盖、tools 只许收敛、落盘 `.stem/agent/`、只影响后续实例、panel/user 类拒绝）+ telemetry_query（可见域日志）+ 重启新实例携带新基因。→ arch 4.6；记忆生理层 = cortex（已实施）
 - **实例参数唯一写面**：`agent_update`（缺省目标=自身，canReach）= model / displayName / tools 收敛 patch / grantTools 清单整表（两形式互斥）；写实例行 → 族谱全树 replay（收缩沿链下传、改父不动子靠快照）。类定义/拓扑/策略/提示词永不入此通道。→ arch 2.2/4.3/4.4
 - **事件流**：PilotEvent（stream/letter/status/notice）经 EventHub 多订阅者，shell/webui 统一订阅。→ arch 2.4
