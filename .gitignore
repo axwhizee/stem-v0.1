@@ -5,25 +5,12 @@ out/
 *.tsbuildinfo
 .DS_Store
 
-# 参考
-reference/
-
-# 临时
-prompts.md
-
-# SQLite 持久化（stem.db 及 journal）
-*.db
-*.db-journal
-*.db-wal
-*.db-shm
-
 # S6/R11：仓库根直接启动（opencode-style，cwd 即空间）时长出的根空间不入库；
 # test/space-demo 演示空间是显式跟踪例外（根锚定模式不波及）。
 /.stem/
-
-# 含明文密钥的外部参考工具（永不入库；密钥治理见 docs/s7-plan.md §8）
-test/space-demo/ref-tools/websearch.ts
-test/space-demo/ref-tools/deepsearch.ts
 test/space-v10/.artifacts/
 
+# 临时
+prompts.md
 tmp/
+reference/

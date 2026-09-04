@@ -18,7 +18,8 @@ const PORT = Number(process.env.PORT ?? 4321)
 /** 绑定地址：裸机默认仅本机（127.0.0.1）；容器内由 STEM_HOST=0.0.0.0 放开（端口映射需要）。 */
 const HOST = process.env.STEM_HOST ?? '127.0.0.1'
 /** S6/R11 opencode-style 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（一进程一空间，无切换器）。 */
-const PROJECT_ROOT = resolve(process.argv[2] ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
+// 空间定位与 cli 同规则：首个非 flag 参数（防 '--' 透传符鬼空间）。
+const PROJECT_ROOT = resolve(process.argv.slice(2).find((a) => !a.startsWith('-')) ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
 
 // ---------- SSE 广播 ----------
 

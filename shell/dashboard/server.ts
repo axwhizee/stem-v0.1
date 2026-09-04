@@ -23,7 +23,8 @@ import { getInventory } from './inventory'
 
 const PORT = Number(process.env.STEM_DASHBOARD_PORT ?? 4421)
 const HOST = process.env.STEM_HOST ?? '127.0.0.1'
-const PROJECT_ROOT = resolve(process.argv[2] ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
+// 空间定位与 cli 同规则：首个非 flag 参数（--allow-write 不再误占空间位）。
+const PROJECT_ROOT = resolve(process.argv.slice(2).find((a) => !a.startsWith('-')) ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
 const ALLOW_WRITE = process.argv.includes('--allow-write')
 
 const DB_FILE = process.env.STEM_DB_PATH ?? join(PROJECT_ROOT, '.stem', 'stem.db')

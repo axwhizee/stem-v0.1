@@ -44,8 +44,10 @@ import { bootStem } from './platform'
 import type { InitReport, StemSystem } from '../../src/core/init'
 import type { StemConfig } from '../../src/core/config'
 
-/** S6/R11 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（一进程 = 一空间 = 一 .stem）。 */
-const DEFAULT_PROJECT = resolve(process.argv[2] ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
+/** S6/R11 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（一进程 = 一空间 = 一 .stem）。
+ *  取首个非 flag 参数——npm 吞透传 `--` 与否（npm run vs npx）以及后续扩展的
+ *  --flags 都不许误入空间位（旧实现把 '--' 当路径在 cwd 长出 './--/' 鬼空间）。 */
+const DEFAULT_PROJECT = resolve(process.argv.slice(2).find((a) => !a.startsWith('-')) ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
 const DEFAULT_USER_PROMPT = '你好，请做一个简短的自我介绍。'
 
 interface ShellState {
