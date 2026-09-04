@@ -123,6 +123,9 @@
 - `TODO.md`、`prompts.md` 是需求记录，不纳入提交。
 - **commit message 只描述功能变化本身，严禁出现阶段/进度代号**（S7、T1、R6 之类）——历史要可读出"系统多了什么能力"，不是"项目走到哪"。plan 卷与 log.md 才承载代号叙事。
 - 每功能批一次 conventional commit；scope 用能力域（feat(gateway)/feat(dashboard)/test/docs…）。
+- **提交前一律先征求用户同意**（方案落盘、功能批次完成均报告待批，不自行入库）。
+- **message 遵循 conventional 规范且精炼**：标题一句话说清功能变化，正文只列关键改动点，避免长篇过程叙事（细节住 plan 卷与 log.md）。
+- **plan 卷随实现退役**（§1.1 契约的执行面）：计划落盘先独立 docs 批提交；其内容实现完成后，**删除该 plan 卷并随功能批一并提交**（沿革归 log，不留过时指路牌）。
 
 ## 8. 环境与运行陷阱（WSL 开发机实录）
 

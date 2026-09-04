@@ -4,7 +4,7 @@
 > 干细胞之意：如同原始 Agent 类，可分化出任意角色与能力。
 > 抛弃会话概念：以**原子化 Agent 类 + Agent 实例**为核心，配合**族谱树**与模块化 harness 系统，构建可自我进化的多智能体集群。
 
-**状态**：架构定稿，实现阶段（核心骨架 + 个体层持久化 + 上下文策略框架 + 族谱权限台账 + user0 配置对象化 + bash 最小操作面 + extensions tool_set，202 单测全绿）。
+**状态**：架构定稿，实现阶段（核心骨架 + 个体层持久化 + 上下文策略框架 classic/cortex + 族谱权限台账 + user0 配置对象化 + bash 最小操作面 + extensions tool_set，338 单测全绿）。
 **日期**：2026-08
 
 ---
@@ -31,7 +31,7 @@
 │   webui/（HTTP + SSE，OLED 主题，/api/health）                        │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                     │
-│   init/（createStemSystem 组合根）· kernel/（Kernel/Runtime/userClass │
+│   init/（createStemSystem 组合根）· kernel/（Kernel/Runtime/builtin/agents │
 │   pilot/（user0 扮演接口）· events/（PilotEvent + EventHub）          │
 │   lineage/（族谱纯关系视图）· context/（邮局 + legalize + 持久化端口）│
 │   tools/（注册表 + access + accessRequest + bash + SkillRegistry）    │
@@ -49,22 +49,43 @@
 
 | 概念 | 说明 |
 |---|---|
-| **AgentClass（模板）** | 角色设定：name（即 id）/ description / systemPrompt / **tools**（Record，键即白名单）/ contextStrategy / model / sendCountdown。用户主权载体。 |
+| **AgentClass（模板）** | 角色设定：name（即 id）/ description / systemPrompt / **tools**（四态 Record，键即白名单）/ contextStrategy / model / sendCountdown / panel / custom——全量参数速查见下表。用户主权载体。 |
 | **AgentInstance** | 运行时原子单位：classRef / **parentId**（=创建者，族谱）/ displayName / status / turnCount / totalCost。 |
 | **族谱树 LineageTree** | 无状态关系视图：parentId 挂实例上，实时推导 children/ancestors/descendants；销毁权判定。 |
-| **user0** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.user` = 其内嵌 agent 类完整对象（人格/权限/模型声明式可配）。 |
+| **user0** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.user` = 其内嵌 agent 类完整对象（人格/权限/模型声明式可配 + `displayName` 出生名，S9）。 |
 | **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`lineage/AccessLedger` 注册期物化：继承→收敛，键即白名单；grant 加法为系统特权），tools 经 `AccessResolver` 端口查询。 |
 | **重建邮局** | 无集中式总线：仓库（存储）→ 管理员（打戳/策略处理/组装 + legalize）→ 快递员（倒计时+发送，只发不组装）。个体层经 MessageStore/InstanceStore 端口 write-through 落 SQLite（宿主注入），缺省纯内存。 |
-| **上下文策略** | `context/strategies/` 独立子模块（契约：process 触发=user_prompt 抵达、终点=就绪唤醒快递员；assemble 纯函数）。classic = 全量直出 + opencode 式 compact（摘要 worker 邮局正规往返、markInvalid 归档可逆）；`.stem/context/*.ts` 可加载用户策略（自我进化承载之一）。 |
+| **上下文策略** | `context/strategies/` 独立子模块（契约：note/role/assemble/process/actions/init；process 触发=user_prompt 抵达、终点=就绪唤醒快递员）。classic = 全量直出 + compact（markInvalid 归档可逆）；cortex = 三层外挂记忆（LTM/笔记/STM）+ 阈值做梦二段事务（记忆组轮替、`.stem/mem/` 单向镜像）；`.stem/context/*.ts` 可加载用户策略（自我进化承载之一）。 |
 | **ask 消息化** | ask 审批 = 消息交换：`access_request` 投递根信箱 → 根经 `access_reply` 回复（once/always/reject；always = per-agent 免询问备忘）。 |
 | **PilotEvent** | 统一事件流（stream/letter/status/notice）+ EventHub 多订阅者；外部（shell/webui）订阅。 |
 | **tag + 双索引** | StoredMessage 带 tag（非原生合成消息）+ turn/indexInTurn（双索引），为上下文策略提供精确定位。 |
+
+## AgentClass 参数速查
+
+**类参数**（AgentClass 全字段——四个产生通道同形：`.stem/agent/*.md` / `config.user` / 策略 spec / `agent_class_create/update`；S9 起类定义统一为唯一形状，加字段全通道自动生效）：
+
+| 参数 | 必填 | 语义 | 生效点 |
+|---|---|---|---|
+| `name` | ✓ | 类名即 id（`makeAgentClassID`，注册查重；`.stem/agent/<名>.md` 文件名即 id） | 模板键 / 实例 classRef |
+| `description` | ✓ | 类用途一句话 | agent_list/inspect、进化素材 |
+| `systemPrompt` | ✓ | 人设正文 | 实例化注册进仓库 system 行（策略 note 追加其后） |
+| `tools` | – | 四态 Record<键, deny/ask/allow/ignore>；**未设 = 完整继承父档案；空表 = 本地封闭并显式锁子孙**；键即白名单 | 族谱台账注册期物化 |
+| `contextStrategy` | – | 策略名（缺省 classic；未知类注册期 fail-fast；实例化固化为上下文属性） | ContextManager 注册 |
+| `model` | – | 类基因（四级律第 2 层：显式实例行 > **类基因** > 父继承 > 家学锚点） | lineage ModelBinding |
+| `sendCountdown` | – | 送信倒计时 ms（缺省 = 全局 config.sendCountdown） | 快递员 |
+| `panel` | – | true = 模块扮演面板（不组装、不跑 LLM 轮；策略 role 承载）。根的面板性不经此字段（kernel 根接线的结构性事实） | 注册接线 |
+| `custom` | – | 自由槽（`.stem/agent` 未知字段全透传于此；策略基因如 `custom.cortex={dreamAt?,consolidateModel?}` 住这里） | 策略经 `StrategyApi.custom` 消费 |
+| `maxSteps` | – | 单轮工具步数上限（S9 引入）；**≤0/未设 = 无限制**（长程工作默认放开）；解析 = 类基因 > 全局 config.maxSteps > 无限。资源上限而非权限，不进族谱律不继承不封顶 | Runtime 轮循环 |
+
+**实例侧参数**（不在类上；运行期唯一写面 `agent_update`，缺省目标=自身，canReach）：`displayName`（显示名；user0 出生名 = `config.user.displayName`，S9 补）/ `model` 显式行（四级律顶层）/ `tools` 收敛 patch / `grantTools` 清单整表（逐键祖先封顶）。
+
+**user0 特判清单**（全部是接线事实非类特权）：`parentId=null`（根）、`assemble:false`（面板性=pilot 扮演）、家学锚点（`config.user.model` 必填）、`agent_id=USER_ID` 固定；类本体 = 内置类表普通条目（S9 起 `userClass.ts` 退役并入 `kernel/builtin/agents.ts` 统一形态）。
 
 ## 工具清单
 
 工具按来源分三类（`ToolKind = internal | shell | user`），全生态现状如下。**内部工具默认 `ignore`（对模型隐藏），类清单显式声明才暴露**。
 
-### ① core 系统工具（`kind=internal`，19 个，`src/core/kernel/systemTools.ts`）
+### ① core 系统工具（`kind=internal`，20 个，`src/core/kernel/systemTools.ts`）
 
 系统自我管理与邮局机制的模型侧能力面；"user0 默认"列 = `DEFAULT_USER_TOOLS`（`config.user.tools` 给出则整表替换）。
 
@@ -73,7 +94,7 @@
 | agents 生态 | `agent_class_create` | 创建 agent 类并**落盘 `.stem/agent/`**（新名 = 变体并存可 A/B；tools 键即白名单）——自我进化书写面 | `ask` |
 | | `agent_class_update` | 同名覆盖更新 + 落盘（tools 增量 patch、逐键**只许收敛**；panel/user 根类拒绝；**只影响后续实例**） | `ask` |
 | | `agent_class_list` | 列出全部类与关键属性 | allow |
-| | `agent_instantiate` | 实例化类（parentId=调用者；可继承父上下文；模型路径只能收敛） | allow |
+| | `agent_instantiate` | 实例化类（parentId=调用者；可继承父上下文；模型路径只能收敛；**wait=true 创建并等待回信**——配对原子完成竞态绝迹，可配 waitTimeoutMs） | allow |
 | | `agent_list` | 列出空间内实例 | allow |
 | | `agent_inspect` | 实例详情：族谱链/状态/轮次/成本/**生效权限表** | allow |
 | | `agent_ancestry` | 祖先链 `[父 → … → 根]` | allow |
@@ -87,7 +108,7 @@
 | | `context_remove` | `markInvalid` 删消息/整轮（归档可逆；仅自身或祖先） | allow |
 | | `context_edit` | 重写指定消息内容（system 不可改） | allow |
 | | `context_apply` | 执行策略专有动作（如 classic 手动 `compact`） | allow |
-| | `context_wait` | 等子 agent 回信入 tool 结果（配合 instantiate） | 未列=隐藏 |
+| | `agent_pause` | 自主挂起攒信：ms 到点唤醒，期间来信自然堆积（S9） | 未列=隐藏 |
 | 系统义务 | `access_reply` | 答复 `access_request`（once/always/reject；仅族谱根可答）——**根义务，删则 ask 死锁** | allow |
 
 ### ② core 外部操作面 + skill（`kind=internal`，2 个）
