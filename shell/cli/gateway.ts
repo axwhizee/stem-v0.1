@@ -8,12 +8,43 @@
 //   - 产品路径无 mock——离线冒烟把 mockSse 作为普通匿名 provider 写进测试 config。
 // ============================================================
 
+import { randomUUID } from 'node:crypto'
+import { version as STEM_VERSION } from '../../package.json'
 import {
   createOpenAiCompatibleGateway,
   GatewayError,
   type ModelGateway,
 } from '../../src/core/gateway'
 import type { StemConfig } from '../../src/core/config'
+
+// ---------- 客户端身份（v1.0 用户裁决：opencode 运营要求全部关在本宿主文件，core 零感知） ----------
+// 2026-09 邮件要求：opencode.ai 系请求须带 x-opencode-session（每会话稳定 id），
+// 且点名裸 "Node fetch" UA 需整改。策略：
+//   - User-Agent: stem/<version> —— 全体 provider 通用客户端礼仪（无害且自证身份）；
+//   - x-opencode-session: 每 **stem 进程**一个随机 id —— 容器即会话（进程内稳定满足
+//     "stable per conversation"，进程间随机、零持久化、不编码任何 agent/空间身份，
+//     拒绝全局硬编码值：镜像分发下全用户共享一个 session 会被服务端限流连坐）。
+
+const PROCESS_SESSION_ID = randomUUID()
+const STEM_USER_AGENT = `stem/${STEM_VERSION}`
+
+/** 包一层 fetch 注入请求头（openaiCompatible 的 config.fetch 端口，core 零改动）。 */
+export function providerFetch(baseUrl: string): typeof fetch {
+  let isOpencode = false
+  try {
+    isOpencode = /(^|\.)opencode\.ai$/i.test(new URL(baseUrl).hostname)
+  } catch {
+    // 非法 url：交给 core 装配期校验报错，这里只按非 opencode 处理。
+  }
+  return (input, init) => globalThis.fetch(input, {
+    ...init,
+    headers: {
+      ...(init?.headers as Record<string, string> | undefined),
+      'User-Agent': STEM_USER_AGENT,
+      ...(isOpencode ? { 'x-opencode-session': PROCESS_SESSION_ID } : {}),
+    },
+  })
+}
 
 export interface BuiltGateway {
   readonly gateway: ModelGateway
@@ -49,6 +80,7 @@ export function buildGateway(config: StemConfig, env: NodeJS.ProcessEnv): BuiltG
         baseUrl: provider.base_url,
         ...(apiKey !== undefined && apiKey !== '' ? { apiKey } : {}),
         ...(provider.models !== undefined ? { models: provider.models } : {}),
+        fetch: providerFetch(provider.base_url),
       }),
     )
     wired.push(name)
