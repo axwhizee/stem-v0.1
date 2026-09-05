@@ -334,6 +334,24 @@ export class Kernel {
    * 这里：权限收缩沿链下传自动重算，模型显式层重解析、子女快照层稳定
    * （"不级联"由数据结构保证，无特判逻辑）。纯派生态 = 重放幂等。
    */
+  /**
+   * 类装载后重接线（createStemSystem 在 runInit 完成后调一次）：构造期恢复接线
+   * 时空间类尚未入模板表，箱的 strategy/custom 落为兜底（cortex 类会被静默接成
+   * classic——S10 实测抓获）。类表载齐后按模板实况补对齐；根箱（user0）走
+   * userClass 同步构造不受此限，跳过。
+   */
+  async realignRestoredInstances(): Promise<void> {
+    for (const instance of this.restoredInstances) {
+      if (instance.parentId === null) continue
+      const template = this.templates.getSync(instance.classRef)
+      if (!template) continue
+      await this.contextManager.realign(instance.id, {
+        contextStrategy: template.contextStrategy,
+        custom: template.custom,
+      })
+    }
+  }
+
   private replayLineage(): void {
     this.lineage.replay(
       this.instances.listAllSync().map((instance) => ({

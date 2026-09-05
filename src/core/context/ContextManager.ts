@@ -78,8 +78,11 @@ export interface ContextRegistration {
 interface InternalBox {
   readonly agentId: string
   readonly assemble: boolean
-  /** 该 agent 的上下文策略模块（开辟时确定——上下文属性）。 */
-  readonly strategy: ContextStrategyModule
+  /**
+   * 该 agent 的上下文策略模块。register 后仅 realign 通道可改（启动期空间类
+   * 未装载的恢复接线，runInit 类注册后重对账——S10 时序修复）。
+   */
+  strategy: ContextStrategyModule
   /** 挂起等待：waitFor agent id → 挂起记录（可选超时 timer 防永悬）。 */
   readonly pendingFills: Map<string, { waitFor: string; ownerId: string; toolCallId: string; timer?: TimerHandle }>
   /** agent_pause 挂起：toolCallId → {到点 timer, 起始行数基线}（到点自唤醒；期间信件自然堆积）。 */
@@ -91,8 +94,8 @@ interface InternalBox {
   processDirty: boolean
   /** 该策略的扮演 agent（懒生成；spawn worker 的父与回信收集点）。 */
   roleAgentId: string | undefined
-  /** 宿主类 custom 自由槽（apiFor 透传给策略）。 */
-  readonly custom?: Readonly<Record<string, unknown>>
+  /** 宿主类 custom 自由槽（apiFor 透传给策略；realign 可补）。 */
+  custom?: Readonly<Record<string, unknown>>
   /** 最近一次 spawn 的 worker id（策略工具通道身份解析）。 */
   lastWorkerId: string | undefined
   /** 各成分最近就绪时间（毫秒，供日志）。 */
@@ -104,6 +107,16 @@ interface InternalBox {
 export interface ContextManager {
   readonly register: (registration: ContextRegistration) => Promise<void>
   readonly unregister: (agentId: string) => Promise<void>
+  /**
+   * 恢复箱重接线（S10 时序修复）：Kernel 构造期恢复接线看不到 runInit 才装载的
+   * 空间类（模板表彼时未装载），策略/custom 落为兜底值。类装载齐后由组合根
+   * 补一次对齐：resolve 成功才换 strategy（策略文件真没了 = 保持现状不炸）。
+   * 箱不存在 / 字段 undefined = 不动（幂等，可反复调）。
+   */
+  readonly realign: (agentId: string, patch: {
+    readonly contextStrategy?: string
+    readonly custom?: Readonly<Record<string, unknown>>
+  }) => Promise<void>
   /**
    * 投信（from 为发送者 id，用于打戳与挂起等待分流）。
    * 命中挂起等待 → tool 结果填充；user_prompt 抵达 → 触发策略 process，
@@ -251,6 +264,19 @@ export class DefaultContextManager implements ContextManager {
       initialSentIds: registration.initialSentIds,
     }
     await this.courier.register(courierRegistration)
+  }
+
+  async realign(agentId: string, patch: {
+    readonly contextStrategy?: string
+    readonly custom?: Readonly<Record<string, unknown>>
+  }): Promise<void> {
+    const box = this.boxes.get(agentId)
+    if (!box) return
+    if (patch.contextStrategy !== undefined) {
+      const next = this.strategies.resolve(patch.contextStrategy)
+      if (next) box.strategy = next
+    }
+    if (patch.custom !== undefined) box.custom = patch.custom
   }
 
   async unregister(agentId: string): Promise<void> {
