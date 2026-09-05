@@ -130,8 +130,16 @@ export function createCortexStrategy(): ContextStrategyModule {
             message: outcome.message,
           })
         })
-        .catch(() => {
-          // runDream 内部全路径 catch；此处仅防 promise 链裸奔。
+        .catch((cause: unknown) => {
+          // 绝不黑吞：点火链异常也进 dreamed 账（半途语义=不轮替，下拍重触发）。
+          api.log({
+            type: 'context.dreamed',
+            agentId: api.agentId,
+            consolidated: false,
+            invalidRows: 0,
+            notesTouched: 0,
+            message: `做梦链异常（${cause instanceof Error ? cause.message : JSON.stringify(cause)}）`,
+          })
         })
     },
     actions: {
