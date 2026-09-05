@@ -87,7 +87,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     await execution
   })
 
-  test('非根回复 → access_denied（授权校验），挂起仍可被根回复', async () => {
+  test('非根回复 → access_reply_not_root（行动化文案），挂起仍可被根回复', async () => {
     const { bus } = makeBus({ resolve: tableResolver({ 'a1/read': 'ask' }) })
     const execution = bus.assert({ accessKey: 'read', agentId: 'a1' })
     await tick()
@@ -95,7 +95,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     assert.ok(pending)
     await assert.rejects(
       () => bus.reply({ requestId: pending!.id, reply: 'once' }, 'other-agent'),
-      (e: unknown) => (e as { kind: string }).kind === 'access_denied',
+      (e: unknown) => (e as { kind: string }).kind === 'access_reply_not_root',
     )
     await bus.reply({ requestId: pending!.id, reply: 'always' }, 'user0')
     await execution

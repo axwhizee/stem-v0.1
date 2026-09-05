@@ -261,8 +261,8 @@ export class DefaultRuntime implements Runtime {
             } catch (cause) {
               const error = cause as { kind?: string; message?: string }
               const message =
-                typeof error.kind === 'string' && typeof error.message === 'string'
-                  ? `[ToolError ${error.kind}] ${error.message}`
+                typeof error.kind === 'string'
+                  ? `[ToolError ${error.kind}] ${typeof error.message === 'string' ? error.message : JSON.stringify(error)}`
                   : '[ToolError execution_failed] 工具执行失败'
               return { role: 'tool', content: message, toolCallId: call.id }
             }

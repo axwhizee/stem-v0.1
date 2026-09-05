@@ -127,11 +127,20 @@ export class DefaultAccessAskBus implements AccessAskBus {
   async reply(input: AccessReplyInput, by: string): Promise<void> {
     const entry = this.pending.get(input.requestId)
     if (!entry) {
-      throw { kind: 'access_request_not_found', requestId: input.requestId } satisfies AccessError
+      throw {
+        kind: 'access_request_not_found',
+        requestId: input.requestId,
+        message: `无此待批申请（requestId=${input.requestId}）——可能已被答复或申请者已注销；用 telemetry 查 access.asked 事件核对在场申请`,
+      } satisfies AccessError
     }
     // 授权校验：仅申请者的族谱根可回复（一般即 user0）。
     if (by !== this.getRoot(entry.info.agentId)) {
-      throw { kind: 'access_denied', accessKey: entry.info.accessKey, agentId: entry.info.agentId } satisfies AccessError
+      throw {
+        kind: 'access_reply_not_root',
+        accessKey: entry.info.accessKey,
+        agentId: entry.info.agentId,
+        message: '答复权专属申请者的族谱根（一般是 user0）——你不是根，请停止重试并等待根的答复（申请者此刻正挂起等待）',
+      } satisfies AccessError
     }
     this.pending.delete(input.requestId)
     // 总序防御：挂起期间该键被运行期收敛改严为 deny——迟到的批准被铁律压死

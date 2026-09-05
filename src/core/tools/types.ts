@@ -169,9 +169,10 @@ export interface AccessAssertInput {
 
 /** 访问错误（判别联合）。 */
 export type AccessError =
-  | { readonly kind: 'access_denied'; readonly accessKey: string; readonly agentId: string }
-  | { readonly kind: 'access_rejected'; readonly accessKey: string; readonly requestId: string; readonly feedback?: string }
-  | { readonly kind: 'access_request_not_found'; readonly requestId: string }
+  | { readonly kind: 'access_denied'; readonly accessKey: string; readonly agentId: string; readonly message?: string }
+  | { readonly kind: 'access_reply_not_root'; readonly accessKey: string; readonly agentId: string; readonly message?: string }
+  | { readonly kind: 'access_rejected'; readonly message?: string; readonly accessKey: string; readonly requestId: string; readonly feedback?: string }
+  | { readonly kind: 'access_request_not_found'; readonly requestId: string; readonly message?: string }
 
 /** 工具调用审计记录（触发/反馈时由工具模块自动产生）。 */
 export interface ToolRecord {
