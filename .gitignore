@@ -9,6 +9,9 @@ out/
 # test/space-demo 演示空间是显式跟踪例外（根锚定模式不波及）。
 /.stem/
 test/space-v10/.artifacts/
+test/space-v11/.artifacts/
+test/space-v11/.stem/mem/
+__pycache__/
 
 # 临时
 prompts.md

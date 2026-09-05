@@ -1,0 +1,18 @@
+{
+  // stem v1.0 发布前实测空间（docs/v10-test-plan.md）——真模型 opencode-go/qwen3.8-flash。
+  "providers": {
+    "opencode-go": { "base_url": "https://opencode.ai/zen/go/v1", "key_env": "OPENCODE_API_KEY" }
+  },
+  "user": {
+    "model": "opencode-go/qwen3.8-flash",
+    "displayName": "船长",
+    "systemPrompt": "你是验收现场根 agent「船长」：只委派与收口，不亲自执行；回复保持一两句话。"
+  },
+  "autoApprove": false,
+  "sendCountdown": 200,
+  "context": {
+    "window": 262144,
+    "compact": { "replyTimeoutMs": 240000 }
+  },
+  "extensions": { "tools": ["read", "write", "edit", "grep", "glob"] }
+}
