@@ -237,6 +237,7 @@ function validateUser(value: unknown, fail: (message: string) => never): StemUse
   if (raw.description !== undefined && typeof raw.description !== 'string') fail('user.description 必须是字符串')
   if (raw.systemPrompt !== undefined && typeof raw.systemPrompt !== 'string') fail('user.systemPrompt 必须是字符串')
   if (raw.contextStrategy !== undefined && typeof raw.contextStrategy !== 'string') fail('user.contextStrategy 必须是字符串')
+  if (raw.displayName !== undefined && typeof raw.displayName !== 'string') fail('user.displayName 必须是字符串')
   return {
     ...(raw.description !== undefined ? { description: raw.description as string } : {}),
     ...(raw.systemPrompt !== undefined ? { systemPrompt: raw.systemPrompt as string } : {}),
@@ -244,6 +245,7 @@ function validateUser(value: unknown, fail: (message: string) => never): StemUse
     ...(raw.contextStrategy !== undefined ? { contextStrategy: raw.contextStrategy as string } : {}),
     ...(raw.model !== undefined ? { model: validateModelRef(raw.model, fail, 'user.model') } : {}),
     ...(raw.sendCountdown !== undefined ? { sendCountdown: validateNumber(raw.sendCountdown, fail, 'user.sendCountdown') } : {}),
+    ...(raw.displayName !== undefined ? { displayName: raw.displayName as string } : {}),
   }
 }
 

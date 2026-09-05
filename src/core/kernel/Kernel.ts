@@ -378,6 +378,14 @@ export class Kernel {
   }
 
   /** 注册根 agent（user0）：从内置 user 类实例化（parentId=null 即根，与其他实例等同）。 */
+  /** 存量根的身份对齐（pilot 幂等分支调用）：config.user.displayName 跨重启生效。 */
+  async alignRootDisplayName(): Promise<void> {
+    const root = this.instances.getSync(makeAgentID(USER_ID))
+    if (root !== undefined && root.displayName !== this.rootDisplayName) {
+      await this.instances.update(makeAgentID(USER_ID), { displayName: this.rootDisplayName })
+    }
+  }
+
   async registerRootAgent(displayName?: string): Promise<AgentID> {
     const template = await this.templates.get(USER_CLASS_ID)
     // S6/R11：根挂**真实项目空间**（废除旧 getOrCreate('user0') 伪空间行——

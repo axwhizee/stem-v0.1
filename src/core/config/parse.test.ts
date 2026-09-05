@@ -31,7 +31,7 @@ test('providers 完整形状解析（base_url/key_env/models）', () => {
       "alibaba": { "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "key_env": "ALIBABA_API_KEY", "models": ["qwen3.8-flash", "qwen3.8-max"] },
       "local": { "base_url": "http://127.0.0.1:11434/v1" }
     },
-    "user": { "model": "alibaba/qwen3.8-flash" }
+    "user": { "model": "alibaba/qwen3.8-flash" , "displayName": "船长"}
   }`)
   assert.deepEqual(config.providers?.alibaba, {
     base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
@@ -112,7 +112,7 @@ test('解析完整 JSONC（注释 + 尾逗号 + 全块）', () => {
     "autoApprove": false,
     "maxSteps": 8,
     "sendCountdown": 800,
-    "user": { "systemPrompt": "你是根。", "tools": { "read": "allow", "bash": "ask" }, "model": "opencode-go/deepseek-v4-flash" },
+    "user": { "systemPrompt": "你是根。", "tools": { "read": "allow", "bash": "ask" }, "model": "opencode-go/deepseek-v4-flash", "displayName": "船长" },
     "context": { "window": 64000, "compact": { "threshold": 0.9, "keepRecentTurns": 2, "summarizeModel": "opencode-go/deepseek-v4-flash" } },
     "extensions": { "tools": ["read", "vscode"], "agent": ["creator"] },
   }`)
@@ -122,6 +122,7 @@ test('解析完整 JSONC（注释 + 尾逗号 + 全块）', () => {
   assert.deepEqual(config.user?.tools, { read: 'allow', bash: 'ask' })
   assert.equal(config.user?.systemPrompt, '你是根。')
   assert.deepEqual(config.user?.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
+  assert.equal(config.user?.displayName, '船长', 'displayName 是白名单字段，parse 不得丢弃（v1.0 实测抓获回归）')
   assert.equal(config.context?.window, 64000)
   assert.equal(config.context?.compact?.threshold, 0.9)
   assert.deepEqual(config.extensions, { tools: ['read', 'vscode'], agent: ['creator'] })

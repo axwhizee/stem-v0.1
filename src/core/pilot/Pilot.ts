@@ -173,6 +173,9 @@ export async function createPilot(options: PilotOptions): Promise<Pilot> {
   const identity = options.identity ?? makeAgentID('user0')
   if (!options.kernel.instances.getSync(identity)) {
     await options.kernel.registerRootAgent()
+  } else {
+    // 重启恢复路径：config.user.displayName = 真相，对齐存量根（S9 配置面改动跨重启生效）。
+    await options.kernel.alignRootDisplayName()
   }
   return new DefaultPilot({ ...options, identity })
 }
