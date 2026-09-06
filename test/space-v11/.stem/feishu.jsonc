@@ -1,0 +1,23 @@
+// ============================================================
+// shell/feishu/feishu.example.jsonc —— 复制为 <空间>/.stem/feishu.jsonc 使用
+//
+// 凭证不放这里：FEISHU_APP_ID / FEISHU_APP_SECRET 只走环境变量。
+// 首次启动不设白名单 = shell 会回复你的 open_id，回填后重启即认领完成。
+// ============================================================
+{
+  // 主人 open_id 白名单（只有名单内身份获得服务；权限本体仍由族谱树定义）
+  "ownerOpenIds": ["ou_2a085cac843d42f2dde0530a487105bc"],
+
+  // 单聊默认接待员类（内置 assistant 起步；可换自建类如 "secretary"）
+  "secretaryClass": "assistant",
+
+  // 会话绑定：chat_id → 该会话对话的 agent 实例 id
+  // 群 = 子 agent 的移动窗口：{"oc_xxxx群id": "tester9"}
+  "chatBindings": {},
+
+  // 审批卡额外投递的群（主人单聊恒收；群里也可配仅特定人可见卡后续增强）
+  "approvalChatIds": [],
+
+  // watch 事件推送节流窗（毫秒，窗内同会话多条并一条，防刷屏防限频）
+  "watchThrottleMs": 2000
+}
