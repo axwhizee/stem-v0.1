@@ -30,6 +30,8 @@ npm run test:feas           # 可行性冒烟离线档（test/feasibility，mock
 npm run shell               # CLI shell：cwd 即空间（opencode-style；`-- <path>` 指定目录）
 ALIBABA_API_KEY=<key> npm run shell   # 真实网关（密钥只走 env：config providers.<p>.key_env 声明变量名）
 npm run web                 # WebUIShell（http://localhost:4321；空间定位同上，`-- <path>`/STEM_PROJECT_ROOT）
+npm run feishu -- [path]    # 飞书 shell（长连接远程宿主，免公网；FEISHU_APP_ID/SECRET 走 env，
+                            #   .stem/feishu.jsonc 自治理配置；单聊默认接待员 + 审批卡远程裁决）
 npm run dashboard -- [path] # 空间仪表盘（http://localhost:4421；法医/管理员 shell：DB 只读直查 +
                             #   标本装配资源清单 + 清理；--allow-write 才解锁写操作，可与 webui 并开）
 npm run build               # 与 typecheck 相同（tsc --noEmit）
@@ -56,6 +58,7 @@ src/core/                  # 纯 TS 领域逻辑，零平台依赖（硬规则�
   ├── tools/               # ToolCapabilityRegistry + access 四态代数 + accessRequest（ask 消息化）+ bash
   └── types.ts
 shell/                     # 宿主层：cli/（bootStem 装配 + SQLite storage + mockSse）+ webui/ + dashboard/
+                           #   + feishu/（飞书长连接远程 shell：router 纯逻辑 + SDK 适配 + 审批卡）
 extension/                 # 矩阵 extension 层：tools/（fs 五件套 + web 两件 + _lib）+ agent/（creator）
 test/                      # 测试工作区：support/（kernelHarness/mockSse 兼容层）+ feasibility/
                            #   （四档冒烟 + ask3/update2/tree3 编排 + tools/ 起服脚本）

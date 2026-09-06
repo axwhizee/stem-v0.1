@@ -275,6 +275,7 @@ R12 全量有效：**未知顶层键 fail-fast**，`custom` 唯一自由位（§
 npm run shell                # CLI（cwd 即空间；`-- <path>` 定位）
 npm run web                  # WebUIShell :4321
 npm run dashboard -- [path]  # 仪表盘 :4421（--allow-write 解锁清理）
+FEISHU_APP_ID=... FEISHU_APP_SECRET=... npm run feishu  # 飞书长连接 shell（.stem/feishu.jsonc 配置）
 npm run test / typecheck     # 300 用例 / tsc --noEmit
 docker build -t stem:1.0 .   # 发布形态；python3 run-docker.py 一键（Windows/WSL 双端）
 ```
