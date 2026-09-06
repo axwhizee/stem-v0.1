@@ -83,6 +83,7 @@ export function eventInvolvesAgent(event: LogEvent, agentId: string): boolean {
     case 'kernel.step.limit':
     case 'context.compacted':
     case 'context.dreamed':
+    case 'context.strategy.fallback':
     case 'kernel.class.registered':
     case 'kernel.class.updated':
       return event.agentId === agentId

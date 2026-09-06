@@ -9,10 +9,11 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway } from '../gateway'
+import { MemoryMessageStore } from '../context'
 import type { ConfigPaths, ConfigStore, StemConfig } from '../config'
 import type { ClassFs, InitFs, InitToolLoader } from './types'
 import { createStemSystem } from './system'
-import { makeAgentClassID, USER_ID } from '../kernel'
+import { makeAgentClassID, MemoryInstanceStore, USER_ID } from '../kernel'
 
 /** 共享内存文件表（写侧 classFs + 读侧 InitFs 同一 map = 文件系统替身）。 */
 function makeMemFs(files: Record<string, string> = {}) {
@@ -139,5 +140,56 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
     // 审计链在日志里（观测面可回放书写史）。
     assert.ok(revived.kernel.logger.count() >= 0)
     await revived.dispose()
+  })
+
+  test('空间类策略/custom/倒计时跨重启生效（realign 接线回归）', async () => {
+    // 类文件带 cortex 策略 + custom dreamAt + send_countdown——S10 时序 bug 的
+    // 最小复现面：这些字段曾全部活不过第二次 boot（构造期模板表未载）。
+    const d = makeMemFs({
+      '/proj/.stem/agent/pet.md': [
+        '---', 'description: realign 回归', 'tools:', '  read: allow',
+        'context_strategy: cortex', 'cortex:', '  dreamAt: 3000',
+        'send_countdown: 777', '---', '你是回归宠物。',
+      ].join('\n'),
+    })
+    const gateway = new FakeGateway(() => [
+      { type: 'text-delta', text: 'ok' },
+      { type: 'finish', reason: 'stop' },
+    ])
+    const deps = () => ({
+      config: { store: d.store, paths: d.paths },
+      fs: d.fs,
+      classFs: d.classFs,
+      tools: d.loader,
+      gateway,
+      stateStore: { messages, instances },
+    })
+    const messages = new MemoryMessageStore()
+    const instances = new MemoryInstanceStore()
+    const system = await createStemSystem(deps() as never)
+    const petId = await system.pilot.instantiate({ className: 'pet', userPrompt: 'hi' }, '/proj')
+    const born = system.kernel.contextManager.boxFacts(petId)
+    assert.equal(born?.strategy, 'cortex', '出生即生效（实例化路径 register 看得到类）')
+    await system.dispose()
+
+    // ---------- 重启：恢复接线走构造期（模板未载）→ realign 补对齐 ----------
+    const revived = await createStemSystem(deps() as never)
+    const facts = revived.kernel.contextManager.boxFacts(petId)
+    assert.equal(facts?.strategy, 'cortex', '重启后策略由 realign 补正（非 classic 兜底）')
+    assert.ok(facts?.customKeys.includes('cortex'), 'custom 跨重启生效')
+    assert.equal(facts?.sendCountdownMs, 777, '类级倒计时跨重启生效')
+    // 正常链路零异常留痕。
+    const fb = revived.kernel.logger.query({}).filter((e) => e.type === 'context.strategy.fallback')
+    assert.equal(fb.length, 0, '健康重启不产 fallback 账')
+    await revived.dispose()
+
+    // ---------- 类文件被删：realign 端点留痕且不炸启动 ----------
+    delete d.files['/proj/.stem/agent/pet.md']
+    const orphan = await createStemSystem(deps() as never)
+    const fb2 = orphan.kernel.logger.query({}).filter((e) => e.type === 'context.strategy.fallback')
+    assert.equal(fb2.length, 1, '类缺失实例一条 fallback 账')
+    assert.equal((fb2[0] as { expected?: string }).expected, '', 'expected 空 = 类未入表')
+    assert.equal(orphan.kernel.contextManager.boxFacts(petId)?.strategy, 'classic', '接线维持兜底现状')
+    await orphan.dispose()
   })
 })

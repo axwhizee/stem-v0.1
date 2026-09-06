@@ -245,6 +245,24 @@ export interface ContextDreamed {
   readonly message: string
 }
 
+/**
+ * 策略兜底留痕（启动期两处静默保护不再隐身）：构造期恢复接线看不到 runInit
+ * 才装载的空间类、重对账时策略名解析失败——箱落到兜底策略。语义仍不炸启动，
+ * 但必须可查（"配置对但行为错"类 bug 的第一现场）。
+ */
+export interface ContextStrategyFallback {
+  readonly type: 'context.strategy.fallback'
+  readonly at: number
+  readonly agentId: string
+  /** 打点链路（realign=类载齐后重对账时解析失败/类缺失；构造期兜底为时序常态不打点）。 */
+  readonly site: 'realign'
+  /** 期望策略名（'' 且 site=realign = 类未入表即文件真相缺失）。 */
+  readonly expected: string
+  /** 实际生效的兜底策略名。 */
+  readonly actual: string
+  readonly message: string
+}
+
 export type LogEvent =
   | KernelOrphanError
   | KernelStepLimit
@@ -253,6 +271,7 @@ export type LogEvent =
   | ContextAssembled
   | ContextCompacted
   | ContextDreamed
+  | ContextStrategyFallback
   | MailboxCountdown
   | MailboxDelivered
   | AgentClassRegistered

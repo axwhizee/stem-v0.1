@@ -70,6 +70,12 @@ export interface CourierState {
 export interface Courier {
   readonly register: (registration: CourierRegistration) => Promise<void>
   readonly unregister: (agentId: string) => Promise<void>
+  /**
+   * 倒计时重对账（S10 realign 通道）：构造期恢复接线拿不到空间类的
+   * send_countdown（模板表未载 → 落缺省），类载齐后补对齐。
+   * 传 undefined = 类未显式配置 → 回收归缺省值；箱不存在 no-op。
+   */
+  readonly realignCountdown: (agentId: string, sendCountdownMs: number | undefined) => void
   /** 管理员处理完成后的「上下文待发送事件」。 */
   readonly notifyReady: (agentId: string) => Promise<void>
   readonly getState: (agentId: string) => CourierState
@@ -82,7 +88,8 @@ export interface Courier {
 
 interface InternalBox {
   readonly agentId: string
-  readonly sendCountdownMs: number
+  /** 类装载后仅 realignCountdown 可改（恢复接线时序补偿，见 Courier.realignCountdown）。 */
+  sendCountdownMs: number
   readonly onDelivery: (delivery: MailDelivery) => void
   readonly onHold?: (agentId: string) => void
   readonly assemble: boolean
@@ -126,6 +133,12 @@ export class DefaultCourier implements Courier {
       timer: undefined,
       coolingDown: false,
     })
+  }
+
+  realignCountdown(agentId: string, sendCountdownMs: number | undefined): void {
+    const box = this.boxes.get(agentId)
+    if (!box) return
+    box.sendCountdownMs = sendCountdownMs ?? this.defaultCountdownMs
   }
 
   async unregister(agentId: string): Promise<void> {

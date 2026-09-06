@@ -75,6 +75,15 @@ export interface ContextRegistration {
   readonly initialSentIds?: readonly string[]
 }
 
+/** 生效接线反射（ContextManager.boxFacts 返回值）。 */
+export interface BoxFacts {
+  readonly agentId: string
+  readonly strategy: string
+  readonly assemble: boolean
+  readonly customKeys: readonly string[]
+  readonly sendCountdownMs: number
+}
+
 interface InternalBox {
   readonly agentId: string
   readonly assemble: boolean
@@ -116,7 +125,10 @@ export interface ContextManager {
   readonly realign: (agentId: string, patch: {
     readonly contextStrategy?: string
     readonly custom?: Readonly<Record<string, unknown>>
+    readonly sendCountdownMs?: number
   }) => Promise<void>
+  /** 箱内生效接线的只读反射（排障/测试面：策略名、组装开关、custom 键、倒计时）。 */
+  readonly boxFacts: (agentId: string) => BoxFacts | undefined
   /**
    * 投信（from 为发送者 id，用于打戳与挂起等待分流）。
    * 命中挂起等待 → tool 结果填充；user_prompt 抵达 → 触发策略 process，
@@ -222,6 +234,8 @@ export class DefaultContextManager implements ContextManager {
     } else {
       strategy = this.strategies.resolve(registration.contextStrategy)
       if (!strategy && registration.restore === true) {
+        // 静默兜底：构造期类未入表是时序常态（realign 载齐后补对齐）；
+        // 真异常（策略名失效/类文件缺失）在 realign 端点留 context.strategy.fallback 账。
         strategy = this.strategies.resolve(undefined)
       }
     }
@@ -269,14 +283,42 @@ export class DefaultContextManager implements ContextManager {
   async realign(agentId: string, patch: {
     readonly contextStrategy?: string
     readonly custom?: Readonly<Record<string, unknown>>
+    readonly sendCountdownMs?: number
   }): Promise<void> {
     const box = this.boxes.get(agentId)
     if (!box) return
     if (patch.contextStrategy !== undefined) {
       const next = this.strategies.resolve(patch.contextStrategy)
       if (next) box.strategy = next
+      else {
+        // 解析失败留痕（不炸启动语义不变）：'' = 类未入表，否则 = 策略名失效。
+        this.onLog?.({
+          type: 'context.strategy.fallback',
+          at: Date.now(),
+          agentId,
+          site: 'realign',
+          expected: patch.contextStrategy,
+          actual: box.strategy.name,
+          message: patch.contextStrategy === ''
+            ? '实例的类不在模板表（.stem/agent 文件真相缺失），接线维持现状'
+            : `类声明的策略 [${patch.contextStrategy}] 不在注册表（策略文件缺失？），接线维持现状`,
+        })
+      }
     }
     if (patch.custom !== undefined) box.custom = patch.custom
+    this.courier.realignCountdown(agentId, patch.sendCountdownMs)
+  }
+
+  boxFacts(agentId: string): BoxFacts | undefined {
+    const box = this.boxes.get(agentId)
+    if (!box) return undefined
+    return {
+      agentId,
+      strategy: box.strategy.name,
+      assemble: box.assemble,
+      customKeys: Object.keys(box.custom ?? {}),
+      sendCountdownMs: this.courier.getState(agentId).sendCountdownMs,
+    }
   }
 
   async unregister(agentId: string): Promise<void> {

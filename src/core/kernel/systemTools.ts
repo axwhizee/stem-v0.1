@@ -817,6 +817,8 @@ function telemetryBrief(event: LogEvent): string {
       return `${event.outcome} n=${event.compactedCount}`
     case 'context.dreamed':
       return `${event.consolidated ? 'dreamed' : 'aborted'} invalid=${event.invalidRows} notes=${event.notesTouched}`
+    case 'context.strategy.fallback':
+      return `${event.site} 期望[${event.expected}] 实接[${event.actual}]——${event.message}`
     case 'kernel.step.limit':
       return `步数上限 ${event.maxSteps} 收束本轮`
     case 'mailbox.countdown':

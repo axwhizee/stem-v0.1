@@ -344,10 +344,15 @@ export class Kernel {
     for (const instance of this.restoredInstances) {
       if (instance.parentId === null) continue
       const template = this.templates.getSync(instance.classRef)
-      if (!template) continue
+      if (!template) {
+        // 类不在表（文件真相缺失）——空串触发 cm 兜底留痕后维持现状。
+        await this.contextManager.realign(instance.id, { contextStrategy: '' })
+        continue
+      }
       await this.contextManager.realign(instance.id, {
         contextStrategy: template.contextStrategy,
         custom: template.custom,
+        sendCountdownMs: template.sendCountdown,
       })
     }
   }

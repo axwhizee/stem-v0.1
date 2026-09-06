@@ -56,9 +56,9 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 // ---------- 证据与成本 ----------
 let globalStage: Stage | undefined
 function eventsDump(stage: Stage): Array<Record<string, unknown>> {
+  // 全量直落（长场景先截断会把早期关键事件挤出——证据文件体积换完整性）。
   return stage.sys.kernel.logger
     .query({})
-    .slice(-400)
     .map((e) => ({ ...e } as unknown as Record<string, unknown>))
 }
 
@@ -280,9 +280,11 @@ async function scenario5(): Promise<void> {
       // 水位已过线（类文件 dreamAt=3500）——发一轮信触发背景做梦，等轮替落定。
       void ask(stage, pet, '随便一句话回答我：天空为什么是蓝的？', 120_000).catch(() => {})
       const start = Date.now()
+      let beat = 0
       while (Date.now() - start < 8 * 60_000) {
         await sleep(3000)
         rows = await memoryRows()
+        if (++beat % 10 === 0) console.log(`  [dream-poll] ${String(Math.round((Date.now() - start) / 1000))}s 记忆组=${JSON.stringify(rows)}`)
         if (rows.ltm > 0) break
       }
     }
