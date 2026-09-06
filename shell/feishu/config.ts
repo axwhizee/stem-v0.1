@@ -8,7 +8,7 @@
 
 import { readFileSync, existsSync } from 'node:fs'
 import { join } from 'node:path'
-import { parseConfigText } from '../../src/core/config'
+import { parse as parseJsonc } from 'jsonc-parser'
 
 export interface FeishuConfig {
   /** 主人 open_id 白名单（空 = 拒服并打印来话者 open_id，人工回填后重启认领）。 */
@@ -35,8 +35,12 @@ export const FEISHU_CONFIG_DEFAULTS: FeishuConfig = {
 export function loadFeishuConfig(projectRoot: string): FeishuConfig {
   const file = join(projectRoot, '.stem', 'feishu.jsonc')
   if (!existsSync(file)) return { ...FEISHU_CONFIG_DEFAULTS }
-  const raw = parseConfigText(readFileSync(file, 'utf8')) as Record<string, unknown>
+  // 裸 JSONC 解析（core parseConfigText 携带 StemConfig R12 语义，不适用平台侧文件）。
+  const raw = parseJsonc(readFileSync(file, 'utf8'), []) as Record<string, unknown> | null
   const known = new Set(['ownerOpenIds', 'secretaryClass', 'chatBindings', 'approvalChatIds', 'watchThrottleMs'])
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error(`[feishu] ${file} 顶层必须是对象`)
+  }
   const unknown = Object.keys(raw).filter((k) => !known.has(k))
   if (unknown.length > 0) {
     throw new Error(`[feishu] ${file} 含未知顶层键 ${unknown.join(', ')}（允许: ${[...known].join(', ')}）`)

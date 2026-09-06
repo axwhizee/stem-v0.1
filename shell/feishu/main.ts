@@ -234,6 +234,7 @@ function chatsWatching(state: { watches: Map<string, Set<string>> }, agentId: st
 }
 
 void main().catch((e) => {
-  console.error('[feishu-shell] 启动失败:', String(e))
+  // core 错误是判别对象非 Error——String() 会吞成 [object Object]（实测教训）。
+  console.error('[feishu-shell] 启动失败:', e instanceof Error ? e.stack ?? e.message : JSON.stringify(e))
   process.exit(1)
 })
