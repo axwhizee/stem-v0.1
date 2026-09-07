@@ -14,6 +14,7 @@ export function createGlobTool(root: string): ToolCapability {
     description: '按 glob 模式递归匹配文件路径（支持 ** / * / ? / {a,b}），返回匹配文件列表。',
     accessKey: 'glob',
     kind: 'extension',
+    birth: 'allow', // 自述推荐值；实际出生以 config.extensions.tools 点名权限词为准
     category: 'business',
     parameters: {
       type: 'object',

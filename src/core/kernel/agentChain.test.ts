@@ -76,6 +76,7 @@ describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
     })
     await tools.register({
       id: 'oc_get_time',
+      birth: 'ignore',
       description: 'get time',
       parameters: { type: 'object', properties: {} },
       execute: () => ({ text: '当前 UTC 时间: 2026-08-11T12:00:00.000Z' }),

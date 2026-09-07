@@ -14,5 +14,5 @@
     "window": 262144,
     "compact": { "replyTimeoutMs": 240000 }
   },
-  "extensions": { "tools": ["read", "write", "edit", "grep", "glob"] }
+  "extensions": { "tools": { "read": "allow", "write": "allow", "edit": "allow", "grep": "allow", "glob": "allow" } }
 }

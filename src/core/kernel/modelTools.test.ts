@@ -16,7 +16,9 @@ import { makeAgentClassID, makeAgentID, type AgentClass } from './types'
 
 const userTools = {
   agent_instantiate: 'allow',
-  agent_update: 'allow',
+  // R7 缺省形态 = ignore（背景在场、可执行不设防）；根与自理类同取 ignore
+  // （新收敛链下，子若声明 ignore 而父为 allow 属藏匿扩张会被拒——这里两层级一致）。
+  agent_update: 'ignore',
   agent_inspect: 'allow',
   agent_list: 'allow',
 } as const

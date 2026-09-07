@@ -20,6 +20,7 @@ const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 async function registerEcho(tools: Awaited<ReturnType<typeof createKernelHarness>>['tools'], pad: number) {
   await tools.register({
     id: 'echo_pad',
+    birth: 'ignore',
     description: '回声',
     parameters: {
       type: 'object',

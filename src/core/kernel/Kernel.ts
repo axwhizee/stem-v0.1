@@ -4,23 +4,24 @@
 // 装配：模板注册表 / 实例管理 / 空间 / 族谱树（拓扑 + 能力 + 可见域门面）
 //      / 上下文仓库+管理员+快递员 / 运行时 / ask 总线 / 工具注册表。
 //
-// 权限模型（查询反转）：生效权限 = 族谱位置的函数——实例注册（创建/恢复）
-// 时经 lineage.attach/replay 在族谱树内物化（继承→收敛两步，S5.1 起台账
-// 并入树门面），tools registry / ask 总线经 AccessResolver 端口查询，
-// kernel 只做接线，不再逐层拼装。
+// 权限模型（注册表 + 单操作收敛链）：生效权限 = 族谱位置的函数——实例注册
+// （创建/恢复）时经 lineage.attach/replay 物化：收敛链 steps（类清单→
+// [策略清单]→实例清单，逐步折叠不预合并）+ 出生表 caps 全局封顶；写入面
+// （实例化/更新/根注册）走同一代数做**拒绝式校验**（扩张即拒、带层归因），
+// 物化面静默钳制（重启幂等）。tools registry / ask 总线经 AccessResolver
+// 端口查询，kernel 只做接线，不再逐层拼装。
 //
 // 通信模型（重建邮局，无总线）：
 //   - sendMessage(from, to, payload) → 管理员 deposit（打戳 + 入库 + 触发处理）；
 //   - 事件（stream/letter/status/notice）统一经 events hub 发布（PilotEvent）；
 //   - 访问确认（ask）消息化：投递申请到根信箱 + access_reply 工具解析（见 tools/accessRequest）。
-// 参与者查询：复用 instances + user0（无独立注册表）。
-// user0 是元 agent（族谱树根 parentId=null）。
+// 参与者查询：复用 instances + 根（无独立注册表）。
+// user0（根）是 user 类的普通实例（parentId=null），与全体 agent 平等。
 // ============================================================
 
 import type { ModelGateway } from '../gateway'
-import type { LLMEvent, ModelRef, UsageEvent } from '../gateway'
+import type { ModelRef, UsageEvent } from '../gateway'
 import type {
-  AgentDelivery,
   ContextSettings,
   MailDelivery,
   Repository,
@@ -33,12 +34,13 @@ import type { Logger } from '../logging'
 import { forget, InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
 import type { AccessAskBus, AccessResolver, ToolAccess } from '../tools'
-import { DefaultAccessAskBus, formatAccessRequest, checkToolsConvergence } from '../tools'
+import { DefaultAccessAskBus, formatAccessRequest, foldConvergenceSteps } from '../tools'
+import type { ConvergenceLayer } from '../tools'
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
 
 /** agent_update 统一通道入参（tools 两形式互斥；语义见 updateAgent）。 */
-export interface AgentUpdateSpec {
+interface AgentUpdateSpec {
   readonly agentId: string
   /** 发起者；缺省 = 跳过可见域判定（pilot 信任通道）。 */
   readonly by?: string
@@ -50,7 +52,7 @@ export interface AgentUpdateSpec {
   readonly toolsGrant?: Readonly<Record<string, ToolAccess>>
 }
 
-import type { ToolCapabilityRegistry, ToolContext } from '../tools'
+import type { ToolCapabilityRegistry } from '../tools'
 import { DefaultTemplateRegistry } from './TemplateRegistry'
 import type { TemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
@@ -62,12 +64,12 @@ import type { SpaceManager } from './SpaceManager'
 import { DefaultRuntime } from './Runtime'
 import type { Runtime } from './Runtime'
 import { DefaultLineageTree } from '../lineage'
-import type { LineageTree } from '../lineage'
+import type { AccessProfile, LineageTree } from '../lineage'
 import { createSystemTools } from './systemTools'
 import { ASSISTANT, buildUserClass } from './builtin/agents'
 import type { UserClassConfig } from './builtin/agents'
 import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, ProjectRef } from './types'
-import { makeAgentClassID, makeAgentID, USER_CLASS_ID } from './types'
+import { makeAgentID, USER_CLASS_ID } from './types'
 
 /**
  * 内置模板（S9 类形态统一：唯一定义域 `kernel/builtin/agents.ts`）。
@@ -81,7 +83,7 @@ export const USER_ID = 'user0'
 
 export interface KernelOptions {
   readonly gateway: ModelGateway
-  /** 覆盖内置模板（缺省用 templates/*.json）。 */
+  /** 追加/覆盖内置模板（内置 = builtin/agents.ts 类表）。 */
   readonly templates?: readonly AgentClass[]
   /** 工具注册表（缺省不启用工具轮）。 */
   readonly tools?: ToolCapabilityRegistry
@@ -100,7 +102,8 @@ export interface KernelOptions {
   readonly logger?: Logger
   /**
    * user0 内嵌 agent 类配置（config.user 全对象：tools/systemPrompt/
-   * sendCountdown/model/contextStrategy）；缺省 = 内置默认表（DEFAULT_USER_TOOLS）。
+   * sendCountdown/model/contextStrategy）；tools 缺省 = 不设限（完整继承
+   * 注册表出生表面；推荐清单实值住首启模板 defaults.ts）。
    */
   readonly userClass?: UserClassConfig
   /** 工具访问自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
@@ -362,7 +365,8 @@ export class Kernel {
       this.instances.listAllSync().map((instance) => ({
         agentId: instance.id as string,
         parentId: instance.parentId as string | null,
-        own: this.ownAccessOf(instance.id),
+        steps: this.accessStepsOf(instance.id),
+        caps: this.birthCaps(),
         model: {
           instanceModel: instance.model,
           classModel: this.templates.getSync(instance.classRef)?.model,
@@ -373,13 +377,44 @@ export class Kernel {
     )
   }
 
-  /** 某 agent 的自身清单（类 tools 与实例 toolOverride 合并；台账 bind 的输入，undefined = 不设限）。 */
-  private ownAccessOf(agentId: AgentID): Readonly<Record<string, ToolAccess>> | undefined {
+  /** 某 agent 的收敛链步序（类清单 → 实例清单；两步独立、不做预合并）。 */
+  private accessStepsOf(agentId: AgentID): readonly (Readonly<Record<string, ToolAccess>> | undefined)[] {
     const instance = this.instances.getSync(agentId)
-    if (!instance) return undefined
+    if (!instance) return []
     const template = this.templates.getSync(instance.classRef)
-    if (template?.tools === undefined && instance.toolOverride === undefined) return undefined
-    return { ...template?.tools, ...instance.toolOverride }
+    return [template?.tools, instance.toolOverride]
+  }
+
+  /** 出生表（注册行为生成的全局封顶；无注册表面 = 不封顶）。 */
+  private birthCaps(): Readonly<Record<string, ToolAccess>> {
+    return this.tools?.birthTable() ?? {}
+  }
+
+  /**
+   * 写入面拒绝式校验（与物化共用 foldConvergenceSteps 单一代数）：逐步折叠，
+   * 取值宽于封顶（父面显式判定 ∧ 出生值）= 扩张 → 违例带层归因
+   * （"类收敛被拒" ≠ "实例收敛被锁"）。整表缺席的步跳过（= 该层不设限）。
+   */
+  private validateAccessSteps(
+    parent: AccessProfile | undefined,
+    steps: readonly (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>])[],
+  ): string[] {
+    const { violations } = foldConvergenceSteps(parent?.explicit ?? {}, this.birthCaps(), steps)
+    return violations.map(
+      (v) => `${v.layer}被拒 ${v.key}: ${v.wanted}（封顶 ${v.ceiling}——扩张被拒，只许沿 ignore→allow→ask→deny 收紧）`,
+    )
+  }
+
+  /** 收敛链步序 → 带层标签对（层名按链位分配：两步 = 类/实例；三步含策略层）。 */
+  private labeledSteps(
+    steps: readonly (Readonly<Record<string, ToolAccess>> | undefined)[],
+    first: ConvergenceLayer,
+  ): (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>])[] {
+    const labels: ConvergenceLayer[] =
+      steps.length >= 3 ? [first, '策略收敛', '实例收敛'] : [first, '实例收敛']
+    return steps
+      .map((list, i) => (list === undefined ? undefined : [labels[i] ?? '实例收敛', list] as const))
+      .filter((p): p is readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>] => p !== undefined)
   }
 
   /** 注册根 agent（user0）：从内置 user 类实例化（parentId=null 即根，与其他实例等同）。 */
@@ -396,6 +431,10 @@ export class Kernel {
     // S6/R11：根挂**真实项目空间**（废除旧 getOrCreate('user0') 伪空间行——
     // 全体平等原则下根不需要专属空间；老卷残留由宿主存储层 v2 迁移归并）。
     const rootSpace = await this.spaces.getOrCreate(this.project ?? '')
+    const rootViolations = this.validateAccessSteps(undefined, this.labeledSteps([template.tools], '根收敛'))
+    if (rootViolations.length > 0) {
+      throw { kind: 'root_config_expanded', message: `config.user.tools 越出生声明被拒：\n${rootViolations.join('\n')}` }
+    }
     const instance = await this.instances.instantiate({
       className: USER_CLASS_ID,
       parentId: null,
@@ -408,7 +447,8 @@ export class Kernel {
     this.lineage.attach({
       agentId: USER_ID,
       parentId: null,
-      own: this.ownAccessOf(makeAgentID(USER_ID)),
+      steps: [template.tools],
+      caps: this.birthCaps(),
       model: { instanceModel: instance.model, classModel: template.model },
     })
     this.emitLog({
@@ -466,16 +506,27 @@ export class Kernel {
 
   /** 实例化（指定空间，供系统工具 agent_instantiate / 策略 spawn 使用）。 */
   async instantiateInSpace(opts: Omit<InstantiateOptions, 'spaceId'>, spaceId: AgentSpaceID | string): Promise<AgentID> {
+    const template = await this.templates.get(opts.className)
+    // 写入面拒绝式校验（两步独立归因；grant = 系统通道静默钳制不拒绝）。
+    if (opts.accessMode !== 'grant') {
+      const violations = this.validateAccessSteps(
+        opts.parentId !== null ? this.lineage.profileOf(opts.parentId as string) : undefined,
+        this.labeledSteps([template.tools, opts.tools], '类收敛'),
+      )
+      if (violations.length > 0) {
+        throw { kind: 'tools_convergence_expanded', violations }
+      }
+    }
     const instance = await this.instances.instantiate({ ...opts, spaceId: spaceId as AgentSpaceID })
-    const template = await this.templates.get(instance.classRef)
     // 能力绑定（注册两步曲：继承父档案 → 自身清单收敛；grant = 系统通道加法整表）。
     // S6/R6：模型配置相同步物化——出生链 显式(opts/实例行) > 类基因 > 父继承 > 家学。
     this.lineage.attach({
       agentId: instance.id as string,
       parentId: instance.parentId as string | null,
-      own: this.ownAccessOf(instance.id),
+      ...(opts.accessMode === 'grant'
+        ? { own: { ...template.tools, ...instance.toolOverride }, mode: 'grant' as const, caps: this.birthCaps() }
+        : { steps: this.accessStepsOf(instance.id), caps: this.birthCaps() }),
       model: { instanceModel: instance.model, classModel: template.model },
-      ...(opts.accessMode === 'grant' ? { mode: 'grant' as const } : {}),
     })
     // §5 族规持久化：出生解析落在父继承/家学层 → 快照随实例行（"改父不动子"
     // 跨重启不失效）。根的 home 不写快照——家学 = config 本体，编辑重启应生效。
@@ -655,16 +706,21 @@ export class Kernel {
     const fields: string[] = []
     const patch: AgentInstancePatch = {}
     if (spec.toolsPatch !== undefined) {
-      // 收敛 patch：对目标**当前生效显式面**（链摊平 + 自身值）逐键总序校验。
+      // 收敛 patch：对目标**当前生效显式面**（链摊平 + 自身值）逐键总序校验，
+      // 并叠出生表封顶（实例收敛层拒绝式归因）。
       const surface = this.lineage.profileOf(spec.agentId)?.explicit ?? {}
-      const violations = checkToolsConvergence(surface, spec.toolsPatch)
-      if (violations.length > 0) {
-        throw { kind: 'agent_update_expanded', agentId: spec.agentId, violations }
+      const mergedOverride = { ...surface, ...spec.toolsPatch }
+      const viol = this.validateAccessSteps(
+        instance.parentId !== null ? this.lineage.profileOf(instance.parentId as string) : undefined,
+        this.labeledSteps([this.templates.getSync(instance.classRef)?.tools, mergedOverride], '类收敛'),
+      )
+      if (viol.length > 0) {
+        throw { kind: 'agent_update_expanded', agentId: spec.agentId, violations: viol }
       }
       // 合并写 override = 生效显式面全量 + patch——若以"类 ∪ 现 override"为基线，
       // 继承形实例（类无表）首更时父档案里的键会被静默挤出（own 跳变封闭面
       // + fallback deny = 能力清零悬崖）；以显式摊平面为基线则更新只动提及键。
-      patch.toolOverride = { ...surface, ...spec.toolsPatch }
+      patch.toolOverride = mergedOverride
       fields.push('tools')
     } else if (spec.toolsGrant !== undefined) {
       // 清单形整表替换（受限 grant）：未列一律 deny；逐键封顶由台账物化保证。
@@ -736,12 +792,6 @@ export class Kernel {
       },
       project,
     )
-  }
-
-  /** 空间内实例列表。 */
-  async listAgentsBySpace(spaceId: AgentSpaceID): Promise<AgentID[]> {
-    const agents = await this.instances.listBySpace(spaceId)
-    return agents.map((agent) => agent.id)
   }
 
   /**

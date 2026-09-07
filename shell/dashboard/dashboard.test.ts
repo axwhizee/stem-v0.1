@@ -156,7 +156,7 @@ test('资源清单：纯内存标本装配 = 矩阵真实结果（三态分层 +
       `{
   "providers": { "stub": { "base_url": "https://stub.invalid/v1", "key_env": "STEM_DASH_TEST_KEY" } },
   "user": { "model": "stub/probe-model" },
-  "extensions": { "tools": [], "agent": [] }
+  "extensions": { "tools": { "dash-probe-tool": "ignore" }, "agent": [] }
 }`,
       'utf8',
     )
@@ -175,11 +175,11 @@ test('资源清单：纯内存标本装配 = 矩阵真实结果（三态分层 +
     assert.equal(inv.providers.stub?.keyPresent, false)
     // 工具三态：custom 装载、extension 点名 [] 全关、internal 恒在（bash = 默认注入 runner）。
     const custom = inv.tools.find((t) => t.id === 'dash-probe-tool')
-    assert.ok(custom, 'custom 目录形态工具应装载')
+    assert.ok(custom, 'custom 点名工具应装载（目录形态 <名>/<名>.ts 解析命中）')
     assert.equal(custom.kind, 'custom')
-    assert.equal(custom.visibleToUser0, false) // 未进 user0 白名单 = deny 不可见
+    assert.equal(custom.visibleToUser0, false, '出生 ignore = 背景在场不暴露（不设防）')
     assert.ok(inv.tools.some((t) => t.id === 'bash' && t.kind === 'internal' && t.visibleToUser0))
-    assert.ok(!inv.tools.some((t) => t.id === 'read'), 'extensions.tools=[] → extension 五件套不装')
+    assert.ok(!inv.tools.some((t) => t.id === 'read'), 'extensions.tools 未点名 read → 不存在于世界')
     // 类清单分层：internal（user/assistant 占位）+ custom 扫描。
     const layers = new Map(inv.classes.map((c) => [c.name, c.layer]))
     assert.equal(layers.get('user'), 'internal')

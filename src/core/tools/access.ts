@@ -54,3 +54,55 @@ export function checkToolsConvergence(
   }
   return violations
 }
+
+/** 收敛链的层名（失败归因用；kernel 按链步序命名传入——"类收敛被拒"≠"实例收敛被锁"）。 */
+export type ConvergenceLayer = '根收敛' | '类收敛' | '策略收敛' | '实例收敛'
+
+/** 收敛链校验违例（带归因的结构，消费方渲染成错误文本）。 */
+export interface ConvergenceViolation {
+  readonly layer: ConvergenceLayer
+  readonly key: string
+  readonly wanted: ToolAccess
+  /** 封顶值（父面显式判定与出生值取严）。 */
+  readonly ceiling: ToolAccess
+}
+
+/**
+ * 单操作收敛链 = 同一把尺的多次套用（注册表→根清单→类清单→[策略清单]→实例清单）。
+ * 逐步折叠校验（不做预合并——两步独立免费获得失败归因）：
+ *   每步对当前面的显式判定与出生封顶逐键取严；**取值宽于封顶 = 扩张，记违例**。
+ * 纯函数：折叠产物（封顶后档案）与违例分离返回——物化端静默压回（重启稳定），
+ * 写入端（实例化/更新）据违例拒绝并报归因。父匿名封闭（fallback）不构成
+ * 否决——"缺席 ≠ 否决"由"只折叠 explicit"天然表达。
+ */
+export function foldConvergenceSteps(
+  parentExplicit: Readonly<Record<string, ToolAccess>>,
+  caps: Readonly<Record<string, ToolAccess>>,
+  steps: readonly (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>])[],
+): {
+  readonly profile: { explicit: Record<string, ToolAccess>; fallback?: ToolAccess }
+  readonly violations: ConvergenceViolation[]
+} {
+  const violations: ConvergenceViolation[] = []
+  let explicit: Record<string, ToolAccess> = { ...parentExplicit }
+  for (const [layer, list] of steps) {
+    // 键即白名单：写了表 → 未列键出局（本地封闭 deny——匿名封闭只锁自己，不下传）。
+    const next: Record<string, ToolAccess> = {}
+    for (const [key, wanted] of Object.entries(list)) {
+      const ceiling = restrictAccess(
+        caps[key] ?? wanted,
+        explicit[key] ?? 'ignore',
+      )
+      if (accessRank(wanted) > accessRank(ceiling)) {
+        violations.push({ layer, key, wanted, ceiling })
+      }
+      next[key] = restrictAccess(wanted, ceiling)
+    }
+    explicit = next
+  }
+  // 任一清单写下即本地封闭：未列键一律 deny（键即白名单）。
+  return {
+    profile: { explicit, ...(steps.length > 0 ? { fallback: 'deny' as const } : {}) },
+    violations,
+  }
+}

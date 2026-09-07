@@ -34,6 +34,7 @@ export function createCortexTools(runtime: CortexRuntime, saver: NoteSaver): rea
   const setLtm: ToolCapability = {
     id: 'cortex_set_ltm',
     kind: 'custom',
+    birth: 'ignore', // 策略注册工具出生恒 ignore（上台面走收敛链显式化）
     description:
       '【cortex·做梦专属】重写长期记忆（LTM）为给定条目集。全量替换而非追加：' +
       '保留仍然核心的身份/环境事实/教训/进行承诺，淘汰过时与重复项；' +
@@ -68,6 +69,7 @@ export function createCortexTools(runtime: CortexRuntime, saver: NoteSaver): rea
   const setStm: ToolCapability = {
     id: 'cortex_set_stm',
     kind: 'custom',
+    birth: 'ignore', // 策略注册工具出生恒 ignore（上台面走收敛链显式化）
     description:
       '【cortex·做梦专属】重写短期记忆（STM）：当前工作状态（进展/未兑现承诺/眼前事实）。' +
       '这是做梦事务的第二段——落定后旧对话轮将被归档（语料保留），醒来靠这份 STM 接上工作。' +
@@ -97,6 +99,7 @@ export function createCortexTools(runtime: CortexRuntime, saver: NoteSaver): rea
   const addNote: ToolCapability = {
     id: 'cortex_add_note',
     kind: 'custom',
+    birth: 'ignore', // 策略注册工具出生恒 ignore（上台面走收敛链显式化）
     description:
       '沉淀一篇主题笔记（markdown 文件，脱离上下文长期外挂；主题目录随每次做梦刷新）。' +
       '值得记录的做法/领域知识/参考细节时调用；一主题一篇，文件名小写短横线（如 api-conventions）。' +
@@ -128,6 +131,7 @@ export function createCortexTools(runtime: CortexRuntime, saver: NoteSaver): rea
   const delNote: ToolCapability = {
     id: 'cortex_del_note',
     kind: 'custom',
+    birth: 'ignore', // 策略注册工具出生恒 ignore（上台面走收敛链显式化）
     description: '删除一篇已过时的主题笔记（做梦整理时同款能力）。',
     parameters: {
       type: 'object',

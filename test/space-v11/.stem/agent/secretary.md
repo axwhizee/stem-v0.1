@@ -12,8 +12,8 @@ tools:
   agent_inspect: allow
   agent_descendants: allow
   agent_update: ask
-  bus_send: allow
-  bus_participants: allow
+  mail_send: allow
+  mail_participants: allow
   telemetry_query: allow
   context_overview: allow
   context_export: allow

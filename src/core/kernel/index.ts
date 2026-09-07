@@ -27,14 +27,13 @@ export { DefaultTemplateRegistry } from './TemplateRegistry'
 export type { InstantiateOptions, InstanceManager } from './InstanceManager'
 export { DefaultInstanceManager } from './InstanceManager'
 export type { InstanceStore } from './store'
-export { MemoryInstanceStore } from './store'
 export { PersistedInstanceManager, PersistedSpaceManager } from './persisted'
 
 // 空间管理
 export type { SpaceManager } from './SpaceManager'
 export { DefaultSpaceManager } from './SpaceManager'
 // 运行时
-export type { RuntimeDeps, Runtime } from './Runtime'
+export type { Runtime } from './Runtime'
 export { DefaultRuntime } from './Runtime'
 
 // Kernel 容器
@@ -43,7 +42,7 @@ export { Kernel, BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 
 // 内置 user 类（根模板，user0 采用）
 export { USER_CLASS_ID } from './types'
-export { BUILTIN_AGENT_CLASSES, DEFAULT_USER_TOOLS, USER_DEFAULT, ASSISTANT, buildUserClass } from './builtin/agents'
+export { BUILTIN_AGENT_CLASSES, USER_DEFAULT, ASSISTANT, buildUserClass } from './builtin/agents'
 export type { UserClassConfig } from './builtin/agents'
 
 // 系统管理工具

@@ -7,7 +7,7 @@ import assert from 'node:assert/strict'
 import { DefaultTemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
 import { PersistedInstanceManager } from './persisted'
-import { MemoryInstanceStore } from './store'
+import { MemoryInstanceStore } from '../../../test/support/memoryInstanceStore'
 import type { AgentClass, AgentInstance } from './types'
 import { makeAgentClassID, makeAgentID, makeAgentSpaceID } from './types'
 

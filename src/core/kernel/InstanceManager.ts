@@ -83,13 +83,12 @@ export interface InstanceManager {
 }
 
 /** 销毁权错误（判别联合）。 */
-export type TerminateError =
+type TerminateError =
   | { readonly kind: 'agent_terminate_denied'; readonly agentId: AgentID; readonly by: string }
   | { readonly kind: 'agent_has_children'; readonly agentId: AgentID; readonly hint: string }
 
 export class DefaultInstanceManager implements InstanceManager {
   private readonly agents = new Map<AgentID, AgentInstance>()
-  private counter = 0
 
   constructor(private readonly registry: TemplateRegistry) {}
 
@@ -133,7 +132,7 @@ export class DefaultInstanceManager implements InstanceManager {
     agentId: AgentID,
     opts?: { by?: AgentID; recursive?: boolean },
   ): Promise<void> {
-    const instance = await this.get(agentId)
+    await this.get(agentId) // 存在性 fail-fast（缺失抛 agent_not_found）
     const by: AgentID = opts?.by ?? makeAgentID('user0')
     // 销毁权：by 必须是目标的祖先（根 parentId=null 无祖先 → 天然不可销毁）。
     if (!this.isAncestorOf(by, agentId)) {

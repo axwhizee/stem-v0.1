@@ -1,10 +1,12 @@
 // ============================================================
 // core/kernel/systemTools.ts —— 系统管理工具（Kernel 提供）
 //
-// 工具访问融合：kind=internal 系统工具默认 accessKey 下 'ignore'（隐藏），
-//   显式 toolAccess 声明 allow 才暴露；类权限列表在 AgentClass.toolAccess。
-// 工具执行器闭包引用 Kernel（组合根装配时注册到工具注册表）。
-// 命名规范：`<模块>_<动作>`（bus_send / bus_participants / agent_*）。
+// 注册即出生声明：每个工具携带 birth（出生权限）——`access_reply: allow`
+//   （根答复义务的自然出生）与 `bash: allow`（对外操作面）为已定实值，
+//   其余通例出生 `ignore`（上台面由收敛链各级清单显式化；kind 纯 provenance
+//   不参与权限推断）。
+// 工具执行器闭包引用 Kernel（组合根装配时注册到注册表）。
+// 命名规范：`<模块>_<动作>`（mail_send / mail_participants / agent_*）。
 // ============================================================
 
 import type { ToolCapability } from '../tools'
@@ -33,8 +35,8 @@ export function createSystemTools(kernel: Kernel): ToolCapability[] {
     agentDescendants(kernel),
     agentTerminate(kernel),
     agentUpdate(kernel),
-    busSend(kernel),
-    busParticipants(kernel),
+    mailSend(kernel),
+    mailParticipants(kernel),
     telemetryQuery(kernel),
     agentPause(kernel),
     contextExport(kernel),
@@ -53,6 +55,7 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
     description:
       '创建新的 agent 类（模板）并回写 `.stem/agent/<name>.md`（目录即真相，重启后仍生效——进化书写面）。新名 = 变体并存（供谱系对照与回滚）；同名会被拒绝（覆盖现役请用 agent_class_update）。类定义角色设定（systemPrompt / tools 工具清单 / contextStrategy / model / sendCountdown / maxSteps），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。tools 为工具访问键到访问动作的映射（键即白名单，未列出的工具不可用；对继承面只能收敛）。',
     accessKey: 'agent_class_create',
+    birth: 'ignore', // 出生声明（agent_class_create）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -116,6 +119,7 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
     description:
       '更新现役 agent 类并回写 `.stem/agent/<name>.md`（同名覆盖；进化书写面）。缺省目标 = 你所属的类（显式 name 可指向其它类，经 ask 授权）。tools 只能收敛（deny 不可撤销，ask 不得升为 allow/ignore）；systemPrompt/description/model/contextStrategy/sendCountdown 可改。**只影响后续实例**（你的既有权限面不变）。',
     accessKey: 'agent_class_update',
+    birth: 'ignore', // 出生声明（agent_class_update）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -211,6 +215,7 @@ function agentClassList(kernel: Kernel): ToolCapability {
     id: 'agent_class_list',
     description: '列出全部 agent 类（模板）及关键属性。',
     accessKey: 'agent_class_list',
+    birth: 'ignore', // 出生声明（agent_class_list）
     kind: 'internal',
     category: 'system',
     parameters: { type: 'object', properties: {} },
@@ -233,6 +238,7 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
       '创建新的 agent 实例。必填 className（模板名）与 userPrompt（作为该 agent 的首条 user 消息）；族谱父自动为调用者。可选 agentId（唯一）、model（"提供商/模型" 显式覆盖出生模型；缺省 = 类基因 > 你的继承链）、contextRefs（父仓库消息索引，深拷贝传入）、tools（对模板工具清单的临时收敛）。创建即返回 agent id。' +
       'wait=true 时同步等待该 agent 的回信作为本次调用的结果进入你的上下文（创建与配对原子完成，回信不会漏接；可配 waitTimeoutMs 超时兜底）；不传 wait = 异步协作，其回复将作为普通信件到达。',
     accessKey: 'agent_instantiate',
+    birth: 'ignore', // 出生声明（agent_instantiate）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -266,7 +272,9 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
         if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
         model = parsed
       }
-      const agentId = await kernel.instantiateInSpace(
+      let agentId: Awaited<ReturnType<Kernel['instantiateInSpace']>>
+      try {
+        agentId = await kernel.instantiateInSpace(
         {
           className: makeAgentClassID(args.className),
           userPrompt: args.userPrompt,
@@ -282,7 +290,18 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
             : {}),
         },
         ctx.spaceId,
-      )
+        )
+      } catch (cause) {
+        const err = cause as { kind?: string; violations?: string[] }
+        if (err?.kind === 'tools_convergence_expanded') {
+          return {
+            text:
+              `工具清单收敛被拒（逐键只许沿 ignore→allow→ask→deny 收紧，出生声明与父面显式判定封顶）：\n` +
+              (err.violations ?? []).map((v) => `  - ${v}`).join('\n'),
+          }
+        }
+        throw cause
+      }
       if (args.wait === true) {
         return { text: '', metadata: { contextWait: true } }
       }
@@ -309,6 +328,7 @@ function agentUpdate(kernel: Kernel): ToolCapability {
       '免于逐个填 deny 的负担，但每键仍被祖先显式判定封顶（ask 洗不成 allow）。tools 与 grantTools 互斥。' +
       'displayName = 实例显示名。类定义/父子拓扑/上下文策略/系统提示不在本通道（改类文件走 agent_class_update，拓扑是族谱事实）。',
     accessKey: 'agent_update',
+    birth: 'ignore', // 出生声明（agent_update）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -378,6 +398,7 @@ function agentList(kernel: Kernel): ToolCapability {
     id: 'agent_list',
     description: '列出 agent 实例（可选指定空间，缺省为调用者所在空间）。',
     accessKey: 'agent_list',
+    birth: 'ignore', // 出生声明（agent_list）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -399,6 +420,7 @@ function agentInspect(kernel: Kernel): ToolCapability {
     id: 'agent_inspect',
     description: '查看单个 agent 实例详情：父/子/祖先链、状态、轮次、成本。',
     accessKey: 'agent_inspect',
+    birth: 'ignore', // 出生声明（agent_inspect）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -432,6 +454,7 @@ function agentAncestry(kernel: Kernel): ToolCapability {
     id: 'agent_ancestry',
     description: '查询指定 agent 的祖先链（[父 → … → user0]，不含自身）。',
     accessKey: 'agent_ancestry',
+    birth: 'ignore', // 出生声明（agent_ancestry）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -452,6 +475,7 @@ function agentDescendants(kernel: Kernel): ToolCapability {
     id: 'agent_descendants',
     description: '查询指定 agent 的全部后代（BFS 子树）。',
     accessKey: 'agent_descendants',
+    birth: 'ignore', // 出生声明（agent_descendants）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -473,6 +497,7 @@ function agentTerminate(kernel: Kernel): ToolCapability {
     description:
       '终止一个 agent 实例（注销上下文）。销毁权：仅该 agent 的祖先（含 user0）可销毁。默认禁止销毁仍有子 agent 的父；recursive=true 时级联销毁整棵子树。',
     accessKey: 'agent_terminate',
+    birth: 'ignore', // 出生声明（agent_terminate）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -491,12 +516,13 @@ function agentTerminate(kernel: Kernel): ToolCapability {
   }
 }
 
-/** 经总线发送消息（单目标；一对多通过并行多次调用实现）。 */
-function busSend(kernel: Kernel): ToolCapability {
+/** 邮寄消息（单目标；一对多通过并行多次调用实现）。 */
+function mailSend(kernel: Kernel): ToolCapability {
   return {
-    id: 'bus_send',
-    description: '向指定参与者发送消息（单目标，一对多请并行调用多次）。消息自动添加发送者戳。',
-    accessKey: 'bus_send',
+    id: 'mail_send',
+    description: '向指定参与者投递信件（单目标，一对多请并行调用多次）。消息自动添加发送者戳。',
+    accessKey: 'mail_send',
+    birth: 'ignore', // 出生声明（mail_send）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -515,12 +541,13 @@ function busSend(kernel: Kernel): ToolCapability {
   }
 }
 
-/** 查询总线注册参与者。 */
-function busParticipants(kernel: Kernel): ToolCapability {
+/** 查询邮局在册参与者。 */
+function mailParticipants(kernel: Kernel): ToolCapability {
   return {
-    id: 'bus_participants',
-    description: '列出当前总线注册的参与者 id 列表。',
-    accessKey: 'bus_participants',
+    id: 'mail_participants',
+    description: '列出当前邮局在册的参与者 id 列表。',
+    accessKey: 'mail_participants',
+    birth: 'ignore', // 出生声明（mail_participants）
     kind: 'internal',
     category: 'system',
     parameters: { type: 'object', properties: {} },
@@ -544,6 +571,7 @@ function agentPause(kernel: Kernel): ToolCapability {
       '挂起自己一段时间：ms 后自动唤醒，期间收到的新信件全部堆积在上下文里，' +
       '醒来时一次组装可见。适合"等待多方消息汇聚再判断"的节奏控制。',
     accessKey: 'agent_pause',
+    birth: 'ignore', // 出生声明（agent_pause）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -573,6 +601,7 @@ function contextExport(kernel: Kernel): ToolCapability {
     id: 'context_export',
     description: '导出指定 agent 的完整上下文为 jsonl（逐行 JSON，含 tag/turn/indexInTurn）。只读，不修改上下文。',
     accessKey: 'context_export',
+    birth: 'ignore', // 出生声明（context_export）
     kind: 'internal',
     category: 'context',
     parameters: {
@@ -600,6 +629,7 @@ function contextOverview(kernel: Kernel): ToolCapability {
     description:
       '查看指定 agent 的上下文概览：每条消息的 role / turn / tag / token 占比 / 索引。只读反射，不修改上下文。用于 agent 自省上下文构成。',
     accessKey: 'context_overview',
+    birth: 'ignore', // 出生声明（context_overview）
     kind: 'internal',
     category: 'context',
     parameters: {
@@ -625,6 +655,7 @@ function contextRemove(kernel: Kernel): ToolCapability {
     description:
       '删除指定 agent 上下文中的过时消息（标记无效，组装时跳过，不物理清除）。可删任意消息（system 除外）；删除后上下文经 legalize 保证消息序列合法。用于清理过时工具结果/过期总结等。',
     accessKey: 'context_remove',
+    birth: 'ignore', // 出生声明（context_remove）
     kind: 'internal',
     category: 'context',
     parameters: {
@@ -659,6 +690,7 @@ function contextEdit(kernel: Kernel): ToolCapability {
     id: 'context_edit',
     description: '重写指定 agent 上下文中的某条消息内容（保留 role/索引；system 消息不可改）。',
     accessKey: 'context_edit',
+    birth: 'ignore', // 出生声明（context_edit）
     kind: 'internal',
     category: 'context',
     parameters: {
@@ -693,6 +725,7 @@ function contextApply(kernel: Kernel): ToolCapability {
     description:
       '执行该 agent 上下文管理策略的专有动作（如 classic 的 compact 手动压缩历史；cortex 的 dream 提前做梦固化记忆）。action 取值见系统提示中的 <stem_context>。仅能操作自身上下文（祖先可代子孙触发）。',
     accessKey: 'context_apply',
+    birth: 'ignore', // 出生声明（context_apply）
     kind: 'internal',
     category: 'context',
     parameters: {
@@ -723,6 +756,7 @@ function accessReply(kernel: Kernel): ToolCapability {
     description:
       '批准或拒绝访问申请。请求以 access_request 消息形式到达你的信箱（含 requestId / 申请工具 / 申请 agent）；用本工具回复 once（单次）/ always（始终批准）/ reject（拒绝，可带 feedback 告知申请 agent）。授权权：仅申请者的族谱根可答复。',
     accessKey: 'access_reply',
+    birth: 'allow', // 出生声明（access_reply）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -761,6 +795,7 @@ function telemetryQuery(kernel: Kernel): ToolCapability {
     description:
       '查询系统运行日志（telemetry 观测面）：工具调用/模型请求/信箱活动/权限交互/上下文动作/类注册与书写审计。可查自身或族谱后代（你是其祖先）；行式压缩输出。进化回路的"观测"支柱。',
     accessKey: 'telemetry_query',
+    birth: 'ignore', // 出生声明（telemetry_query）
     kind: 'internal',
     category: 'telemetry',
     parameters: {

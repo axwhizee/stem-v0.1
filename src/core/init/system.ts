@@ -26,7 +26,7 @@ import type { ClassStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
 import { createBashTool, DefaultToolCapabilityRegistry } from '../tools'
 import type { ShellRunner } from '../tools'
-import { Kernel } from '../kernel'
+import { Kernel, USER_ID } from '../kernel'
 import type { Pilot } from '../pilot'
 import { createPilot } from '../pilot'
 import type { PilotEvent } from '../events'
@@ -141,7 +141,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     ...(classStore !== undefined ? { classStore } : {}),
   })
 
-  // 系统工具（agent_*/bus_*/context_* + access_reply）。
+  // 系统工具（agent_*/mail_*/context_* + access_reply；注册即出生声明）。
   await kernel.registerSystemTools(tools)
   // 宿主显式注入的工具（测试/深度定制通道；常规 extension 工具走 runInit 矩阵装载）。
   for (const tool of deps.hostTools ?? []) await tools.register(tool)
@@ -211,6 +211,21 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   // Pilot（user0 扮演接口）：pilot 初始化内实例化根 agent user0（user 类，普通实例）。
   const pilot = await createPilot({ kernel })
   if (deps.onEvent) pilot.subscribe(deps.onEvent)
+
+  // boot 校验律（A3，替代一切代码兜底）：ask 审批是消息交换——根信箱的答复
+  // 通道若不可用，全系统 ask 死锁。根生效表 access_reply ≠ allow = 拒启并
+  // 明示死锁理由（主权归 config.user.tools，法只做审判——DEFAULT_USER_TOOLS 已退役）。
+  const replyExplicit = kernel.lineage.effectiveAccess(USER_ID, 'access_reply')
+  const replyAccess = replyExplicit ?? tools.birthOf('access_reply')
+  if (replyAccess !== 'allow') {
+    throw {
+      kind: 'invalid_config',
+      message:
+        `boot 校验律：根（user0）生效 access_reply = ${String(replyAccess)}，必须为 allow——` +
+        'ask 审批经 access_request→根信箱→access_reply 消息交换闭环，根答复缺位 = 权限系统死锁。' +
+        '请在 .stem/stem.jsonc 的 user.tools 补 "access_reply": "allow"（首启模板含推荐清单实值）。',
+    } as ConfigError
+  }
 
   // 工具初始化生命周期（工具参与系统初始化的唯一 hook；fs/projectRoot/log 注入）。
   await tools.initAll({

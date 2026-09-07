@@ -9,22 +9,16 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../../gateway'
-import { buildUserClass, BUILTIN_AGENT_CLASSES, DEFAULT_USER_TOOLS, USER_DEFAULT, ASSISTANT } from './agents'
+import { buildUserClass, BUILTIN_AGENT_CLASSES, USER_DEFAULT, ASSISTANT } from './agents'
 import { USER_CLASS_ID, makeAgentID } from '../types'
 import { USER_ID } from '../Kernel'
 import { createKernelHarness } from '../../../../test/support/kernelHarness'
 
 describe('buildUserClass（user0 内嵌 agent 类配置）', () => {
-  test('缺省 = 内置默认表：根答复义务在场（B3 死锁修复回归锚点）', () => {
+  test('缺省档 = 无注入清单（DEFAULT_USER_TOOLS 退役；根义务由 boot 律与模板实值分管）', () => {
     const cls = buildUserClass()
     assert.equal(cls.name, USER_CLASS_ID)
-    assert.equal(cls.tools!.access_reply, 'allow', 'access_reply 必须在默认表中——缺失 = ask 消息化死锁')
-    assert.equal(cls.tools!.agent_instantiate, 'allow')
-    assert.equal(cls.tools!.agent_terminate, 'ask', '高危面默认 ask')
-    assert.equal(cls.tools!.bash, 'allow', 'bash 默认 allow——高频工具不走 ask（治理靠超时/截断/提示词，S4.1）')
-    assert.equal(cls.tools!.read, undefined, '宿主文件工具默认不进根清单（缺席≠否决，不锁子孙）')
-    assert.equal(cls.tools!.cortex_add_note, 'allow', 'S8 记忆笔记面常开')
-    assert.equal(cls.tools!.cortex_set_ltm, undefined, 'set 工具不列根表 = 全树匿名 deny（dream 专属）')
+    assert.equal(cls.tools, undefined, '代码零缺省清单——缺省 = 完整继承出生表面')
     assert.equal(cls.sendCountdown, 0)
     assert.equal(cls.systemPrompt, '')
   })
@@ -42,13 +36,13 @@ describe('buildUserClass（user0 内嵌 agent 类配置）', () => {
     assert.equal(cls.contextStrategy, 'classic')
     assert.deepEqual(cls.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
     assert.equal(cls.sendCountdown, 500)
-    assert.equal(cls.tools, DEFAULT_USER_TOOLS, 'user.tools 缺省仍走默认表')
+    assert.equal(cls.tools, undefined, 'tools 缺省 = 不设限（完整继承出生表，DEFAULT_USER_TOOLS 已退役）')
   })
 
-  test('tools 给出 = 整表替换（用户自担根义务配置）', () => {
+  test('tools 给出 = 根收敛清单（键即白名单，用户自担 access_reply 义务）', () => {
     const cls = buildUserClass({ tools: { read: 'allow' } })
     assert.deepEqual(cls.tools, { read: 'allow' })
-    assert.equal(cls.tools!.access_reply, undefined, '整表替换语义：默认表不叠加')
+    assert.equal(cls.tools!.access_reply, undefined, '给定即全部（键即白名单）；access_reply 缺位由 boot 校验律拒启')
   })
 })
 

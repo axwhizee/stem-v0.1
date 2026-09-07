@@ -18,6 +18,7 @@ export function createReadTool(root: string): ToolCapability {
     description: '读取文本文件内容（支持按行分页，offset 为 1-based 起始行，limit ≤ 2000）或列出目录内容。路径为绝对路径或相对工作区路径。',
     accessKey: 'read',
     kind: 'extension',
+    birth: 'allow', // 自述推荐值；实际出生以 config.extensions.tools 点名权限词为准
     category: 'business',
     parameters: {
       type: 'object',

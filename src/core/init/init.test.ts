@@ -1,5 +1,5 @@
 // ============================================================
-// core/init/init.test.ts —— 初始化管线单测（三维资源矩阵，内存 fake）
+// core/init/init.test.ts —— 初始化管线单测（装载面二元制：工具点名、类/策略扫描，内存 fake）
 // ============================================================
 
 import { test } from 'node:test'
@@ -12,7 +12,7 @@ import type { ToolCapability } from '../tools'
 import { DefaultToolCapabilityRegistry } from '../tools'
 import { DefaultStrategyRegistry } from '../context'
 import { DefaultTemplateRegistry } from '../kernel'
-import { DEFAULT_EXTENSION_TOOLS, runInit } from './init'
+import { runInit } from './init'
 import type { InitDeps, InitFs } from './types'
 
 function makePaths(toolDir = '/proj/.stem/tools', agentDir = '/proj/.stem/agent', strategyDir = '/proj/.stem/context'): ConfigPaths {
@@ -123,7 +123,7 @@ const shoutyModule = {
 
 // ---------- custom 层（目录即真相） ----------
 
-test('首次创建：无配置时写入默认模板（目录即真相，不登记镜像）', async () => {
+test('首次创建：写默认模板；agent 类目录即真相，工具未点名不进世界', async () => {
   const { deps, saved } = makeDeps({
     files: {
       '/proj/.stem/tools/t1.ts': 'x',
@@ -132,19 +132,29 @@ test('首次创建：无配置时写入默认模板（目录即真相，不登�
     toolModules: { '/proj/.stem/tools/t1.ts': toolMod('t1') },
   })
   const report = await runInit(deps)
-  assert.deepEqual(report.tools.map((t) => t.id), ['t1'])
+  assert.deepEqual(report.tools.map((t) => t.id), [], 'custom 目录扫描已废止——t1 文件存在但未被点名')
   assert.deepEqual(report.agents.map((a) => a.id), ['a1'])
-  assert.equal(report.registeredTools.length, 1)
+  assert.equal(report.registeredTools.length, 0)
   assert.equal(report.registeredAgents.length, 1)
-  // 默认清单点名 + extension 目录空 = 只有"缺失"级 issue 不应影响 custom 装载。
-  assert.deepEqual(report.issues.filter((i) => i.kind.startsWith('tool') || i.kind.startsWith('agent')), [])
   const text = saved()
-  assert.match(text, /extensions/, '模板含 extensions 说明')
+  assert.match(text, /extensions/, '模板含 extensions 点名块')
   assert.doesNotMatch(text, /"t1"|"a1"/, '默认模板不含镜像')
 })
 
+test('custom 源点名装载：.stem/tools 文件经 config 点名进世界 + 出生=config 权限词', async () => {
+  const { deps } = makeDeps({
+    files: { '/proj/.stem/tools/t1.ts': 'x' },
+    toolModules: { '/proj/.stem/tools/t1.ts': toolMod('t1') },
+    configRaw: '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "t1": "ask" } }\n}',
+  })
+  const report = await runInit(deps)
+  assert.deepEqual(report.tools.map((t) => [t.id, t.layer]), [['t1', 'custom']])
+  const tool = await deps.toolRegistry.get('t1')
+  assert.equal(tool.birth, 'ask', '出生权限 = config 点名权限词（装载与出生一句话）')
+})
+
 test('配置文件已存在：永不回写（管线只读 config）', async () => {
-  const raw = '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" }\n}'
+  const raw = '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "t1": "allow" } }\n}'
   const { deps, savedCalls } = makeDeps({
     files: {
       '/proj/.stem/tools/t1.ts': 'x',
@@ -171,8 +181,9 @@ test('旧 ghost 键不再静默丢弃：R12 全量有效原则 → 解析即硬�
   )
 })
 
-test('工具形状非法 → tool_invalid issue，其余继续', async () => {
+test('点名工具形状非法 → tool_invalid issue，其余继续', async () => {
   const { deps } = makeDeps({
+    configRaw: '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "good": "allow", "bad": "allow" } }\n}',
     files: {
       '/proj/.stem/tools/good.ts': 'x',
       '/proj/.stem/tools/bad.ts': 'x',
@@ -217,8 +228,9 @@ test('用户 agent 注册为完整 AgentClass（id/name 取自文件名）', asy
   assert.match(cls.systemPrompt, /Review system/)
 })
 
-test('custom 目录形态装载：`<名>/<名>.ts` 入口 + 附属资源文件不装载', async () => {
+test('点名解析：目录形态 `<名>/<名>.ts` 入口 + 附属资源文件不装载', async () => {
   const { deps } = makeDeps({
+    configRaw: '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "pkg": "allow" } }\n}',
     files: {
       '/proj/.stem/tools/pkg/pkg.ts': 'x',
       '/proj/.stem/tools/pkg/helper.ts': 'x', // 附属脚本：非入口，不注册
@@ -232,8 +244,9 @@ test('custom 目录形态装载：`<名>/<名>.ts` 入口 + 附属资源文件�
   assert.deepEqual(report.registeredAgents.map((a) => String(a.name)), ['packed'])
 })
 
-test('平铺与目录同名 → 目录形态优先（装载序 + replace）', async () => {
+test('平铺与目录同名 → 目录形态优先（点名解析序）', async () => {
   const { deps } = makeDeps({
+    configRaw: '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "twin": "allow" } }\n}',
     files: {
       '/proj/.stem/tools/twin.ts': 'x',
       '/proj/.stem/tools/twin/twin.ts': 'x',
@@ -250,9 +263,9 @@ test('平铺与目录同名 → 目录形态优先（装载序 + replace）', as
 
 // ---------- extension 层（config.extensions 点名，目录形态唯一） ----------
 
-test('extension 点名装载：kind=extension + 报告标层；目录形态 <名>/<名>.ts', async () => {
+test('extension 点名装载：kind=extension（provenance）+ 报告标层 + 出生=config 词', async () => {
   const raw =
-    '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": ["alpha"] }\n}'
+    '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "alpha": "allow" } }\n}'
   const { deps } = makeDeps({
     files: { '/ext/tools/alpha/alpha.ts': 'x' },
     toolModules: { '/ext/tools/alpha/alpha.ts': toolMod('alpha') },
@@ -265,20 +278,23 @@ test('extension 点名装载：kind=extension + 报告标层；目录形态 <名
   assert.equal(alpha.layer, 'extension')
   const tool = await deps.toolRegistry.get('alpha')
   assert.equal(tool.kind, 'extension')
+  assert.equal(tool.birth, 'allow')
 })
 
-test('extension 点名缺失 → extension_entry_missing issue（fail-soft 不炸启动）', async () => {
+test('点名不可解析 = boot 硬错（A1 装载源律：config 键必须有文件兑现）', async () => {
   const raw =
-    '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": ["ghost"] }\n}'
+    '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "ghost": "allow" } }\n}'
   const { deps } = makeDeps({ files: {}, toolModules: {}, configRaw: raw, extensionRoots: EXT_ROOTS })
-  const report = await runInit(deps)
-  assert.equal(report.issues[0]?.kind, 'extension_entry_missing')
-  assert.equal(report.registeredTools.length, 0)
+  await assert.rejects(
+    () => runInit(deps),
+    (e: unknown) => (e as { kind?: string }).kind === 'tool_unresolvable',
+    'ghost 键两源皆无 → tool_unresolvable 拒启',
+  )
 })
 
 test('extension agent 点名装载（<名>/<名>.md）', async () => {
   const raw =
-    '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": [], "agent": ["creator"] }\n}'
+    '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "agent": ["creator"] }\n}'
   const { deps } = makeDeps({
     files: { '/ext/agent/creator/creator.md': '---\ndescription: 调度者\n---\nbody' },
     configRaw: raw,
@@ -290,7 +306,7 @@ test('extension agent 点名装载（<名>/<名>.md）', async () => {
 
 test('extension 工厂入口形态：default = (projectRoot) => ToolCapability（loader 注入空间根）', async () => {
   const raw =
-    '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": ["scoped"] }\n}'
+    '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "scoped": "allow" } }\n}'
   let receivedRoot = ''
   const factory = (root: string) => {
     receivedRoot = root
@@ -313,13 +329,15 @@ test('宿主未提供 extension 根 = extension 层整体不存在（零 issue�
   assert.deepEqual(report.issues.filter((i) => i.kind === 'extension_entry_missing'), [])
 })
 
-test('后层同名覆盖前层 = 矩阵装载律（custom 覆盖 pre-registered internal）', async () => {
+test('后层同名覆盖前层 = 装载律（点名 custom 覆盖 pre-registered internal，出生重声明）', async () => {
   const { deps } = makeDeps({
+    configRaw: '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "override": "allow" } }\n}',
     files: { '/proj/.stem/tools/override.ts': 'x' },
     toolModules: { '/proj/.stem/tools/override.ts': toolMod('override', 'custom-wins') },
   })
   await deps.toolRegistry.register({
     id: 'override',
+    birth: 'ignore',
     description: 'internal 原主',
     parameters: { type: 'object', properties: {} },
     kind: 'internal',
@@ -329,6 +347,7 @@ test('后层同名覆盖前层 = 矩阵装载律（custom 覆盖 pre-registered 
   assert.equal(report.issues.length, 0, '覆盖不再是冲突')
   const tool = await deps.toolRegistry.get('override')
   assert.equal(tool.kind, 'custom')
+  assert.equal(tool.birth, 'allow', '装载与出生一句话：覆盖者出生 = config 点名词')
   assert.equal((await tool.execute({}, { agentId: '', spaceId: '' })).text, 'custom-wins')
 })
 
@@ -387,6 +406,10 @@ test('extension 策略点名装载（context 类目录形态）', async () => {
   assert.deepEqual(report.strategies.map((s) => [s.id, s.layer]), [['windowed', 'extension']])
 })
 
-test('默认 tools 缺省清单 = fs 五件套（D9 行为锚点）', () => {
-  assert.deepEqual(DEFAULT_EXTENSION_TOOLS, ['read', 'write', 'edit', 'grep', 'glob'])
+test('首启模板 schema-clean 且含根收敛清单实值（DEFAULT_USER_TOOLS 的家）', async () => {
+  const { defaultStemConfig } = await import('../config')
+  const cfg = defaultStemConfig()
+  assert.ok(cfg.user?.tools && cfg.user.tools.access_reply === 'allow', '模板 user.tools 含 access_reply allow')
+  assert.equal(cfg.user.tools.mail_send, 'allow', 'bus_* 已更名 mail_*')
+  assert.ok(cfg.extensions?.tools && Object.keys(cfg.extensions.tools).length >= 5, '模板点名 fs 五件套')
 })

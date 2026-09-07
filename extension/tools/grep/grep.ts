@@ -21,6 +21,7 @@ export function createGrepTool(root: string): ToolCapability {
     description: '按正则表达式递归搜索文件内容（排除 .git / node_modules），返回 file:line:text。支持 include 按 glob 过滤文件。',
     accessKey: 'grep',
     kind: 'extension',
+    birth: 'allow', // 自述推荐值；实际出生以 config.extensions.tools 点名权限词为准
     category: 'business',
     parameters: {
       type: 'object',

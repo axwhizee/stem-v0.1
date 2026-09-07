@@ -31,8 +31,8 @@
       "agent_ancestry": "allow",
       "agent_descendants": "allow",
       "agent_class_list": "allow",
-      "bus_send": "allow",
-      "bus_participants": "allow",
+      "mail_send": "allow",
+      "mail_participants": "allow",
       "context_overview": "allow",
       "context_export": "allow",
       "context_remove": "allow",
@@ -40,7 +40,7 @@
       "context_apply": "allow",
       "telemetry_query": "allow",
       "agent_update": "ask",
-      // SKILL.md 兼容装载器（custom 约定 id，.stem/tools/skill/ 安装后生效）。
+      // SKILL.md 兼容装载器（custom 工具，经下方 extensions.tools 点名后生效）。
       "skill": "allow",
       "agent_class_create": "ask",
       "agent_class_update": "ask",
@@ -65,10 +65,14 @@
     "defaultTimeoutMs": 120000,
     "maxOutputChars": 50000
   },
-  // 三维资源矩阵（S7）：extension/ 下按资源目录分键点名启用（tools 缺省 = fs 五件套；
-  // agent/context 缺省 = 不启用）。用户空间 .stem/ 各目录自动扫描，不经此清单。
+  // 资源点名：tools = {名: 权限词}（装载与出生一句话说完；extension/tools/ 与
+  // .stem/tools/ 双源解析，点名不到 = 拒启）。未点名的工具不存在于世界。
   "extensions": {
-    "tools": ["read", "write", "edit", "grep", "glob", "websearch", "webfetch"],
+    "tools": {
+      "read": "allow", "write": "allow", "edit": "allow", "grep": "allow", "glob": "allow",
+      "websearch": "allow", "webfetch": "allow",
+      "skill": "allow", "user_hello": "allow"
+    },
     "agent": ["creator"]
   },
   "sendCountdown": 1000

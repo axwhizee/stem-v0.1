@@ -16,6 +16,7 @@ import { join } from 'node:path'
 const { startMockSse } = await import('../../shell/cli/mockSse.ts')
 const { bootStem } = await import('../../shell/cli/platform.ts')
 const { makeAgentClassID, makeAgentID } = await import('../../src/core/kernel')
+const { defaultStemConfig } = await import('../../src/core/config')
 
 let pass = 0
 let fail = 0
@@ -64,11 +65,11 @@ const dir = mkdtempSync(join(tmpdir(), 'stem-feas-'))
 mkdirSync(join(dir, '.stem'), { recursive: true })
 writeFileSync(join(dir, '.stem', 'stem.jsonc'), JSON.stringify({
   providers: { mock: { base_url: mock.url } },
-  user: { model: 'mock/echo' },
+  user: { model: 'mock/echo', tools: defaultStemConfig().user?.tools },
   autoApprove: false,
   maxSteps: 6,
   context: { window: 128000, compact: { enabled: false } },
-  extensions: { tools: [] },
+  extensions: { tools: {} },
   sendCountdown: 20,
 }, null, 2))
 
@@ -108,7 +109,7 @@ try {
   ok('user0 存在且为根', agents0.some((a) => a.id === 'user0' && a.parentId === null), JSON.stringify(agents0.map((a) => [a.id, a.parentId])))
   const toolsAll = await sys.tools.list()
   ok('internal 工具在场（bash/access_reply）', toolsAll.some((t) => t.id === 'bash') && toolsAll.some((t) => t.id === 'access_reply'))
-  ok('extension 纯关（extensions.tools=[]）', !toolsAll.some((t) => t.id === 'read'))
+  ok('extension 纯关（extensions.tools={} 不点名）', !toolsAll.some((t) => t.id === 'read'))
   const mat = sys.tools.materialize('user0').map((d) => { const x = d as { name: string }; return x.name })
   ok('族谱物化 user0 能力面', mat.includes('access_reply') && mat.includes('agent_class_create') && mat.includes('agent_update'), JSON.stringify(mat))
 

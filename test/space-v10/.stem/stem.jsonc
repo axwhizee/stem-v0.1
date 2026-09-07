@@ -8,7 +8,11 @@
   "maxSteps": 8,
   "context": { "window": 128000, "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 } },
   "extensions": {
-    "tools": ["read", "write", "edit", "grep", "glob", "websearch", "webfetch"],
+    "tools": {
+      "read": "allow", "write": "allow", "edit": "allow", "grep": "allow", "glob": "allow",
+      "websearch": "allow", "webfetch": "allow",
+      "skill": "allow"
+    },
     "agent": ["creator"]
   },
   "sendCountdown": 200

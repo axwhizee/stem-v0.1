@@ -7,6 +7,7 @@
 import { Kernel, makeAgentClassID, USER_ID } from '../../src/core/kernel'
 import type { UserDelivery } from '../../src/core/context'
 import type { ContextSettings, StrategyRegistry } from '../../src/core/context'
+import { defaultStemConfig } from '../../src/core/config'
 import { DefaultToolCapabilityRegistry } from '../../src/core/tools'
 import type { FakeGateway } from '../../src/core/gateway'
 
@@ -72,7 +73,8 @@ export async function createKernelHarness(
   opts: {
     countdownMs?: number
     templates?: ConstructorParameters<typeof Kernel>[0]['templates']
-    /** user0 内嵌类配置（族谱权限收敛起点；缺省 = 内置 user 类 + DEFAULT_USER_TOOLS）。 */
+    /** user0 内嵌类配置（根收敛清单 = 族谱权限链第一环；缺省 = 首启模板实值
+     *  defaultStemConfig().user.tools——DEFAULT_USER_TOOLS 已退役，模板是唯一推荐值源）。 */
     userClass?: ConstructorParameters<typeof Kernel>[0]['userClass']
     /** 上下文策略配置（compact 阈值等；缺省 DEFAULT_CONTEXT_SETTINGS）。 */
     contextSettings?: ContextSettings
@@ -88,7 +90,12 @@ export async function createKernelHarness(
 
   const kernel = new Kernel({
     gateway,
-    userClass: { ...opts.userClass, model: opts.userClass?.model ?? { provider: 'fake', id: 'home-model' } },
+    userClass: {
+      // 缺省根清单 = 模板实值（单一真相源；测试空间与真实首启同形）。
+      tools: defaultStemConfig().user?.tools,
+      ...opts.userClass,
+      model: opts.userClass?.model ?? { provider: 'fake', id: 'home-model' },
+    },
     tools,
     templates: opts.templates,
     defaultCountdownMs: opts.countdownMs ?? 1000,

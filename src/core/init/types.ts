@@ -112,8 +112,9 @@ export interface InitReport {
   readonly issues: readonly InitIssue[]
 }
 
-/** 初始化错误（致命，直接中断）。 */
+/** 初始化错误（致命，直接中断——boot 校验律的执行面）。 */
 export type InitError =
   | { readonly kind: 'config_parse_error'; readonly message: string }
   | { readonly kind: 'tool_registration_failed'; readonly message: string }
+  | { readonly kind: 'tool_unresolvable'; readonly message: string; readonly file?: string }
   | { readonly kind: 'agent_registration_failed'; readonly message: string }

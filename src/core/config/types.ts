@@ -5,10 +5,10 @@
 // （或 `.stem/stem.json`）是最终配置载体，全量存储所有可配置项；
 // 本阶段不引入 `~/.config/stem/` 多级合并。
 //
-// **目录即真相**（S4.2）：用户工具/agent/策略的注册表就是
-//   `.stem/tools/`、`.stem/agent/`、`.stem/context/` 目录本身——
-//   不再有 config 镜像字段（旧 tools/agents/strategies 键已删除，
-//   出现于旧配置时被忽略）。
+// **装载面二元制**：agent 类/上下文策略 = 目录即真相
+//   （`.stem/agent/`、`.stem/context/` 自动装载，用户主权书写面）；
+//   工具 = config.extensions.tools 点名（装载与出生一句话说完，
+//   未点名 = 不存在于世界——代码注入面闭合）。
 //   - **providers 注册表**（S6/R13）：模型端点全部 config 声明（`base_url` +
 //     `key_env` 密钥注入 + `models` 白名单），代码零端点常量、零兜底；
 //     模型引用一律 `提供商/模型`（如 `opencode-go/deepseek-v4-flash`）。
@@ -42,9 +42,10 @@ export interface StemUserClass {
   readonly description?: string
   readonly systemPrompt?: string
   /**
-   * 工具清单 = user 类 tools（键即白名单：未列出的工具对 user0 一律
-   * deny；对子孙则只供显式判定——缺席 ≠ 否决，显式 deny = 铁律锁子孙）。
-   * 给出则**整表替换**内置默认（含 access_reply 根义务与 bash 操作面，慎删）。
+   * 工具清单 = 收敛链第一环（键即白名单：未列出的工具对 user0 一律 deny；
+   * 对子孙则只供显式判定——缺席 ≠ 否决，显式 deny = 铁律锁子孙）；逐键被
+   * 注册表出生值封顶（越界 = boot 硬错）。缺省 = 完整继承出生表面；
+   * 推荐清单实值见首启模板（DEFAULT_CONFIG_TEXT）——模板不是机制。
    */
   readonly tools?: Readonly<Record<string, ToolAccess>>
   /** 上下文管理策略（user0 面板态默认不消费，pilot 未来 as() 扩展预留）。 */
@@ -92,11 +93,14 @@ export interface StemBashConfig {
 }
 
 /**
- * extensions 分键清单（S7 三维资源矩阵）：键 = extension 资源目录名，
- * 值 = 该目录下启用的条目名（目录形态资源，入口与目录同名）。
+ * extensions 资源点名面：
+ *   - tools = **{名: 权限词} 对象**（装载与出生一句话说完：键在
+ *     `extension/tools/` 或 `.stem/tools/` 解析命中才装载；键不可解析 =
+ *     boot 硬错。custom 目录自动扫描已废止——未点名 = 不存在于世界）；
+ *   - agent / context = 点名条目名数组（`extension/<键>/` 目录形态）。
  */
 export interface StemExtensionsConfig {
-  readonly tools?: readonly string[]
+  readonly tools?: Readonly<Record<string, ToolAccess>>
   readonly agent?: readonly string[]
   readonly context?: readonly string[]
 }
@@ -121,10 +125,11 @@ export interface StemConfig {
   /** 全局默认送信倒计时（毫秒；agent 文件/类未指定时使用）。 */
   readonly sendCountdown?: number
   /**
-   * 三维资源矩阵点名清单（S7）：按资源目录分键，值 = `extension/<键>/` 下
-   * 要启用的条目名数组（目录形态资源，入口与目录同名）。
-   * `tools` 缺省 = fs 五件套；`agent`/`context` 缺省 = 不启用；显式 `[]` = 纯 bash 最小系统。
-   * 用户空间 `.stem/` 各目录自动扫描装载，不经本清单（目录即真相）。
+   * 资源点名清单：tools = {名: 权限词}（装载与出生一句话说完，键不可解析 =
+   * boot 硬错）；agent/context = `extension/<键>/` 下条目名数组。
+   * 工具**未点名 = 不存在于世界**（custom 目录扫描已废止——`.stem/tools/` 放
+   * 什么文件都不如本清单点名有权威，代码注入面闭合）。agent 类/策略仍是
+   * `.stem/agent/`、`.stem/context/` 目录即真相（用户主权书写面不受影响）。
    * core 只透传语义化清单，装载由 init 管线执行（extension 根路径由宿主注入）。
    */
   readonly extensions?: StemExtensionsConfig

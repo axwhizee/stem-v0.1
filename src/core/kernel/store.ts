@@ -3,10 +3,12 @@
 //
 // 族谱个体的持久化抽象（与 context 层 MessageStore 分离，
 // 驱动层如 SQLite 同时实现两端口）。同步接口。
-// 默认实现 MemoryInstanceStore（内存参考实现）。
+// 本文件只承载端口形状：core 纯内存路径 = DefaultInstanceManager 自带 Map，
+// 不内置第二形制实现（内存替身住 test/support，仅供持久化装饰器测试）。
 // ============================================================
 
-import type { AgentID, AgentInstance, AgentSpace } from './types'
+import type { AgentInstance, AgentSpace } from './types'
+import type { AgentID } from './types'
 
 /**
  * 内核态持久化端口（个体层环境：实例 + 空间）。
@@ -26,34 +28,4 @@ export interface InstanceStore {
   readonly loadSpaces: () => readonly AgentSpace[]
   /** 释放资源（可选）。 */
   readonly close?: () => void
-}
-
-/** 内存参考实现。 */
-export class MemoryInstanceStore implements InstanceStore {
-  private readonly rows = new Map<string, AgentInstance>()
-  private readonly spaces = new Map<string, AgentSpace>()
-
-  upsert(instance: AgentInstance): void {
-    this.rows.set(instance.id, { ...instance })
-  }
-
-  delete(agentId: AgentID): void {
-    this.rows.delete(agentId)
-  }
-
-  loadAll(): readonly AgentInstance[] {
-    return [...this.rows.values()].map((r) => ({ ...r }))
-  }
-
-  upsertSpace(space: AgentSpace): void {
-    this.spaces.set(space.id, { ...space })
-  }
-
-  deleteSpace(spaceId: AgentSpace['id']): void {
-    this.spaces.delete(spaceId)
-  }
-
-  loadSpaces(): readonly AgentSpace[] {
-    return [...this.spaces.values()].map((s) => ({ ...s }))
-  }
 }

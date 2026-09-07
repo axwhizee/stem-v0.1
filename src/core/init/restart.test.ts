@@ -16,7 +16,7 @@ import type { InitFs, InitToolLoader } from './types'
 import { createStemSystem } from './system'
 import type { StemSystemDeps } from './system'
 import { MemoryMessageStore } from '../context'
-import { MemoryInstanceStore } from '../kernel'
+import { MemoryInstanceStore } from '../../../test/support/memoryInstanceStore'
 import { makeAgentClassID, makeAgentID, USER_ID } from '../kernel'
 import { messageSeqOf } from '../context'
 

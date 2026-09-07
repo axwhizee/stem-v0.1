@@ -298,26 +298,33 @@ function validateBash(value: unknown, fail: (message: string) => never): StemBas
 }
 
 /**
- * extensions：按资源目录分键的点名清单（S7 三维资源矩阵）——
- * { tools: [...], agent: [...], context: [...] }，值 = `extension/<键>/` 下启用条目。
- * 旧数组形态（S6 tool_set 包）fail-fast 指路迁移。
+ * extensions：资源点名面——tools = {名: 权限词}（装载与出生一句话；
+ * 键在 extension/tools/ 或 .stem/tools/ 解析不到 = boot 硬错，由 init 管线执行）；
+ * agent/context = 条目名数组（extension/<键>/ 目录形态）。旧数组形态 fail-fast 指路。
  */
 function validateExtensions(value: unknown, fail: (message: string) => never): StemExtensionsConfig | undefined {
   if (value === undefined) return undefined
-  if (Array.isArray(value)) {
-    fail(
-      'extensions 数组形态已退役（S7 三维资源矩阵）：改为按资源目录分键清单，' +
-        '如 { "tools": ["read", "write", "edit", "grep", "glob"] , "agent": ["creator"] }' +
-        '（tools 缺省 = fs 五件套；agent/context 缺省 = 不启用）',
-    )
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    fail('extensions 必须是 { tools?, agent?, context? } 对象')
   }
-  if (value === null || typeof value !== 'object') fail('extensions 必须是 { tools?, agent?, context? } 对象')
   const raw = value as Record<string, unknown>
-  const result: Record<string, readonly string[]> = {}
   for (const key of Object.keys(raw)) {
     if (key !== 'tools' && key !== 'agent' && key !== 'context') {
-      fail(`extensions.${key} 为未知键（合法：tools / agent / context；.stem/ 用户空间自动扫描，不在此声明）`)
+      fail(`extensions.${key} 为未知键（合法：tools / agent / context）`)
     }
+  }
+  const result: Record<string, unknown> = {}
+  if (raw.tools !== undefined) {
+    if (Array.isArray(raw.tools)) {
+      fail(
+        'extensions.tools 数组形态已退役：改为 {名: 权限词} 对象（装载与出生一句话说完），' +
+          '如 { "tools": { "read": "allow", "write": "allow" } }',
+      )
+    }
+    result.tools = validatePermissionRecord(raw.tools, fail, 'extensions.tools')
+  }
+  for (const key of ['agent', 'context'] as const) {
+    if (raw[key] === undefined) continue
     const list = raw[key]
     if (!Array.isArray(list)) fail(`extensions.${key} 必须是字符串数组`)
     result[key] = (list as unknown[]).map((item, index) => {

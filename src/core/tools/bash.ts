@@ -17,7 +17,7 @@
 // ============================================================
 
 import { isAbsolute, resolve as resolvePath } from 'node:path'
-import type { ToolCapability, ToolContext, ToolResult } from './types'
+import type { ToolCapability, ToolResult } from './types'
 
 // ---------- ShellRunner 端口（宿主注入） ----------
 
@@ -93,6 +93,7 @@ export function createBashTool(deps: {
       '退出码非零不算执行失败——请根据输出与退出码自行判断后续动作，高危操作（删除、覆盖、网络副作用）三思而后行。',
     accessKey: 'bash',
     kind: 'internal',
+    birth: 'allow', // 出生声明：对外操作面（用户裁决：高频工具不走 ask，治理靠超时/截断/cwd 三机制）
     category: 'shell',
     parameters: {
       type: 'object',

@@ -120,7 +120,8 @@ describe('createStemSystem（系统装配组合根）', () => {
       user: {
         model: { provider: 'fake', id: 'home-model' },
         systemPrompt: '你是根。',
-        tools: { read: 'allow', agent_terminate: 'deny' },
+        // 整表替换语义：给定即全部——access_reply 根义务必须自带（缺位 = boot 律拒启，见下例）。
+        tools: { access_reply: 'allow', read: 'allow', agent_terminate: 'deny' },
       },
       context: { window: 100, compact: { threshold: 0.5, keepRecentTurns: 2 } },
       maxSteps: 3,
@@ -147,6 +148,26 @@ describe('createStemSystem（系统装配组合根）', () => {
     )
     assert.match(result, /轮数不足|已压缩|无历史消息/)
     await system.dispose()
+  })
+
+  test('boot 校验律：根生效表 access_reply ≠ allow = 拒启（ask 消息化死锁审判）', async () => {
+    const d = makeDeps({
+      user: { model: { provider: 'fake', id: 'home-model' }, tools: { read: 'allow' } },
+    })
+    await assert.rejects(
+      () =>
+        createStemSystem({
+          config: { store: d.store, paths: d.paths },
+          fs: d.fs,
+          tools: d.loader,
+          gateway: d.gateway,
+        }),
+      (e: unknown) => {
+        const err = e as { kind?: string; message?: string }
+        return err.kind === 'invalid_config' && err.message?.includes('boot 校验律') === true
+      },
+      '缺答复通道的 config 必须拒启并明示死锁理由',
+    )
   })
 
   test('pilot.sendMessage：user0 发消息 → agent 回复 → letter 事件', async () => {

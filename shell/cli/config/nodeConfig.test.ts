@@ -35,6 +35,7 @@ const TOOL_TEXT = `import type { ToolCapability } from '../../../src/core/tools'
 
 const tool: ToolCapability = {
   id: 'my_tool',
+  birth: 'ignore', // 自述值仅形状需要——实际出生以 config.extensions.tools 点名词为准
   description: '测试工具',
   parameters: { type: 'object', properties: {} },
   execute: () => ({ text: 'ok' }),
@@ -49,6 +50,16 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
     // 写工具 + agent 文件。
     await writeFile(join(dir, '.stem', 'tools', 'my_tool.ts'), TOOL_TEXT)
     await writeFile(join(dir, '.stem', 'agent', 'my-reviewer.md'), AGENT_TEXT)
+    // 工具点名制：写一份点名 my_tool 的配置（custom 目录扫描已废止）。
+    await writeFile(
+      join(dir, '.stem', 'stem.jsonc'),
+      `{
+  "providers": { "stub": { "base_url": "https://stub.invalid/v1" } },
+  "user": { "model": "stub/m" },
+  "extensions": { "tools": { "my_tool": "allow" } }
+}`,
+      'utf8',
+    )
 
     const bundle = createNodeConfigBundle(dir)
     const toolRegistry = new DefaultToolCapabilityRegistry()
@@ -69,14 +80,14 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
     assert.equal(report.registeredTools.length, 1)
     assert.equal(report.registeredAgents.length, 1)
 
-    // 配置文件不存在 → 写入默认模板；目录即真相，不回写镜像登记。
+    // 配置已存在 → 永不回写（管线只读）；my_tool 的在场由点名兑现，非镜像登记。
     const text = await readFile(join(dir, '.stem', 'stem.jsonc'), 'utf8')
-    assert.match(text, /"extensions"/)
-    assert.doesNotMatch(text, /my_tool|my-reviewer/, '不再有镜像写回')
+    assert.match(text, /"my_tool": "allow"/)
 
-    // registry 中可查到用户工具。
+    // registry 中可查到用户工具（custom 源解析命中 + 出生 = config 权限词）。
     const tool = await toolRegistry.get('my_tool')
     assert.equal(tool.kind, 'custom')
+    assert.equal(tool.birth, 'allow')
     assert.equal(tool.description, '测试工具')
 
     // 模板注册表可查到用户 agent。

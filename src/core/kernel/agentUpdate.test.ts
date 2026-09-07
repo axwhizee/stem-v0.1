@@ -66,8 +66,8 @@ describe('agent_update · tools 收敛 patch（总序）', () => {
     await as(tools, 'agent_instantiate', { className: 'listed', userPrompt: 'hi', agentId: 'w1' })
     const bad = await asUser(tools, { agentId: 'w1', tools: { read: 'allow', bash: 'ignore' } })
     assert.match(bad.text, /扩张被拒/)
-    assert.match(bad.text, /read: ask → allow/)
-    assert.match(bad.text, /bash: allow → ignore/)
+    assert.match(bad.text, /实例收敛被拒 read: allow（封顶 ask/)
+    assert.match(bad.text, /实例收敛被拒 bash: ignore（封顶 allow/)
     // 整单拒绝不留半程副作用。
     assert.equal(kernel.lineage.effectiveAccess(makeAgentID('w1'), 'read'), 'ask')
     assert.equal(kernel.lineage.effectiveAccess(makeAgentID('w1'), 'bash'), 'allow')

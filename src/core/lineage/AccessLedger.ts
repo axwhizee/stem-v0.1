@@ -10,8 +10,9 @@
 //   族谱树兼顾权限清单——agent 的**生效权限是其族谱位置的函数**。
 //   本台账是该纯函数的物化：实例注册时两步完成——
 //     ① 继承（inherit）：完整继承父 agent 的生效判定；
-//     ② 收敛（converge/grant）：按该 agent 的自身清单（类 tools +
-//        实例 toolOverride 合并）做单向收缩。
+//     ② 收敛：按**收敛链 steps**（类清单 →[策略清单]→ 实例清单，逐步
+//        折叠、不做预合并——两步独立免费失败归因）逐键收缩，且逐键被
+//        **出生表 caps**（注册表全局封顶）钳制。
 //   其他模块（tools 注册表 / ask 总线 / inspect）一律经本接口查询，
 //   不得自行拼层——统一接口保证单向收缩不被外部破坏。
 //
@@ -19,7 +20,7 @@
 //   explicit：链上（含自身）所有**显式判定**键的取严结果（祖先值已摊平）；
 //   fallback：本地封闭——自身定义了清单（含空 Record）→ 'deny'
 //             （键即白名单：未列出 = 不可用）；清单 undefined → 不设限。
-//   生效访问 = explicit[key] ?? fallback ?? undefined（undefined → tools 落默认）。
+//   生效访问 = explicit[key] ?? fallback ?? undefined（undefined → tools 落出生值）。
 //
 // 语义四则（活文档 = AccessLedger.test 矩阵）：
 //   1. 键即白名单：自身清单已定义（含空 Record）→ 未列出键一律 deny；
@@ -41,7 +42,7 @@
 // ============================================================
 
 import type { ToolAccess } from '../tools'
-import { restrictAccess } from '../tools'
+import { foldConvergenceSteps, restrictAccess } from '../tools'
 
 /** 节点权限标准形（物化的收敛结果）。 */
 export interface AccessProfile {
@@ -57,8 +58,16 @@ export type AccessBindMode = 'inherit' | 'grant'
 export interface AccessBindEntry {
   readonly agentId: string
   readonly parentId: string | null
-  /** 该 agent 的自身清单（类 tools 与实例 toolOverride 的合并；undefined = 不设限）。 */
+  /**
+   * 收敛链清单步序（同一把尺逐步套用，不做预合并）：
+   * [类清单, (策略声明清单), 实例化清单]——undefined 步 = 整表缺席（完整继承
+   * 接收表面）；全链 undefined = 纯继承父档案。
+   */
+  readonly steps?: readonly (Readonly<Record<string, ToolAccess>> | undefined)[]
+  /** 单清单便利形（= steps: [own]；grant 通道与单测语义矩阵用）。 */
   readonly own?: Readonly<Record<string, ToolAccess>>
+  /** 出生表（注册表供给的访问键宽度封顶，逐键钳制所有步）。 */
+  readonly caps?: Readonly<Record<string, ToolAccess>>
   /** 缺省 'inherit'。grant 仅系统机制通道（策略模块/pilot 初始化）使用。 */
   readonly mode?: AccessBindMode
 }
@@ -70,7 +79,7 @@ export interface AccessLedger {
   /** 重启重放：任意顺序的绑定集合（内部按族谱拓扑序处理）。 */
   readonly rebind: (entries: readonly AccessBindEntry[]) => void
   readonly has: (agentId: string) => boolean
-  /** 统一查询：生效访问（undefined = 无人显式判定且无本地兜底 → 调用方落默认值）。 */
+  /** 统一查询：生效访问（undefined = 无人显式判定且无本地兜底 → 调用方落出生值）。 */
   readonly effectiveAccess: (agentId: string, key: string) => ToolAccess | undefined
   /** 节点档案（agent_inspect 出示生效权限表用；只读）。 */
   readonly profileOf: (agentId: string) => AccessProfile | undefined
@@ -125,33 +134,43 @@ function computeProfile(
   entry: AccessBindEntry,
   parentProfile: AccessProfile | undefined,
 ): AccessProfile {
+  const lists =
+    entry.steps !== undefined
+      ? entry.steps.filter((step): step is Record<string, ToolAccess> => step !== undefined)
+      : entry.own !== undefined
+        ? [entry.own]
+        : []
+
   if (entry.mode === 'grant') {
-    // 受限清单形整表替换：未列一律 deny；逐键以直接父摊平显式判定封顶
-    // （总序取严——ask/deny 盖不过，deny 铁律即封顶最严特例；父匿名封闭
-    // 不在显式表上，不构成否决——与减法"匿名不下传"对称）。
+    // 受限清单形整表替换：未列一律 deny；逐键以直接父摊平显式判定 + 出生表
+    // 封顶（总序取严——ask 洗不成 allow，deny 铁律即封顶最严特例；父匿名
+    // 封闭不在显式表上，不构成否决——与减法"匿名不下传"对称）。
     const explicit: Record<string, ToolAccess> = {}
-    for (const [key, action] of Object.entries(entry.own ?? {})) {
-      const cap = parentProfile?.explicit[key]
-      explicit[key] = cap === undefined ? action : restrictAccess(action, cap)
+    for (const [key, action] of Object.entries(lists[0] ?? {})) {
+      let capped = action
+      const parentCap = parentProfile?.explicit[key]
+      if (parentCap !== undefined) capped = restrictAccess(capped, parentCap)
+      const birthCap = entry.caps?.[key]
+      if (birthCap !== undefined) capped = restrictAccess(capped, birthCap)
+      explicit[key] = capped
     }
     return { explicit, fallback: 'deny' }
   }
 
-  if (entry.own === undefined) {
-    // 不设限 = 完整继承父档案（显式判定 + 本地封闭一并照搬）：
+  if (lists.length === 0) {
+    // 整链缺席 = 完整继承父档案（显式判定 + 本地封闭一并照搬）：
     // 子能力面永不宽于父（"权限完整继承自父 agent"的字面表达）。
     return parentProfile ?? { explicit: {} }
   }
 
-  // 减法·键即白名单：自身键逐一与父档案显式判定取严（deny/ask 锁子孙）；
-  // 父的 allow 不向定义了自己清单的子女转授权（白名单自我限定），
-  // 父的匿名封闭也只锁父自己（子女显式新申请不受阻）。
-  const explicit: Record<string, ToolAccess> = {}
-  for (const [key, action] of Object.entries(entry.own)) {
-    const inherited = parentProfile?.explicit[key]
-    // restrictAccess(a, b)：总序取严、无同级——传 (自身, 祖先) 即
-    // "自身永不超过祖先显式判定"（藏匿/放宽均被压回，收缩单向）。
-    explicit[key] = inherited === undefined ? action : restrictAccess(action, inherited)
-  }
-  return { explicit, fallback: 'deny' }
+  // 减法·键即白名单 + 逐步折叠（代数与 kernel 写入面校验共用
+  // foldConvergenceSteps，单一事实源）：每步未列键出局（本地封闭 deny）；
+  // 每键与当前面显式判定 + 出生表取严（藏匿/放宽物化压回，收缩单向）。
+  // 物化端静默钳制（重启幂等稳定）；拒绝式归因校验在 kernel 写入面。
+  const { profile } = foldConvergenceSteps(
+    parentProfile?.explicit ?? {},
+    entry.caps ?? {},
+    lists.map((list) => ['类收敛' as const, list] as const),
+  )
+  return profile
 }

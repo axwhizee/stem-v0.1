@@ -36,7 +36,7 @@ writeFileSync(join(dir, '.stem', 'stem.jsonc'), JSON.stringify({
   autoApprove: false,
   maxSteps: 4,
   context: { window: 4000, compact: { enabled: true, threshold: 0.5, keepRecentTurns: 1 } },
-  extensions: { tools: ['websearch', 'webfetch'] },
+  extensions: { tools: { websearch: 'allow', webfetch: 'allow' } },
   sendCountdown: 20,
 }, null, 2))
 
@@ -124,7 +124,7 @@ try {
     user: { model: 'alibaba/qwen3.8-flash' },
     maxSteps: 3,
     context: { window: 1500, compact: { enabled: true, threshold: 0.5, keepRecentTurns: 1 } },
-    extensions: { tools: [] },
+    extensions: { tools: {} },
     sendCountdown: 20,
   }, null, 2))
   const boot2 = await bootStem({ projectRoot: wdir })

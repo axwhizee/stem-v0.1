@@ -5,16 +5,16 @@
 //  1. ToolContext 是开放接口 —— 工具访问层、日志等宿主能力
 //     以「字段注入」方式扩展，core 只定义最小必要字段；
 //  2. 工具访问统一模型（权限融合进 tools）：每个工具声明访问键
-//     （accessKey，如 read/edit/grep/glob/bash）；生效权限 = 族谱位置的
-//     函数（lineage/AccessLedger 台账物化，经 AccessResolver 端口查询）；
-//     族谱无判定时落工具默认（internal → ignore，其余 → ask）；
+//     （accessKey，如 read/edit/grep/glob/bash）与**出生权限**（birth，
+//     注册即出生声明——工具自报的宽度上界，全链收敛的封顶）；生效权限 =
+//     族谱位置的函数（lineage/AccessLedger 台账物化，经 AccessResolver 端口
+//     查询）；族谱链上无显式判定时落出生值（无 kind 推导、无兜底表）；
 //     always 批准记入 per-agent 豁免备忘（只免询问，不破 deny/ignore）；
 //  3. 执行生命周期暴露 ToolHooks（before/after/error），
 //     供 telemetry、审计、限流等横切能力挂载；
-//  4. kind（internal/extension/custom）是工具固有属性（三维资源矩阵 S7）：
-//     internal=core 系统工具（默认 ignore 隐藏，显式 allow 才暴露），
-//     extension=扩展资源（config.extensions.tools 点名启用），
-//     custom=用户 `.stem/tools/` 自动扫描装载的工具。
+//  4. kind（internal/extension/custom）是**纯 provenance 元数据**（装载源/
+//     信级/审计展示），不参与任何权限推断——权限只有两个来源：出生声明
+//     （birth）与收敛清单链（见 docs/architecture.md §2.2）。
 // ============================================================
 
 /** 工具访问四态（权限融合进 tools 后的原子状态）。 */
@@ -39,10 +39,11 @@ export type ToolCategory =
   | (string & {})
 
 /**
- * 工具来源（固有属性）——三维资源矩阵（S7）：
- *   - internal = core 系统工具（agent_* 与 context_* 及 bash，代码注册恒在）；
- *   - extension = 扩展资源（`extension/tools/<名>/<名>.ts`，config.extensions.tools 显式点名启用）；
- *   - custom = 用户空间工具（`.stem/tools/`，自动扫描装载，目录即真相）。
+ * 工具来源（**纯 provenance**，不参与权限推断——审计测试表驱动断言之）。
+ * 出生权限来自 birth 字段与 config 点名，与 kind 无关：
+ *   - internal = core 注册点代码（agent_* / context_* / bash / access_reply…）；
+ *   - extension = 仓库扩展（`extension/tools/<名>/<名>.ts`，config.extensions.tools 点名装载+出生）；
+ *   - custom = 用户空间工具（`.stem/tools/`，**同样必须 config 点名**——目录扫描废止）。
  */
 export type ToolKind = 'internal' | 'extension' | 'custom'
 
@@ -151,8 +152,8 @@ export interface AccessReplyInput {
 
 /**
  * 族谱权限查询端口：由 lineage/AccessLedger 实现、kernel 接线注入。
- * tools 侧只认本接口（不认识族谱），返回 undefined = 无人显式判定，
- * 调用方落工具默认值（internal → ignore，其余 → ask）。
+ * tools 侧只认本接口（不认识族谱），返回 undefined = 链上无人显式判定，
+ * 调用方落该键出生值（注册表 birth——出生即封顶，无 kind 推导）。
  */
 export interface AccessResolver {
   readonly accessOf: (agentId: string, key: string) => ToolAccess | undefined
@@ -162,8 +163,8 @@ export interface AccessResolver {
 export interface AccessAssertInput {
   readonly accessKey: string
   readonly agentId: string
-  /** 该访问键的默认动作（internal 系统工具默认 'ignore'，其余 'ask'；族谱无判定时兜底）。 */
-  readonly defaultAccess?: ToolAccess
+  /** 该访问键的出生权限（注册表供给；族谱链无显式判定时即生效值——出生即封顶，无兜底推导）。 */
+  readonly birth?: ToolAccess
   readonly metadata?: Readonly<Record<string, unknown>>
 }
 
@@ -191,9 +192,17 @@ export interface ToolCapability {
   readonly id: string
   readonly description: string
   readonly parameters: ToolParametersSchema
+  /**
+   * **出生权限**（注册即出生声明，必填——无兜底）：该工具在整个收敛链上的
+   * 宽度封顶。internal 在 core 注册点写定（`access_reply: allow`、`bash: allow`，
+   * 其余通例 `ignore`）；extension/custom 由 config.extensions.tools 点名时注入
+   * （装载与出生一句话说完）；策略 registerTool 注册的工具出生恒 `ignore`。
+   * 任何层级的收敛清单取值不得宽于出生值（宽出 = 扩张，物化压回/写入面拒绝）。
+   */
+  readonly birth: ToolAccess
   /** 访问键（缺省 = 工具 id；多个工具可共享，如 edit/write → 'edit'）。 */
   readonly accessKey?: string
-  /** 工具来源（固有属性）：internal=core 系统工具；extension=扩展资源；custom=用户空间工具。 */
+  /** 工具来源（纯 provenance，见 ToolKind 注释）。 */
   readonly kind?: ToolKind
   readonly category?: ToolCategory
   /** 执行器（实现由适配层/Kernel 注入）。 */

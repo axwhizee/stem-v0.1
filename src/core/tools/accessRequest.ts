@@ -11,7 +11,7 @@
 //
 // 权限评估（查询反转）：生效访问经注入的 AccessResolver 端口向族谱台账
 //   （lineage/AccessLedger）查询，本模块不再接收/拼装任何权限层；
-//   族谱无判定时落 defaultAccess（internal → ignore，其余 → ask）。
+//   族谱无判定时落出生值（tool.birth——注册即出生声明，无 kind 推导、无兜底表）。
 //
 // session 豁免备忘（once/always 的正确语义）：
 //   - always 批准 = 该 (agent, accessKey) 后续**免于询问**（ask 静默放行），
@@ -40,7 +40,7 @@ export interface AccessAskOptions {
   readonly askRoot: (request: AccessRequest) => Promise<void> | void
   /** 解析申请者的族谱根（注入 lineage.getRoot；用于 access_reply 授权校验）。 */
   readonly getRoot: (agentId: string) => string
-  /** 族谱权限查询端口（kernel 接线 AccessLedger；缺省 = 全部走 defaultAccess）。 */
+  /** 族谱权限查询端口（kernel 接线 AccessLedger；缺省 = 全部走出生值）。 */
   readonly resolve?: AccessResolver
   /** 访问自动批准（配置 `autoApprove`）：true 时 ask 直接放行。 */
   readonly autoApprove?: boolean
@@ -93,9 +93,9 @@ export class DefaultAccessAskBus implements AccessAskBus {
   }
 
   async assert(input: AccessAssertInput): Promise<void> {
-    // 族谱台账查询（生效权限 = 族谱位置的函数）；无判定 → 工具默认值。
+    // 族谱台账查询（生效权限 = 族谱位置的函数）；链上无判定 → 出生值（无兜底表）。
     const action =
-      this.resolvePort?.accessOf(input.agentId, input.accessKey) ?? input.defaultAccess ?? 'ask'
+      this.resolvePort?.accessOf(input.agentId, input.accessKey) ?? input.birth ?? 'ask'
     this.onLog?.log({
       type: 'access.asked',
       at: Date.now(),

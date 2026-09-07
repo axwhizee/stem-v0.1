@@ -1,29 +1,27 @@
 // ============================================================
-// core/init/init.ts —— 初始化管线（三维资源矩阵统一装载，S7）
+// core/init/init.ts —— 初始化管线（装载面二元制：工具点名、类/策略目录扫描）
 //
 // 流程（纯 TS，fs/import 经 InitDeps 注入）：
 //   1. 读取唯一配置（ConfigStore.load）；
-//   2. 三类资源（tools / agent 类 / context 策略）× 两来源层统一装载：
-//        extension 层 = `extension/<种类>/<名>/<名>.<ext>` 目录形态，
-//          按 config.extensions.<种类> 点名启用（tools 缺省 = fs 五件套）；
-//        custom 层 = `.stem/` 自动扫描（**目录即真相**）：平铺单文件兼容，
-//          目录形态 `<名>/<名>.<ext>` 优先（同名后装载者胜）。
+//   2. 工具 = **config.extensions.tools {名: 权限词} 点名**（装载与出生一句话）：
+//        名字先探 extension/tools/<名>/<名>.ts，再探 .stem/tools/<名>.ts 与
+//        <名>/<名>.ts——**解析不到 = 抛错拒启**（boot 校验律：config 键必须有
+//        装载源兑现）。custom 目录自动扫描已废止（未点名 = 不存在于世界）。
+//      agent 类 / context 策略 = `.stem/` 目录即真相自动扫描（用户主权书写面），
+//        extension 层按 config.extensions.agent/context 点名。
 //      装载律 internal → extension → custom，后层同名覆盖前层（replace）。
-//   3. 注册到 core：工具 → ToolCapabilityRegistry（kind 注 extension/custom）；
-//      agent 类 → TemplateRegistry；策略 → StrategyRegistry（覆盖内置 = 用户主权）。
+//   3. 注册到 core：工具 → ToolCapabilityRegistry（kind = 纯 provenance，
+//      birth = config 权限词）；agent 类 → TemplateRegistry；策略 → StrategyRegistry。
 //   4. 仅当配置文件不存在时写入初始模板（不做任何回写同步）。
 // ============================================================
 
 import type { AgentClass, AgentClassID } from '../kernel'
 import { makeAgentClassID } from '../kernel'
 import type { ContextStrategyModule } from '../context'
-import type { ToolCapability } from '../tools'
+import type { ToolAccess, ToolCapability } from '../tools'
 import { DEFAULT_CONFIG_TEXT } from '../config'
 import { parseAgentFile } from './agentParse'
 import type { DiscoveredEntry, InitDeps, InitError, InitIssue, InitReport, ResourceEntry } from './types'
-
-/** extension tools 层缺省清单（config.extensions.tools 键缺失时；S7/D9）。 */
-export const DEFAULT_EXTENSION_TOOLS: readonly string[] = ['read', 'write', 'edit', 'grep', 'glob']
 
 /** 运行初始化管线。 */
 export async function runInit(deps: InitDeps): Promise<InitReport> {
@@ -34,14 +32,13 @@ export async function runInit(deps: InitDeps): Promise<InitReport> {
   const roots = deps.extensionRoots ?? {}
   const issues: InitIssue[] = []
 
-  // 逐种类装载：extension 层（点名）→ custom 层（目录即真相）。
-  const extTools = await loadExtensionTools(deps, roots.tools, ext.tools ?? DEFAULT_EXTENSION_TOOLS, issues)
-  const cusTools = await loadCustomTools(deps, config.paths.toolDir, issues)
+  // 工具点名装载（extension 源 → custom 源双解析；不可解析 = 抛错拒启）；
+  // agent/策略 = extension 点名 + .stem/ 目录扫描。
+  const tools = await loadNamedTools(deps, roots.tools, ext.tools ?? {}, issues)
   const extAgents = await loadExtensionAgents(deps, roots.agent, ext.agent ?? [], issues)
   const cusAgents = await loadCustomAgents(deps, config.paths.agentDir, issues)
   const extStrategies = await loadExtensionStrategies(deps, roots.context, ext.context ?? [], issues)
   const cusStrategies = await loadCustomStrategies(deps, config.paths.strategyDir, issues)
-  const tools = [...extTools, ...cusTools]
   const agents = [...extAgents, ...cusAgents]
   const strategies = [...extStrategies, ...cusStrategies]
 
@@ -56,10 +53,7 @@ export async function runInit(deps: InitDeps): Promise<InitReport> {
   }
 
   return {
-    tools: [
-      ...extTools.map((t) => entry(t.id, t.file, 'extension', config)),
-      ...cusTools.map((t) => entry(t.id, t.file, 'custom', config)),
-    ],
+    tools: tools.map((t) => entry(t.id, t.file, t.kind === 'extension' ? 'extension' : 'custom', config)),
     agents: [
       ...extAgents.map((a) => entry(a.name as AgentClassID as string, a.file, 'extension', config)),
       ...cusAgents.map((a) => entry(a.name as AgentClassID as string, a.file, 'custom', config)),
@@ -110,27 +104,75 @@ async function loadExtensionEntry(
   return { name, file, module: text }
 }
 
-async function loadExtensionTools(
+/**
+ * 点名工具装载（A1）：config.extensions.tools 的 {名: 权限词} 逐个解析——
+ * extension 源优先（`extension/tools/<名>/<名>.ts`），custom 源兜底
+ * （`.stem/tools/<名>.ts` 或 `<名>/<名>.ts`）。装载与出生一句话说完
+ * （kind = provenance 层、birth = config 权限词，文件自述值被覆盖）。
+ * 任一名字解析不到 = 抛错（boot 校验律——config 键必须有装载源兑现）。
+ */
+async function loadNamedTools(
   deps: InitDeps,
   root: string | undefined,
-  names: readonly string[],
+  named: Readonly<Record<string, import('../tools').ToolAccess>>,
   issues: InitIssue[],
 ): Promise<Array<ToolCapability & { file: string }>> {
   const result: Array<ToolCapability & { file: string }> = []
-  if (root === undefined) return result // 宿主未提供 extension 根 = 本层整体不存在（如精简内嵌）。
-  for (const name of names) {
-    const entry = await loadExtensionEntry(deps, root, name, 'ts', issues)
-    if (entry === undefined) continue
-    // extension 工具入口允许工厂形态：default = ToolCapability | (projectRoot) => ToolCapability
-    //（工作区级工具需要空间根做路径沙箱——extension 目录在仓库、服务对象是空间）。
-    let def = entry.module
+  // 入口允许工厂形态：default = ToolCapability | (projectRoot) => ToolCapability
+  //（工作区级工具需要空间根做路径沙箱——extension 目录在仓库、服务对象是空间）。
+  const materialize = async (def0: unknown, file: string): Promise<ToolCapability | undefined> => {
+    let def = def0
     if (typeof def === 'function') {
       def = await (def as (projectRoot: string) => ToolCapability | Promise<ToolCapability>)(
         deps.config.paths.projectRoot,
       )
     }
-    const tool = validateTool(def, entry.file, issues)
-    if (tool) result.push({ ...tool, kind: 'extension', file: entry.file })
+    return validateTool(def, file, issues)
+  }
+  for (const [name, birth] of Object.entries(named)) {
+    // ① extension 源（目录形态唯一）。
+    if (root !== undefined) {
+      const file = `${root}/${name}/${name}.ts`
+      try {
+        const mod = await deps.tools.loadTool(file)
+        const tool = await materialize(mod.default, file)
+        if (tool) {
+          result.push({ ...tool, kind: 'extension', birth, file })
+          continue
+        }
+      } catch {
+        /* extension 源未命中 → 落 custom 源探测 */
+      }
+    }
+    // ② custom 源（空间点名 = 唯一入世界通道；平铺与目录两形）。
+    const dir = deps.config.paths.toolDir
+    const candidates = [`${dir}/${name}/${name}.ts`, `${dir}/${name}.ts`]
+    let hit: string | undefined
+    for (const cand of candidates) {
+      if ((await deps.fs.readText(cand).catch(() => undefined)) !== undefined) {
+        hit = cand
+        break
+      }
+    }
+    if (hit === undefined) {
+      throw initError({
+        kind: 'tool_unresolvable',
+        file: `${dir}/（点名源）`,
+        message: `config.extensions.tools 点名的工具 "${name}" 解析不到装载源（extension/tools/ 与 .stem/tools/ 均无 ${name}）——未点名/无名可出的代码不存在于世界，键不可解析 = 拒启`,
+      })
+    }
+    let mod: { readonly default?: unknown }
+    try {
+      mod = await deps.tools.loadTool(hit)
+    } catch (cause) {
+      throw initError({
+        kind: 'tool_unresolvable',
+        file: hit,
+        message: `点名工具 "${name}" 装载失败（文件存在但模块加载出错）：${cause instanceof Error ? cause.message : String(cause)}`,
+      })
+    }
+    const tool = await materialize(mod.default, hit)
+    if (tool) result.push({ ...tool, kind: 'custom', birth, file: hit })
   }
   return result
 }
@@ -166,28 +208,7 @@ async function loadExtensionStrategies(
   return result
 }
 
-// ---------- custom 层（目录即真相：平铺 + 目录形态，目录优先） ----------
-
-async function loadCustomTools(
-  deps: InitDeps,
-  dir: string,
-  issues: InitIssue[],
-): Promise<Array<ToolCapability & { file: string }>> {
-  const result: Array<ToolCapability & { file: string }> = []
-  for (const { name, file } of await discoverFiles(deps, dir, 'ts')) {
-    let mod: { readonly default?: unknown }
-    try {
-      mod = await deps.tools.loadTool(file)
-    } catch (cause) {
-      issues.push({ kind: 'tool_load_failed', file, message: cause instanceof Error ? cause.message : String(cause) })
-      continue
-    }
-    const tool = validateTool(mod.default, file, issues)
-    if (tool) result.push({ ...tool, kind: 'custom', file })
-    void name
-  }
-  return result
-}
+// ---------- custom 层（agent/策略目录扫描；工具改点名制见 loadNamedTools） ----------
 
 async function loadCustomAgents(
   deps: InitDeps,

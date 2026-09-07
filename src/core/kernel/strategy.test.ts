@@ -18,7 +18,7 @@ import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 import { makeAgentClassID, makeAgentID } from './types'
 import type { AgentClass } from './types'
 import type { AssembleInput, AssembleResult } from '../context'
-import { DefaultStrategyRegistry, createBuiltinStrategyRegistry } from '../context'
+import { createBuiltinStrategyRegistry } from '../context'
 import type { ContextStrategyModule } from '../context'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
 

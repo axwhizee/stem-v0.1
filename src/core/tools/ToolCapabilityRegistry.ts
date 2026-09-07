@@ -1,12 +1,16 @@
 // ============================================================
-// core/tools/ToolCapabilityRegistry.ts —— 工具注册与执行（工具引擎）
+// core/tools/ToolCapabilityRegistry.ts —— 工具注册与执行（注册表 = 总工具表）
 //
-// 一切工具统一注册（业务 oc_* / 系统 agent_* / 上下文 context_* /
+// 一切工具统一注册（业务 mail_* / 系统 agent_* / 上下文 context_* /
 // 日志 telemetry_* / 模块 module_*，未来 mcp_*/skill_*）。
+//
+// **注册即出生声明**（工具模型唯一数据源）：每个 ToolCapability 必带
+// birth 字段（编译期强制盘点，无兜底）；注册行为生成总工具表——
+// 键 → 出生值（多工具共享访问键时取严）。出生值是收敛链的全局面封顶。
 //
 // 工具访问统一模型（权限融合进 tools）：
 //   - materialize(agentId)：经 AccessResolver 端口向族谱台账查询生效访问，
-//     过滤工具可见性（deny/ignore/未声明 internal 不暴露）；
+//     链上无显式判定 → 落出生值；**模型可见清单 = allow ∪ ask**；
 //   - execute：registry 层统一确认（setAccessSink 注入 AccessAskBus）
 //     → allow/ignore 执行 / deny 抛 access_denied / ask 挂起等根回复。
 //
@@ -18,8 +22,10 @@
 import type { ToolDefinition } from '../gateway'
 import type { LogSink } from '../logging'
 import type { AccessAskBus } from './accessRequest'
+import { restrictAccess } from './access'
 import type {
   AccessResolver,
+  ToolAccess,
   ToolCapability,
   ToolCategory,
   ToolContext,
@@ -38,14 +44,21 @@ export interface ToolListFilter {
 
 export interface ToolCapabilityRegistry {
   /**
-   * 注册工具（业务/系统/上下文/日志/模块统一入口）。
-   * `replace: true` = 同名覆盖（三维矩阵装载律：extension/custom 层覆盖前层）；
+   * 注册工具（注册即出生声明——tool.birth 编译期必填）。
+   * `replace: true` = 同名覆盖（装载律：后装载层覆盖前层）；
    * 缺省 = 同名冲突抛错（代码注册路径的防呆不变）。
    */
   readonly register: (tool: ToolCapability, opts?: { readonly replace?: boolean }) => Promise<void>
   readonly unregister: (id: string) => Promise<void>
   readonly get: (id: string) => Promise<ToolCapability>
   readonly list: (filter?: ToolListFilter) => Promise<ToolCapability[]>
+  /**
+   * 出生表（注册行为生成的总工具表）：访问键 → 出生值（共享键多工具取严）。
+   * 收敛链的输入面：根清单/类清单/策略清单/实例清单逐键不得超过本表封顶。
+   */
+  readonly birthTable: () => Readonly<Record<string, ToolAccess>>
+  /** 某访问键的出生值（未注册键 = undefined——config 点名解析用）。 */
+  readonly birthOf: (accessKey: string) => ToolAccess | undefined
   /** 物化为 LLM 工具定义（schema）：按调用方生效访问过滤（deny/ignore/未声明 internal 不暴露）。 */
   readonly materialize: (agentId: string, filter?: ToolListFilter) => readonly ToolDefinition[]
   /** 执行：查工具 → 访问确认 → 参数校验 → 钩子 → 执行器。 */
@@ -134,6 +147,27 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     return all.filter((t) => t.category === filter.category)
   }
 
+  birthTable(): Readonly<Record<string, ToolAccess>> {
+    // 注册行为生成的总工具表：访问键 → 出生值（共享键多工具**取严**——
+    // 封顶保守不越权；表极小，线性折叠即可）。
+    const table: Record<string, ToolAccess> = {}
+    for (const tool of this.tools.values()) {
+      const key = tool.accessKey ?? tool.id
+      const prev = table[key]
+      table[key] = prev === undefined ? tool.birth : restrictAccess(prev, tool.birth)
+    }
+    return table
+  }
+
+  birthOf(accessKey: string): ToolAccess | undefined {
+    let acc: ToolAccess | undefined
+    for (const tool of this.tools.values()) {
+      if ((tool.accessKey ?? tool.id) !== accessKey) continue
+      acc = acc === undefined ? tool.birth : restrictAccess(acc, tool.birth)
+    }
+    return acc
+  }
+
   async initAll(ctx: ToolInitContext): Promise<void> {
     for (const tool of this.tools.values()) {
       await tool.init?.(ctx)
@@ -145,11 +179,10 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     for (const tool of this.tools.values()) {
       if (filter?.category !== undefined && tool.category !== filter.category) continue
       const accessKey = tool.accessKey ?? tool.id
-      // 工具默认访问：internal 系统工具默认 'ignore'（隐藏），其余默认 'ask'。
-      const defaultAccess = tool.kind === 'internal' ? 'ignore' : 'ask'
-      // 族谱台账查询（生效权限 = 族谱位置的函数）；无判定 → 默认值。
-      const action = this.resolver?.accessOf(agentId, accessKey) ?? defaultAccess
-      // deny/ignore 不暴露；ask 暴露（执行时才确认）；allow 暴露。
+      // 族谱台账查询（生效权限 = 族谱位置的函数）；链上无判定 → 出生值
+      // （**kind 不参与推断**——出生即封顶，无兜底表）。
+      const action = this.resolver?.accessOf(agentId, accessKey) ?? tool.birth
+      // 模型可见清单 = allow ∪ ask；deny 出局；ignore = 背景在场（不设防）。
       if (action === 'deny' || action === 'ignore') continue
       result.push({ name: tool.id, description: tool.description, parameters: tool.parameters })
     }
@@ -162,12 +195,11 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
 
     // 访问统一确认（allow/ignore 通过 / deny 拒绝 / ask 挂起等根信箱回复）。
     const accessKey = tool.accessKey ?? tool.id
-    const defaultAccess = tool.kind === 'internal' ? 'ignore' : 'ask'
     try {
       await this.access?.assert({
         accessKey,
         agentId: ctx.agentId,
-        defaultAccess,
+        birth: tool.birth,
         metadata: { tool: tool.id },
       })
     } catch (cause) {

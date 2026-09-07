@@ -11,9 +11,11 @@ import assert from 'node:assert/strict'
 import { FakeGateway } from '../gateway'
 import { MemoryMessageStore } from '../context'
 import type { ConfigPaths, ConfigStore, StemConfig } from '../config'
+import { defaultStemConfig } from '../config'
 import type { ClassFs, InitFs, InitToolLoader } from './types'
 import { createStemSystem } from './system'
-import { makeAgentClassID, MemoryInstanceStore, USER_ID } from '../kernel'
+import { makeAgentClassID, USER_ID } from '../kernel'
+import { MemoryInstanceStore } from '../../../test/support/memoryInstanceStore'
 
 /** 共享内存文件表（写侧 classFs + 读侧 InitFs 同一 map = 文件系统替身）。 */
 function makeMemFs(files: Record<string, string> = {}) {
@@ -29,8 +31,11 @@ function makeMemFs(files: Record<string, string> = {}) {
     file: paths.configFile,
     load: async () => ({
       exists: true,
-      // S6/R12：家学锚点必填（boot 硬校验），测试 config 统一注入。
-      config: { user: { model: { provider: 'opencode', id: 'test' } } } as StemConfig,
+      // 家学锚点必填（boot 硬校验）；根清单 = 首启模板实值（agent_class_create/update
+      // = ask 走 access_reply 授权链——DEFAULT_USER_TOOLS 退役后模板是唯一缺省值源）。
+      config: {
+        user: { model: { provider: 'opencode', id: 'test' }, tools: defaultStemConfig().user?.tools },
+      } as StemConfig,
     }),
     save: async () => {},
   }

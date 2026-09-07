@@ -14,7 +14,7 @@ import { makeAgentClassID, makeAgentID } from './types'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
 import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
 
-const model = { provider: 'opencode', id: 'test-model' }
+const _model = { provider: 'opencode', id: 'test-model' }
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
@@ -111,6 +111,7 @@ describe('Kernel 邮局模式', () => {
     const { kernel, deliveries, tools, timers } = await createKernelHarness(gateway, { templates: templatesWithTool })
     await tools.register({
       id: 'oc_echo',
+      birth: 'ignore',
       description: 'echo',
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
@@ -148,6 +149,7 @@ describe('Kernel 邮局模式', () => {
     const executed: string[] = []
     await tools.register({
       id: 'oc_echo',
+      birth: 'ignore',
       description: 'echo',
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => {
@@ -178,6 +180,7 @@ describe('Kernel 邮局模式', () => {
     const { kernel, tools, deliveries, timers } = await createKernelHarness(gateway)
     await tools.register({
       id: 'oc_get_time',
+      birth: 'ignore',
       description: 'get time',
       parameters: { type: 'object', properties: {} },
       execute: () => ({ text: 'now' }),
@@ -291,6 +294,7 @@ describe('Kernel 邮局模式', () => {
     // 类清单显式声明 oc_echo（白名单语义下"声明即可用"，经台账查询）。
     await tools.register({
       id: 'oc_echo',
+      birth: 'ignore',
       description: 'echo',
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),

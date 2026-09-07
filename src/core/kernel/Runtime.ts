@@ -65,7 +65,7 @@ export interface Runtime {
 }
 
 /** 中断后收尾标记（消息闭合：避免出现"assistant 后直接接 user"的非法消息序列）。 */
-export const INTERRUPTED_MARKER = '<interrupted>'
+const INTERRUPTED_MARKER = '<interrupted>'
 
 export class DefaultRuntime implements Runtime {
   private readonly maxSteps: number
@@ -145,7 +145,6 @@ export class DefaultRuntime implements Runtime {
     const allText: string[] = []
     const allReasoning: string[] = []
     let usage: UsageEvent | undefined
-    let finishReason: 'stop' | 'tool_calls' | 'length' = 'stop'
     let session: ChatMessage[] = [...delivery.messages]
     // 当前轮累积（中断时在 for-await 内部抛出，尚未合并进 allText，需保留供 halt 收尾）。
     let roundText: string[] = []
@@ -197,7 +196,6 @@ export class DefaultRuntime implements Runtime {
         allText.push(...roundText)
         allReasoning.push(...roundReasoning)
         usage = mergeUsage(usage, roundUsage)
-        finishReason = roundFinish
 
         // 记录模型调用（token 消耗 / 延迟 / 成本）。
         this.deps.onLog?.log({
