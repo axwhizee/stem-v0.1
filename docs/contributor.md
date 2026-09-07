@@ -16,10 +16,10 @@
 | 类型 | 卷 | 义务 |
 |---|---|---|
 | **实况卷** | AGENTS.md · docs/architecture.md · docs/api.md · docs/dev-guide.md · 本卷 · README | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
-| **历史卷** | docs/log.md · prompts.md（plan 卷如 brain-plan/test-plan 落地即随批退役，沿革由 log 承载） | 承载"当时发生了什么/定了什么"。**只追加不回改**（偏差记 log，plan 卷是执行依据非实况） |
+| **历史卷** | docs/log1.md / docs/log2.md（日志按 ~100KB 滚动切卷）· prompts.md（plan 卷如 brain-plan/test-plan 落地即随批退役，沿革由 log 承载） | 承载"当时发生了什么/定了什么"。**只追加不回改**（偏差记 log，plan 卷是执行依据非实况） |
 
 **plan 卷生命周期**（用户裁决）：阶段计划卷（`*-plan.md`）是实施期的执行依据；
-**实施完成即随下一个功能提交删除**——全部裁决与沿革已追加在 log.md，残留计划
+**实施完成即随下一个功能提交删除**——全部裁决与沿革已追加在日志卷（当时为 log.md，现为 log1/log2），残留计划
 只会长成过时指路牌。写 plan 时即按此契约：plan 卷只承载"将要做什么+为什么这么定"，
 不承载实况描述（实况永远归 architecture/api/dev-guide）。
 
@@ -43,7 +43,7 @@
 | 配置结构 | defaults.ts（首启模板 = 唯一预设）+ architecture 配置节 + AGENTS 配置节 + dev-guide §4 |
 | 工具 kind/shape/权限语义 | architecture 工具节 + dev-guide §2-D + AGENTS 设计原则 + `extension/tools/`、`src/core/tools/` 全部住户 |
 | 新增/退役模块、目录形态 | AGENTS 结构树 + architecture 结构图 + 本卷 §3 命名表 |
-| 任何行为变更 | docs/log.md **追加**一条（含验证证据）；被影响的实况卷按上表整节重写 |
+| 任何行为变更 | docs/log2.md（现行日志卷）**追加**一条（含验证证据）；被影响的实况卷按上表整节重写 |
 
 ### 1.4 事实优先
 
@@ -121,10 +121,10 @@
 - 门槛：`npm run typecheck` 0 错误（`reference/` 参考码噪音忽略，对拍 `grep -v reference/`）+ `npm test` 全绿。
 - 身份：`git -c user.name="OwlCat" -c user.email="owlcat@local" commit`（沿用仓库习惯）。
 - `TODO.md`、`prompts.md` 是需求记录，不纳入提交。
-- **commit message 只描述功能变化本身，严禁出现阶段/进度代号**（S7、T1、R6 之类）——历史要可读出"系统多了什么能力"，不是"项目走到哪"。plan 卷与 log.md 才承载代号叙事。
+- **commit message 只描述功能变化本身，严禁出现阶段/进度代号**（S7、T1、R6 之类）——历史要可读出"系统多了什么能力"，不是"项目走到哪"。plan 卷与日志卷才承载代号叙事。
 - 每功能批一次 conventional commit；scope 用能力域（feat(gateway)/feat(dashboard)/test/docs…）。
 - **提交前一律先征求用户同意**（方案落盘、功能批次完成均报告待批，不自行入库）。
-- **message 遵循 conventional 规范且精炼**：标题一句话说清功能变化，正文只列关键改动点，避免长篇过程叙事（细节住 plan 卷与 log.md）。
+- **message 遵循 conventional 规范且精炼**：标题一句话说清功能变化，正文只列关键改动点，避免长篇过程叙事（细节住 plan 卷与日志卷）。
 - **plan 卷随实现退役**（§1.1 契约的执行面）：计划落盘先独立 docs 批提交；其内容实现完成后，**删除该 plan 卷并随功能批一并提交**（沿革归 log，不留过时指路牌）。
 
 ## 8. 环境与运行陷阱（WSL 开发机实录）
@@ -145,6 +145,6 @@
 - [ ] 判别联合类型、无 `any`、`import type` 齐？
 - [ ] 新逻辑有同目录单测？纯函数抽了？fake 注入而非 mock 全局？
 - [ ] 动了接口/配置/工具 shape → §1.3 对拍表逐行走完（实况卷**整节**重写，非补一句）？
-- [ ] log.md 追加了本批记账（含验证证据）？
+- [ ] log2.md（现行日志卷）追加了本批记账（含验证证据）？
 - [ ] commit message 无进度代号？typecheck + 全量测试绿？
 - [ ] 跨模块机制动过 → `npm run test:feas` 离线档跑了吗？发版批跑全四档 + 真端点？

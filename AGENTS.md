@@ -66,7 +66,7 @@ test/                      # 测试工作区：support/（kernelHarness/mockSse 
 docs/                      # 实况卷 architecture.md（机制详情以此为准）/ api.md（接口清单）/
                            #   dev-guide.md（扩展食谱）/ contributor.md（工程纪律）/
                            #   scenarios.md（目标场景）
-                           #   历史卷 log.md（日志）/ prompts.md（需求，不提交）；plan 卷落地即退役
+                           #   历史卷 log1.md/log2.md（日志滚动卷，卷一 2026-09-07 封存）/ prompts.md（需求，不提交）；plan 卷落地即退役
 ```
 
 ## 核心概念速查（详情 = architecture.md 对应节）
@@ -86,4 +86,4 @@ docs/                      # 实况卷 architecture.md（机制详情以此为�
 
 ## 测试与提交（全文 = contributor §6/§7）
 
-门槛 typecheck 0 + `npm test` 全绿；跨模块机制动过跑 `npm run test:feas` 离线档；commit message 只描述功能变化、禁进度代号；改行为 log.md 追加一条。
+门槛 typecheck 0 + `npm test` 全绿；跨模块机制动过跑 `npm run test:feas` 离线档；commit message 只描述功能变化、禁进度代号；改行为 log2.md 追加一条。
