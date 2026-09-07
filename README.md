@@ -83,13 +83,13 @@
 
 ## 工具清单
 
-工具按来源分三类（`ToolKind = internal | shell | user`），全生态现状如下。**内部工具默认 `ignore`（对模型隐藏），类清单显式声明才暴露**。
+工具按来源分三类（`ToolKind = internal | extension | custom`，kind 是纯 provenance 不参与权限）。权限只有两个来源：**注册表出生声明**（每个工具注册点写死 birth——`access_reply`/`bash` 出生 allow，其余 internal 通例 ignore 背景在场；extension/custom 由 `config.extensions.tools` 点名时给定权限词）与**收敛清单链**（根→类→[策略]→实例逐级收紧）。**模型可见 = allow ∪ ask**。
 
 ### ① core 系统工具（`kind=internal`，20 个，`src/core/kernel/systemTools.ts`）
 
-系统自我管理与邮局机制的模型侧能力面；"user0 默认"列 = `DEFAULT_USER_TOOLS`（`config.user.tools` 给出则整表替换）。
+系统自我管理与邮局机制的模型侧能力面；"user0 默认"列 = 首启模板的 `user.tools` 推荐实值（config 是唯一清单源，代码零缺省表；boot 校验律审判 access_reply=allow 缺位拒启）。
 
-| 分组 | 工具 | 说明 | user0 默认 |
+| 分组 | 工具 | 说明 | 根清单（模板实值） |
 |---|---|---|---|
 | agents 生态 | `agent_class_create` | 创建 agent 类并**落盘 `.stem/agent/`**（新名 = 变体并存可 A/B；tools 键即白名单）——自我进化书写面 | `ask` |
 | | `agent_class_update` | 同名覆盖更新 + 落盘（tools 增量 patch、逐键**只许收敛**；panel/user 根类拒绝；**只影响后续实例**） | `ask` |
@@ -100,8 +100,8 @@
 | | `agent_ancestry` | 祖先链 `[父 → … → 根]` | allow |
 | | `agent_descendants` | 后代子树（BFS） | allow |
 | | `agent_terminate` | 销毁实例（自身或祖先；recursive 级联子树） | `ask` |
-| 多 agent 协作 | `bus_send` | 向指定参与者送信（自动 from 戳） | allow |
-| | `bus_participants` | 总线参与者清单 | allow |
+| 多 agent 协作 | `mail_send` | 向指定参与者送信（自动 from 戳） | allow |
+| | `mail_participants` | 邮局在册参与者清单 | allow |
 | 观测 | `telemetry_query` | 运行日志查询（工具/模型/信箱/权限/上下文/类书写审计；可见域 = **自身 + 族谱后代**，行式压缩）——进化闭环观测面 | allow |
 | 上下文管理 | `context_overview` | 上下文概览（role/turn/tag/token 占比）——自省 | allow |
 | | `context_export` | 导出完整上下文为 jsonl（只读） | allow |
@@ -111,18 +111,16 @@
 | | `agent_pause` | 自主挂起攒信：ms 到点唤醒，期间来信自然堆积（S9） | 未列=隐藏 |
 | 系统义务 | `access_reply` | 答复 `access_request`（once/always/reject；仅族谱根可答）——**根义务，删则 ask 死锁** | allow |
 
-### ② core 外部操作面 + skill（`kind=internal`，2 个）
+### ② core 外部操作面（`kind=internal`）
 
-| 工具 | 位置 | 说明 | user0 默认 |
+| 工具 | 位置 | 说明 | 根清单（模板实值） |
 |---|---|---|---|
 | `bash` | `src/core/tools/bash.ts` | **最小系统唯一对外操作面**（外部文件/系统）：执行 shell 命令返回 stdout/stderr/exit code。core 只定义工具与 `ShellRunner` 端口，执行由宿主注入（node child_process）。治理对齐 pi：**不走 ask、无黑名单**——靠超时/截断/默认 cwd 限事故半径 + 提示词分担；`config.bash` 配参（`path/defaultTimeoutMs/maxOutputChars/cwd`）。 | `allow` |
-| `skill` | `src/core/tools/skill.ts` | 懒加载 skill 正文进上下文（清单见 system 提示 `<available_skills>`；init 扫描 SKILL.md 注册） | 未列=隐藏 |
-
 > 不配 shell 的 agent：模板 `tools` 白名单**不列 `bash` 键**即可（键即自我限定，代码里永不写危险命令黑名单）。
 
-### ③ extension tool_set：shell fs 工具（`kind=shell`，5 个，`shell/cli/tools/`）
+### ③ extension 工具（`kind=extension`，fs 五件套 + web 两件，`extension/tools/`）
 
-由 **`config.extensions: string[]`** 选择加载（宿主 bootStem 解析；缺省 `["fs"]`，显式 `[]` = 纯 bash 最小系统）。core 对 tool_set id 无感知，只透传字符串数组。
+由 **`config.extensions.tools: {名: 权限词}`** 点名装载（装载与出生一句话说完；键在 extension/tools/ 与 .stem/tools/ 双源解析不到 = 拒启）。未点名 = 不存在于世界（目录扫描制已废止）。
 
 | 工具 | 说明 |
 |---|---|
@@ -132,11 +130,11 @@
 | `grep` | 正则递归搜内容 |
 | `glob` | glob 模式匹配路径 |
 
-> 定位：这是可选能力包（`fs` tool_set），非最小系统必需。第三方/宿主专属工具包（如 VSCode 工具集）落 `extension/tools/`，落位后并入 bootStem 的 `TOOL_SETS` 清单即可被 `config.extensions` 选择。未知 id 告警跳过、不炸启动。
+> 定位：可选能力包，非最小系统必需（缺省点名 = fs 五件套 allow）。空间自有代码落 `.stem/tools/`，同样必须点名进世界——用户空间放文件不再自动生效（代码注入面闭合）。
 
-### ④ user 工具（`kind=user`，`.stem/tools/*.ts`）
+### ④ custom 工具（`kind=custom`，`.stem/tools/` 点名装载）
 
-用户默认导出 `ToolCapability` 即注册（示例：`test/space-demo/.stem/tools/user_hello.ts`）；**目录即真相**——放进 `.stem/tools/` 自动加载，config 无镜像字段（S4.2 起 tools/agents/strategies 三镜像注册表已删除）。
+平铺 `<名>.ts` 或目录 `<名>/<名>.ts` 形态默认导出 `ToolCapability`（示例：`test/space-demo/.stem/tools/user_hello.ts`），在 `config.extensions.tools` 点名才进世界（权限词即出生）。**agent 类/上下文策略仍是目录即真相**（`.stem/agent/`、`.stem/context/` 自动装载，用户主权书写面不受影响）。
 
 ### ⑤ extension（tool_set 包挂载点，`extension/tools/`）
 

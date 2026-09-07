@@ -49,8 +49,8 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 | `ToolCapabilityRegistry.register(tool, {replace?})` | `src/core/tools` | 任意时刻 | 缺省同名抛错（代码防呆）；`replace` 仅矩阵装载律使用 |
 | `TemplateRegistry.register(cls, {replace?})` / `update(name, patch)` | `src/core/kernel` | 任意时刻 | update 走收敛检查（模型书写面）；register+replace 是装载行为**不查收敛** |
 | `StrategyRegistry.register(module)` | `src/core/context/strategies` | init/任意 | 同名直接覆盖内置 = 用户主权 |
-| custom 目录 | `.stem/{tools,agent,context}/` | runInit 扫描 | **目录即真相**：放入即注册，config 零登记 |
-| extension 点名 | `extension/<种类>/<名>/<名>.<ext>` + `config.extensions.<种类>` | runInit | 缺省表 `DEFAULT_EXTENSION_TOOLS` = fs 五件套 |
+| custom 工具点名 | `.stem/tools/<名>[/<名>.ts]` + `config.extensions.tools` | runInit | **点名进世界**（扫描制废止——代码注入面闭合）；agent 类/策略仍目录即真相 |
+| extension 点名 | `extension/<种类>/<名>/<名>.<ext>` + `config.extensions.<种类>` | runInit | tools 点名对象 `{名:权限词}`（装载+出生一句话；键不可解析 = 拒启）；推荐实值在模板 |
 | internal 源 | 代码注册（`registerSystemTools`/`BUILTIN_TEMPLATES`/classic+none） | 装配固定序 | 恒在层；矩阵装载序 internal → extension → custom 后层覆盖 |
 | `registry.initAll` 后新注册 | `tools.register(...)` | userHooks 内 | 新工具**不会自动 init**——需自管或再调 initAll（幂等约定） |
 
@@ -78,7 +78,7 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 | always 豁免备忘 | AccessAskBus per-agent | 只免询问，**不破 deny/ignore**（非权限层） |
 | `restrictAccess` 四态纯代数 | `src/core/tools/access.ts` | 层间合成的唯一算法（lineage 只共享此纯函数，tools 绝不 import lineage） |
 | `canReach(agentId)` 可见域 | `src/core/lineage` | 跨 agent 操作统一谓词（销毁/中断/telemetry/agent_update 全走它；自身∨祖先代查） |
-| `DEFAULT_USER_TOOLS` | `src/core/kernel/builtin/agents.ts` | 根类缺省清单（内置类唯一定义域：USER_DEFAULT/ASSISTANT/buildUserClass）；`config.user.tools` 给出即**整表替换**（误删 `access_reply` = ask 死锁） |
+| 注册表出生表 | `src/core/tools`（registry.birthTable/birthOf） | 收敛链全局封顶；根清单缺省 = 完整继承出生面（DEFAULT_USER_TOOLS 已退役，推荐实值住 defaults.ts 模板）；**boot 律**：根生效 access_reply ≠ allow = 拒启 |
 | 祖先锁定律 | AccessLedger 语义矩阵 | 总序 `deny≺ask≺allow≺ignore` 顺链只许收缩；祖先匿名封闭不下传、显式判定才下传（藏匿/放宽皆扩张被拒） |
 
 ### E. 模型解析接入点（四级律的单点化）
@@ -155,11 +155,11 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 |---|---|
 | `config.custom` | 顶层唯一自由块（R12：其余未知键 fail-fast）；工具/策略可读（经 `config` 引用） |
 | `AgentClass.custom` | 类文件未知 frontmatter 键全量透传（自由式元数据；序列化回写保真） |
-| 目录即真相 | 类/工具/策略的"启用清单"**不是**配置项——放文件即生效，config 永不回写（首启模板除外） |
+| 目录即真相（类/策略） | agent 类与上下文策略的"启用清单"**不是**配置项——放文件即生效，config 永不回写；**工具例外**：必须 `config.extensions.tools` 点名（装载与出生） |
 
 ## 3. 矩阵与食谱
 
-三类资源 × 三层来源的装载律：**internal → extension → custom，后层同名覆盖前层**。extension 与 custom 的差别只有启用方式（点名 vs 目录即真相）与归属（仓库发布物 vs 用户空间）；装载管线同构（`runInit`）。目录形态约定：一资源一目录、**入口与目录同名**；附属脚本自由放置；`_` 前缀目录 = 共享辅助不入库。
+三类资源 × 三层来源的装载律：**internal → extension → custom，后层同名覆盖前层**。工具的 extension/custom 两源统一由 `config.extensions.tools` 点名（差别只剩归属：仓库发布物 vs 用户空间）；agent 类/策略的 custom 层仍是目录扫描。装载管线同构（`runInit`）。目录形态约定：一资源一目录、**入口与目录同名**；附属脚本自由放置；`_` 前缀目录 = 共享辅助不入库。
 
 ### 3.1 custom 工具
 
@@ -174,7 +174,7 @@ export default {
 }
 ```
 
-要点：kind 由管线强制 `custom`；类清单显式列键（如 `config.user.tools` 加 `"greet": "allow"`）才对 user0 可见；需要空间根/参与初始化 → `init(ctx)`（§2-C）。平铺单文件 `.stem/tools/greet.ts` 兼容，同名时目录优先。
+要点：kind 由管线强制 `custom`，**出生 = 点名权限词**（文件里写什么 birth 都会被 config 覆盖）；必须先在 `config.extensions.tools` 加 `"greet": "allow"` 才进世界，且 `config.user.tools` 列键才对 user0 可见；需要空间根/参与初始化 → `init(ctx)`（§2-C）。平铺单文件 `.stem/tools/greet.ts` 与目录形态均可（同名目录优先）。
 
 ### 3.2 extension 工具（发布物形态）
 
@@ -185,7 +185,7 @@ import type { ToolCapability } from '../../../src/core/tools'
 // 工厂形态：loader 注入 projectRoot（空间感知的路径沙箱等）
 export default function createMyTool(projectRoot: string): ToolCapability {
   return {
-    id: 'mytool', kind: 'extension',
+    id: 'mytool', kind: 'extension', birth: 'allow', // 自述值可省——点名权限词为准
     description: '…', parameters: { type: 'object', properties: {} },
     execute: async () => ({ text: `空间：${projectRoot}` }),
   }
@@ -234,8 +234,8 @@ R12 全量有效：**未知顶层键 fail-fast**，`custom` 唯一自由位（§
 | 键 | 语义 |
 |---|---|
 | `providers.<名>` | `{ base_url 必填 http(s), key_env? 环境变量名, models? 白名单 }`；模型引用一律 `提供商/模型` 全严格式 |
-| `user` | user0 内嵌类全对象；**`user.model` 必填 = 家学锚点**；`tools` 给出即整表替换 DEFAULT_USER_TOOLS（误删 `access_reply` = ask 死锁；误删 `agent_update` = 实例参数面锁死，ask 档） |
-| `extensions` | `{ tools?, agent?, context? }` 分键点名（§2-B） |
+| `user` | user0 内嵌类全对象；**`user.model` 必填 = 家学锚点**；`tools` = 根收敛清单（缺省 = 完整继承出生表；误删 `access_reply` = boot 校验律直接拒启——不再是静默死锁；误删 `agent_update` = 实例参数面锁死，ask 档） |
+| `extensions` | `{ tools?: {名:权限词}, agent?: [], context?: [] }` 分键点名（§2-B；tools 数组形态 = 拒启指路） |
 | `context` | `{ window, compact: {enabled/threshold/keepRecentTurns/summarizeModel/instruction/replyTimeoutMs} }` |
 | `bash` | `{ path?, defaultTimeoutMs?, maxOutputChars?, cwd? }` |
 | `maxSteps` / `sendCountdown` / `autoApprove` | 循环上限 / 送信倒计时缺省 / ask 自动放行（调试） |

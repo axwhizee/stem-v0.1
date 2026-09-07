@@ -76,7 +76,7 @@
 | ID | branded string | `AgentID`/`AgentClassID`/`AgentSpaceID`/`ProjectRef`（构造走 `makeAgentID` 等） |
 | 工具 id | 语义 snake/kebab；三分类 kind 而非前缀分权 | `agent_class_create`、`read`、`websearch` |
 | 类模板 | `kernel/builtin/<Name>.json`（internal）；目录形态（extension/custom） | `Assistant.json`（占位继承类） |
-| 常量 | UPPER_SNAKE | `DEFAULT_USER_TOOLS` |
+| 常量 | UPPER_SNAKE | `BASH_DEFAULTS` |
 
 类型纪律：多用 `readonly`/`interface`/`type`；**禁止 `any`**（未定用 `unknown`+守卫）；`verbatimModuleSyntax` 强制类型导入写 `import type`；`noUncheckedIndexedAccess` 下索引取值必须判空。
 
@@ -91,7 +91,7 @@
 ## 5. 工具与权限纪律（改动敏感区）
 
 - `ToolKind = internal | extension | custom`；`ToolAccess = allow | ask | deny | ignore`；类 `tools` Record **键即白名单=自我限定**，`{}` = 本地封闭，**未设（undefined）= 完整继承父生效档案**（internal `assistant` 占位类即此形）。
-- 改 `ToolKind`/工具 shape/`AgentClass.tools`/`ToolContext` 时全量对拍：`src/core/tools/`、`extension/tools/`、`DEFAULT_USER_TOOLS`、系统工具 schema、族谱台账、webui/dashboard 展示面。
+- 改 `ToolKind`/工具 shape（含 `birth`）/`AgentClass.tools`/`ToolContext` 时全量对拍：`src/core/tools/`、`extension/tools/`、注册表出生面（birthTable/收敛链 fold）、系统工具 schema、族谱台账、config parse+defaults 模板、webui/dashboard 展示面。
 - 权限与模型**一律走族谱树门面**（attach/detach/replay + effectiveAccess/modelOf/canReach）；禁止 kernel/tools 再拼第二套判定链（AccessLedger 是内部实现，禁止直连）。
 - 严格度**总序** `deny ≺ ask ≺ allow ≺ ignore`（按监督度：ignore=看不见的执行最宽）：一切权限书写面（类文件 update / 实例 agent_update / 台账物化）同一把尺，只许顺链收缩；藏匿（allow→ignore）判扩张被拒。
 - `grant` = 清单形整表替换 + 逐键祖先显式**封顶**（无扩张面）：`InstantiateOptions.accessMode` 仍为策略/宿主专用；模型侧清单便利走 `agent_update.grantTools`（受限语义使其安全等价于逐键填表）。

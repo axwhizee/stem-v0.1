@@ -102,7 +102,7 @@
 
 | 批 | 内容 | 依赖 | 门槛 |
 |---|---|---|---|
-| S11-a | 工具模型：出生声明盘点补全 / config 形制 / 收敛链重构（含两步归因）/ boot 律 / 可见面过滤 / E 表改名（mail_*）/ 审计测试 a 组 | 无 | typecheck + 全量 + 离线双档 |
+| ~~S11-a~~ **已落地（代码）** | 工具模型全部落地；门槛全绿：typecheck 0 + 367/367 + 离线双档 29/9。尾巴 = 文档随行同步（README/AGENTS/log2）+ 提交待用户确认（§K） | 无 | ✅ |
 | S11-b | id/name/戳/存储 v3（一个原子破坏批：路径 id 生成器、name 唯一注册、戳升级、三空间重建、断言面大连动）/ E 表改名（name/dreamer 文档面）/ 审计测试 b 组 | 与 a 仅现场交叠 | + 在线档抽查（v10-live 复跑改形后） |
 | S11-c | cortex：strategy.tools 契约字段 / set_* 退役 / dreamer 回信循环 / 笔记出生迁移 / 类文件精简 / 审计测试 c 组 | a（b 的 id 形态连动）| + cortex probe 在线复跑（重建空间） |
 | S11-d | feishu：会话模型 + 上下线 + 补偿 | b（寻址） | router 单测 + 真机 |
@@ -163,3 +163,33 @@
 14. architecture.md 先行升级为实现最高参考（本卷落地期间"卷在码前"，实现批完成对拍回写——与常态纪律"码为真"的窗口期契约，特此记录）；
 15. **实况卷禁步骤代号**：architecture/AGENTS/dev-guide/api/README 等实况卷正文**不得残留 `S*`/`R*` 步骤代号**（"S7 起""S2′修正"这类是死文字温床——描述机制现在是什么，不描述哪一步加的）；代号只住 plan 卷与日志卷（contributor §7 既有律的贯彻）。architecture 全卷已清（64 处）；
 16. **根更名 `user0`→`user`，name 全局唯一**：`USER_ID`/`USER_CLASS_ID`/字符串 `user0` 随 B1 重定义为根 id=`0`、name=`user`（全名 `user#0`）；"user"名唯一（族谱唯一根实例），派生名 `user-N` 归未来的 `user` 类其他实例（若开放）。
+
+## K. 实施交接账（S11-a 落地实况——压缩会话的回轨锚）
+
+> 纪律：**本节记录"a 批代码已改成的形状"**，b/c 批实现以本节 + architecture 目标形对拍；实现与卷冲突时，改本节并在 log2 记账。
+
+### K1 a 批代码事实（b/c 依赖的接口形）
+
+- **出生声明**：`ToolCapability.birth` **必填字段**（编译期强制全仓盘点，30+ 注册点全部补齐）；registry 新增 `birthTable()`（访问键→出生值，共享键多工具**取严**）与 `birthOf(key)`；`materialize`/`execute` 的 kind 推导全灭，链上无判定一律落 `tool.birth`；`AccessAssertInput.defaultAccess`→`birth`。
+- **收敛链代数（单一事实源）**：`tools/access.ts: foldConvergenceSteps(parentExplicit, caps, steps)`——steps = `[层名, 清单][]`；逐键封顶 = min(父面显式判定, 出生值)；宽于封顶 → violation（层归因：根收敛/类收敛/策略收敛/实例收敛，`ConvergenceLayer` 四元）。**物化端静默钳制**（AccessLedger 复用同一 fold，重启幂等）；**写入端拒绝**（kernel）。父匿名封闭（fallback）不构成否决——fold 只折叠 explicit，"缺席≠否决"零特判。
+- **AccessLedger**：`AccessBindEntry = {steps?: (清单|undefined)[], own?: 清单（单表便利形，grant 通道/语义矩阵单测沿用）, caps?: 出生表, mode?}`；steps 与 own 二选一（steps 优先）；grant 分支现叠出生封顶；整链缺席 = 完整继承父档案（不变）。`LineageBindEntry` 直通继承，LineageTree 零改动。
+- **Kernel 三拒绝口**（都带违例文案数组，kind 判别）：`tools_convergence_expanded`（instantiateInSpace 前置校验，agent_instantiate 工具已 catch 转行动化文本）/ `agent_update_expanded`（toolsPatch 对 [类步, 合并override] 全链 fold 校验）/ `root_config_expanded`（registerRootAgent 前置，config.user.tools 越出生 = boot 硬错）。助手：`validateAccessSteps(parentProfile|undefined, labeledPairs)` + `labeledSteps(steps, firstLabel)`（两步=类/实例；三步=类/策略/实例——**策略槽已就位，c 批在 labeledSteps 传入三步即可接通**）。attach/replay 处 kernel 恒传 `caps: this.birthCaps()`；grant 通道保持单 own 合并表。
+- **boot 律执行位**（system.ts createStemSystem）：家学 model（既有）→ **access_reply 审判**（`lineage.effectiveAccess(root,'access_reply') ?? tools.birthOf(...)` ≠ allow 拒启，缺位含 undefined 语义已按出生值放行）→ runInit 内 **tool_unresolvable** 拒启（config.extensions.tools 点名键：extension/<名>/<名>.ts → .stem/tools/<名>/<名>.ts → <名>.ts 三探，全空 throw；工厂入口形态保留）。R12 照旧。
+- **config 形制**：`extensions.tools` = `{名: 权限词}`（parse 走 validatePermissionRecord；数组形 fail-fast 指路）；`DEFAULT_EXTENSION_TOOLS` 退役；模板 DEFAULT_CONFIG_TEXT = **user.tools 推荐实值**（原 DEFAULT_USER_TOOLS 全表平迁 + bus_*→mail_*，不含 skill——扫描制装载器已随 A4 退役）+ extensions 实值点名 fs 五件套；`USER_DEFAULT.tools` = undefined（缺省不设限）；harness（test/support/kernelHarness）缺省根清单 = 模板实值；`MemoryInstanceStore` 迁 test/support（core 只留端口）。
+- **mail_* 改名**全链路完成（systemTools/space jsonc/organizer.md/secretary.md）；cortex 四工具 birth ignore（set_* 与 kind 校正随 c 批）。
+- **行为翻转点（新律审判旧预期，测试已按新律改）**：类清单 `ignore` 而父面 `allow` = 藏匿扩张 → **实例化即拒**（旧=物化压回）；modelTools 测试改为根与类两层同为 ignore（等价合法形）；agentUpdate 拒绝文案 = `类/实例收敛被拒 <key>: <wanted>（封顶 <ceiling>…）`。
+
+### K2 a 批附带完成：kernel 模块死代码清扫（逐模块巡检第一站）
+
+删除：`listAgentsBySpace`（零消费者）、`Runtime.finishReason`/`InstanceManager.counter` 死变量、`foldConvergenceSteps.parentFallback` 死参数、`validateRootSteps/validateAccessSteps` 合并（消双渲染口）；导出面收窄：`AgentUpdateSpec`/`INTERRUPTED_MARKER`/`TerminateError`/`RuntimeDeps`/`MemoryInstanceStore`（barrel 与 export 关键字摘除）；死文本修复：元 agent 表述、templates/*.json、DEFAULT_USER_TOOLS 引用。保留裁定：`kernel.runtime` 公开字段（装配容器对等成员，与 contextManager/courier 同格，不收窄）。**后续站**：tools/lineage 已随 a 顺带清，剩 context/extension/shell 三站（非阻塞，穿插各批做）。
+
+### K3 a 批尾巴（提交前完成）
+
+1. 文档随行同步：README 工具表 bus_*→mail_* + 权限叙事（出生/点名/扫描废止三句）；AGENTS.md 设计原则 3/6 与快查行（注册表/点名装载/v 面描述）；contributor §5 若有 kind→权限句；architecture 已先行——实现回拍**零偏差确认**后删卷首窗口声明（a 相关节）；log2.md 追加 a 批记账（含 §J 裁决 15/16 的执行注记）。
+2. 提交拆分（待用户确认）：feat 批（代码+测试+空间迁移）+ docs 批（同步+log2）。
+3. test/feasibility 场景断言按用户裁决**不追新**（旧场景过时），仅作 boot 冒烟闸。
+
+### K4 b 批开工清单（依赖 a 已就绪的接口）
+
+- 路径 id（`0`/`<父id>-<序号>`，墓碑计数、instantiate agentId 参退役）+ name 全局唯一（出生推导 `类名-N`、`agent_update.name`、撞名三级拒）+ `USER_ID='user0'` 全退役（12+ 处 shell/core 裸字面量，见 §I）+ displayName→name（E 表）+ 信件戳 `<sender id="name#id" at="yymmdd.hhmm">` + 存储 v3 拒载（sqliteStore 迁移守卫段重写、三开发空间重建、验收空间换 v12）+ 审计测试 b 组（§H-4/5/6/7/10）。
+- 与 a 的接点：labeledSteps 三步形已备（c 批用）；b 不动收敛代数。

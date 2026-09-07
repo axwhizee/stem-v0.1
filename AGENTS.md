@@ -76,10 +76,10 @@ docs/                      # 实况卷 architecture.md（机制详情以此为�
 - **族谱树**：实例层派生事实唯一面（拓扑实时推导 + 权限/模型注册期物化 + canReach 可见域）；纯派生不入库。→ arch 4.4
 - **邮局**：仓库→管理员（打戳/策略 process/组装/legalize/waitForReply 配对）→快递员（倒计时送信**只发不组装**）；通信 = kernel.sendMessage，无总线。→ arch §3
 - **上下文策略**：契约 `ContextStrategyModule`（note/role/assemble/process/actions/init），触发 = user_prompt 信抵达、终点 = 唤醒快递员；classic = 直出 + compact（markInvalid 归档可逆）；cortex = 三层外挂记忆（LTM/笔记/STM，仓库记忆对 + `.stem/mem/` 单向镜像）+ 阈值做梦二段事务（dream worker grant 专属 set_*，轮替即归档）；`.stem/context/*.ts` 用户可覆盖。→ arch 2.2b
-- **工具与访问**：kind 三分类（internal 缺省 ignore/extension 点名/custom 扫描）；ask 命中投 `<access_request>` 到申请者族谱根信箱，根经 access_reply 裁决（once/always/reject）。→ arch 2.2/4.5/4.9
+- **工具与访问**：注册表出生声明（internal 注册点写死 birth：access_reply/bash allow 其余通例 ignore；extension/custom 经 `config.extensions.tools {名:权限词}` 点名=装载+出生一句话，**目录扫描废止**）+ 单操作收敛链（根→类→[策略]→实例逐步收紧，出生值全局封顶；模型可见 = allow∪ask）+ boot 律（根 access_reply 非 allow 拒启/点名不可解析拒启）；kind 纯 provenance。ask 命中投 `<access_request>` 到申请者族谱根信箱，根经 access_reply 裁决。→ arch 2.2/4.5/4.9
 - **消息库**：StoredMessage tag（合成标记）+ turn/indexInTurn 双索引；tokens = 网关真实值差分归位、chars/4 兜底；remove/edit = markInvalid/update + legalize 保组装合法。→ arch 2.6
 - **持久化**：个体层 SQLite write-through（消息/实例/空间）；类/策略/工具 = 文件真相不进 DB；一空间一库一进程，`stem [path]`>env>cwd 定位；重启 = 装载+归一化+replay+零重放。→ arch 4.15
-- **配置**：`.stem/stem.jsonc` 唯一载体（providers.key_env 永不承载明文密钥；user = user0 完整类对象含家学 model 锚点与 displayName 出生名；R12 未知顶层键 fail-fast；目录即真相、config 永不回写）。→ arch 4.12
+- **配置**：`.stem/stem.jsonc` 唯一载体（providers.key_env 永不承载明文密钥；user = user0 完整类对象含家学 model 锚点与 displayName 出生名与根收敛清单 tools（推荐实值住模板）；R12 未知顶层键 fail-fast；agent 类/策略目录即真相、config 永不回写）。→ arch 4.12
 - **进化闭环（人启动）**：agent_class_create/update（同名覆盖、tools 只许收敛、落盘 `.stem/agent/`、只影响后续实例、panel/user 类拒绝）+ telemetry_query（可见域日志）+ 重启新实例携带新基因。→ arch 4.6；记忆生理层 = cortex（已实施）
 - **实例参数唯一写面**：`agent_update`（缺省目标=自身，canReach）= model / displayName / tools 收敛 patch / grantTools 清单整表（两形式互斥）；写实例行 → 族谱全树 replay（收缩沿链下传、改父不动子靠快照）。类定义/拓扑/策略/提示词永不入此通道。→ arch 2.2/4.3/4.4
 - **事件流**：PilotEvent（stream/letter/status/notice）经 EventHub 多订阅者，shell/webui 统一订阅。→ arch 2.4
