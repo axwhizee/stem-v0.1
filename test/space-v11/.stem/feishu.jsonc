@@ -9,7 +9,7 @@
   "ownerOpenIds": ["ou_2a085cac843d42f2dde0530a487105bc"],
 
   // 单聊默认接待员类（内置 assistant 起步；可换自建类如 "secretary"）
-  "secretaryClass": "assistant",
+  "secretaryClass": "secretary",
 
   // 会话绑定：chat_id → 该会话对话的 agent 实例 id
   // 群 = 子 agent 的移动窗口：{"oc_xxxx群id": "tester9"}
