@@ -1,9 +1,9 @@
 # stem 实际架构
 
 > 本文档记录**实际开发过程中明确的系统架构**与各模块内部的实现逻辑（落地后的真实形态，与规划冲突时以本文档为准，并会同步修订）。
-> **窗口期声明**：§2.2/2.2b/4.5/4.12 工具模型节已按 s11-plan 终案落地并对拍（出生声明+收敛链+boot 律）；§2.1/三/五/4.15 身份与存储节仍先行于码（s11-b/c 落地后删除本声明）。冲突时以 s11-plan 裁决链 + §K 交接账为准。
+> **窗口期声明**：工具模型节（§2.2/4.5/4.12）与身份存储节（§2.1/三/4.3/4.4/4.15/信戳）已按 s11-plan 终案落地并对拍；§2.2b cortex 与 §五 feishu 会话模型仍先行于码（s11-c/d 落地后删除本声明）。冲突时以 s11-plan 裁决链 + §K 交接账为准。
 
-**日期**：2026-08-22 · 最后同步 2026-09-08（S11-a 落地：工具模型节卷码对拍零偏差——出生声明/收敛链/boot 律/mail_*；身份节待 s11-b）
+**日期**：2026-08-22 · 最后同步 2026-09-08（身份代数落地：路径 id `0`/全局 name/信件戳 name#id+分钟时刻/存储 v3 拒载——本卷两处实现漏网已修：agentId 随机描述行、agent_update displayName 行）
 
 ---
 
@@ -155,7 +155,7 @@
 
 ### 4.3 InstanceManager（`core/kernel/InstanceManager.ts`）
 
-- 实例化必填：`className` + `userPrompt`（字符串，根可为空串）+ `parentId`（根为 null）；父必须已存在（根除外）；`agentId` 可选（默认随机 4 位，冲突报错）。
+- 实例化必填：`className` + `userPrompt`（字符串，根可为空串）+ `parentId`（根为 null）；父必须已存在（根除外）。**id 无指定通道**（出生路径全托管：根 `0`，子 `<父id>-<序号>`，§4.3）；可选 `name`（撞全局名 = 拒绝并明示，缺省派生 `类名-N`）。
 - `parentId` 即创建者；根（parentId=null）无祖先 → 天然不可销毁。
 - **运行期实例写面唯一化**：`update(agentId, patch: AgentInstancePatch{name?, toolOverride?, model?})`（name 全局唯一，撞名拒） 取代原 takeover/setModel 散点（写穿装饰器落行——三个字段全随实例行 JSON 持久，零 schema 迁移，重启 replay 天然承接）；授权/校验/族谱重算/审计编排在 `kernel.updateAgent`。
 
@@ -185,7 +185,7 @@
 | `telemetry_query` | 运行日志观测（进化闭环"观测"翼）：可见域 = 自身 + 族谱后代（canReach）；行式压缩 + 类型前缀通配 + 时间窗 + limit 截尾 |
 | `agent_instantiate` / `agent_list` / `agent_inspect` | 创建实例（父=调用者）/ 列出 / 详情 |
 | `agent_ancestry` / `agent_descendants` / `agent_terminate` | 祖先链 / 后代 / 终止（销毁权 + recursive） |
-| `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：model / displayName / tools 收敛 patch（总序拒扩张）/ grantTools 清单整表（逐键封顶）——吸收原 agent_set_model；审计双事件 |
+| `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：model / name / tools 收敛 patch（总序拒扩张）/ grantTools 清单整表（逐键封顶）——吸收原 agent_set_model；审计双事件 |
 | `mail_send` / `mail_participants` | 发消息 / 参与者列表（原 `bus_*` 更名——"bus 已死名不灭"清除，邮局叙事归位） |
 | `agent_pause` | 自主挂起攒信（ms 到点唤醒；期间信件自然堆积。等特定子回信走 agent_instantiate 的 wait） |
 | `context_export` / `context_overview` / `context_remove` / `context_edit` | 导出 jsonl / 概览 / 删除过时消息（markInvalid）/ 重写消息（system 除外） |

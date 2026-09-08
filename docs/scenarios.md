@@ -33,7 +33,7 @@
 ### 1. 常驻个人助理 ✅（含发布形态）
 
 - **目标**：7×24 私人助理——记事、查问、代操作，风格日常化，跨重启记得住，浏览器即用。
-- **机制路径**：user0 即助理（S6.1 第一视角 webui）；操作面 = bash 单点 + fs tool_set；
+- **机制路径**：根即助理（webui 第一视角）；操作面 = bash 单点 + fs 点名工具；
   记忆 = SQLite write-through（terminate 不删语料）+ `.stem/` 目录即真相；人格与家学模型 =
   `config.user`。发布形态同一条：`docker run -e ALIBABA_API_KEY=… -v stem-data:/data stem:1.0`
   ——volume = 配置+DB+进化文件的家，**容器即边界**（挂载卷就是爆炸半径，webui 无鉴权不外露）。

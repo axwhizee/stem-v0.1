@@ -6,7 +6,7 @@
 
 ## 0. 三十秒世界观
 
-stem = **原子化 AgentClass（模板）+ Agent 实例**的自主系统：全体 agent 平等（user0 只是 `user` 类的根实例），权限与模型都是**族谱位置的函数**，外部世界经"消息交换"而非系统耦合通道抵达。代码分层：
+stem = **原子化 AgentClass（模板）+ Agent 实例**的自主系统：全体 agent 平等（根 user#0 只是 `user` 类的普通实例，id = 出生路径 `0`），权限与模型都是**族谱位置的函数**，外部世界经"消息交换"而非系统耦合通道抵达。代码分层：
 
 ```text
 shell/（交互层：cli / webui / dashboard——平台适配 + UI）
@@ -78,6 +78,7 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 | always 豁免备忘 | AccessAskBus per-agent | 只免询问，**不破 deny/ignore**（非权限层） |
 | `restrictAccess` 四态纯代数 | `src/core/tools/access.ts` | 层间合成的唯一算法（lineage 只共享此纯函数，tools 绝不 import lineage） |
 | `canReach(agentId)` 可见域 | `src/core/lineage` | 跨 agent 操作统一谓词（销毁/中断/telemetry/agent_update 全走它；自身∨祖先代查） |
+| `kernel.resolveAgent(ref)` / `displayOf` | `src/core/kernel` | 写面三形态寻址（name / name#id / 唯一 id 前缀 → 同一实例；歧义抛候选）；呈现面统一 `name#id` |
 | 注册表出生表 | `src/core/tools`（registry.birthTable/birthOf） | 收敛链全局封顶；根清单缺省 = 完整继承出生面（DEFAULT_USER_TOOLS 已退役，推荐实值住 defaults.ts 模板）；**boot 律**：根生效 access_reply ≠ allow = 拒启 |
 | 祖先锁定律 | AccessLedger 语义矩阵 | 总序 `deny≺ask≺allow≺ignore` 顺链只许收缩；祖先匿名封闭不下传、显式判定才下传（藏匿/放宽皆扩张被拒） |
 
@@ -100,7 +101,7 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 | `StrategyApi` 能力包 | 管理员构造注入 | process/actions 内 | list/listValid/append(tag)/markInvalid/updateMessage/estimatedTokens/settings/custom（宿主类基因槽）/spawn（role+worker 正规往返含回收）/lastWorkerId·roleAgentId（身份通道）/log——策略**不直连 kernel**；fs 与工具注册走 `init(ctx)`（`StrategyInitContext = {projectRoot,fs,settings,log,registerTool}`，cortex 为参考样板） |
 | 触发/终点 | 管理员 wake 链 | user_prompt 抵达 → 唤醒快递员 | 重入合并、失败兜底不卡死（契约义务） |
 | `tag` 词表 | 策略自定；**现状六元收口**（''/summary/cortex/ltm/note/stm） | append 合成消息时 | 组装器按该 agent 策略解释 tag；**strategy 不入库为 tag 的一部分**（上下文属性）；新策略要新 tag 先议后扩 |
-| 面板态 | `AgentClass.panel=true` → 恒绑 none 策略 | — | 不组装不跑 LLM（user0/role 承载）；`contextStrategy` 字段对其无意义 |
+| 面板态 | `AgentClass.panel=true` → 恒绑 none 策略 | — | 不组装不跑 LLM（根接线/role 承载）；`contextStrategy` 字段对其无意义 |
 | 落位 | `.stem/context/<名>.ts` / `extension/context/` | runInit | 同名覆盖内置 = 用户主权（classic 全量直出+compact 为参照实现） |
 
 ### G. 网关与 provider 扩展点
@@ -121,14 +122,14 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 | `PilotEvent` 四型 | `src/core/events` | — | `stream`（LLM 流式）/ `letter`（信箱来信含 access_request）/ `status`（状态机迁移）/ `notice`（系统公告） |
 | `Logger`/`LogSink` + `LogEvent` 判别联合 | `src/core/logging` | 全程 | 无总线日志：注入出口即可落盘/落控制台；关键 kind：`kernel.instance.interrupted`、`kernel.class.registered/updated`、`kernel.model.set`、`gateway.apiRequest`（真实 usage/cost）、`tool.call`、`init.tool/agent.registered` |
 | `setRecordSink` 工具记录 | registry → 邮局 | 每次工具调用 | `ToolRecord{invocation,status,result|error}`——tool 消息入库的正规通道 |
-| `telemetry_query` 工具 | 模型面 | — | 运行日志查询（internal 缺省 ignore、user0 allow；可见域 = 自身+后代） |
+| `telemetry_query` 工具 | 模型面 | — | 运行日志查询（出生 ignore、根清单实值 allow；可见域 = 自身+后代） |
 | dashboard | `shell/dashboard` | 离线/旁路 | DB 直读 + 标本装配（观测不侵入运行进程） |
 
 ### I. 平台端口清单（全部可换实现 = 宿主自由度）
 
 | 端口 | 默认实现 | 换它的理由示例 |
 |---|---|---|
-| `MessageStore` / `InstanceStore` | `shell/cli/storage`（node:sqlite，v2） | 换 Postgres/文件；**契约是同步接口**（对齐 DatabaseSync 与内存读） |
+| `MessageStore` / `InstanceStore` | `shell/cli/storage`（node:sqlite，schema v3：版本不符 = 拒载硬错零兼容，删 .stem/stem.db 重建） | 换 Postgres/文件；**契约是同步接口**（对齐 DatabaseSync 与内存读） |
 | `ConfigStore` | `createNodeConfigStore`（JSONC） | 配置中心/加密存储 |
 | `InitFs` / `InitToolLoader` | `createNodeInitFs` / tsx import | 只读空间、远程装载 |
 | `ClassFs` | `createNodeClassFs` | 类库走 git/API |
@@ -143,7 +144,7 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 | 点位 | 位置 | 语义与边界 |
 |---|---|---|
 | **新 shell = 三件事** | 参考 cli/webui/dashboard | `bootStem()` 装配 + pilot 驱动 + `dispose()` 收尾；平台端口缺省全给好 |
-| `Pilot` 全接口 | `src/core/pilot` | subscribe/sendMessage/instantiate(model 可选)/setModel/terminate/interrupt/replyAccess/runContextAction/listAgents/inspect/activeAgents/contextOverview/exportContext；`identity` 现为 user0（未来 `as(agentId)` 扮演任意 agent 的空位） |
+| `Pilot` 全接口 | `src/core/pilot` | subscribe/sendMessage/instantiate(model/name 可选)/setModel/terminate/interrupt/replyAccess/runContextAction/listAgents/inspect/activeAgents/contextOverview/exportContext；`identity` 现为根 `0`（未来 `as(agentId)` 扮演任意 agent 的空位） |
 | `runContextAction(agentId, action, args)` | Pilot → 策略 `actions` | 策略动作的 UI 透传口（compact 等；actions 面即功能面） |
 | `view.js` 纯函数核心 | `shell/webui/view.js` | 汉字三态字形/routeLetters/computeTreeRows/deriveActions——**零 DOM 双端共用**（webui+dashboard+node 直测），前端语义扩展落这里 |
 | HTTP/SSE API 面 | api.md §5 | webui=交互面（4321），dashboard=法医面（4421），并列零耦合 |
@@ -174,7 +175,7 @@ export default {
 }
 ```
 
-要点：kind 由管线强制 `custom`，**出生 = 点名权限词**（文件里写什么 birth 都会被 config 覆盖）；必须先在 `config.extensions.tools` 加 `"greet": "allow"` 才进世界，且 `config.user.tools` 列键才对 user0 可见；需要空间根/参与初始化 → `init(ctx)`（§2-C）。平铺单文件 `.stem/tools/greet.ts` 与目录形态均可（同名目录优先）。
+要点：kind 由管线强制 `custom`，**出生 = 点名权限词**（文件里写什么 birth 都会被 config 覆盖）；必须先在 `config.extensions.tools` 加 `"greet": "allow"` 才进世界，且 `config.user.tools` 列键才对根可见；需要空间根/参与初始化 → `init(ctx)`（§2-C）。平铺单文件 `.stem/tools/greet.ts` 与目录形态均可（同名目录优先）。
 
 ### 3.2 extension 工具（发布物形态）
 
@@ -234,7 +235,7 @@ R12 全量有效：**未知顶层键 fail-fast**，`custom` 唯一自由位（§
 | 键 | 语义 |
 |---|---|
 | `providers.<名>` | `{ base_url 必填 http(s), key_env? 环境变量名, models? 白名单 }`；模型引用一律 `提供商/模型` 全严格式 |
-| `user` | user0 内嵌类全对象；**`user.model` 必填 = 家学锚点**；`tools` = 根收敛清单（缺省 = 完整继承出生表；误删 `access_reply` = boot 校验律直接拒启——不再是静默死锁；误删 `agent_update` = 实例参数面锁死，ask 档） |
+| `user` | 根（user#0）的类配置全对象（含 `name` 出生称呼，缺省 'user'）；**`user.model` 必填 = 家学锚点**；`tools` = 根收敛清单（缺省 = 完整继承出生表；误删 `access_reply` = boot 校验律直接拒启——不再是静默死锁；误删 `agent_update` = 实例参数面锁死，ask 档） |
 | `extensions` | `{ tools?: {名:权限词}, agent?: [], context?: [] }` 分键点名（§2-B；tools 数组形态 = 拒启指路） |
 | `context` | `{ window, compact: {enabled/threshold/keepRecentTurns/summarizeModel/instruction/replyTimeoutMs} }` |
 | `bash` | `{ path?, defaultTimeoutMs?, maxOutputChars?, cwd? }` |

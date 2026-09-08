@@ -4,7 +4,7 @@
 > 干细胞之意：如同原始 Agent 类，可分化出任意角色与能力。
 > 抛弃会话概念：以**原子化 Agent 类 + Agent 实例**为核心，配合**族谱树**与模块化 harness 系统，构建可自我进化的多智能体集群。
 
-**状态**：架构定稿，实现阶段（核心骨架 + 个体层持久化 + 上下文策略框架 classic/cortex + 族谱权限台账 + user0 配置对象化 + bash 最小操作面 + extensions tool_set，338 单测全绿）。
+**状态**：架构定稿，发布前收敛（核心骨架 + 个体层持久化（schema v3）+ 上下文策略框架 classic/cortex + 族谱权限台账与出生声明 + 根配置对象化 + 身份代数（路径 id + 全局 name + 带时戳信件）+ bash 最小操作面 + extensions 点名装载，386 单测全绿）。
 **日期**：2026-08
 
 ---
@@ -14,7 +14,7 @@
 - **用户主权的 Agent 系统**：
   - 一切 Agent 来自 **AgentClass（模板）**，用户自由创建/修改/删除/实例化，**绝不固定任何角色**。
   - 简单对话 = 简单类 + 空上下文实例；复杂任务 = 调度器类再创建子实例并传递上下文。
-  - **族谱树**：所有 agent 一律平等（同地位独立个体），唯一区别是 `parentId`——user0（`user` 类实例）是原点、根（`parentId=null`）；父可销毁/中断子（`agent_terminate`/`agent_interrupt` + 祖先校验）。
+  - **族谱树**：所有 agent 一律平等（同地位独立个体），唯一区别是 `parentId`——根（`user` 类实例，全名 `user#0`，出生路径 id `0`）是原点（`parentId=null`）；父可销毁/中断子（`agent_terminate` 等 + 祖先校验）。
   - **工具访问四态**：allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`AccessLedger` 注册期物化）——**键即白名单**（未列 = 本地 deny），祖先显式 deny/ask 锁子孙（不可撤销），session 批准仅为 ask 免询问备忘。
   - **元能力工具**（`agent_class_create` / `agent_inspect` / `agent_ancestry` / `agent_descendants` …）让 AI 自己管理 Agent 信息，实现自我进化（特修斯之船）。
   - **消息库 tag + 双索引**：为上下文管理策略（压缩/印象/记忆）提供定位，引导从经典组装走向自聚焦/记忆分层。
@@ -32,7 +32,7 @@
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                     │
 │   init/（createStemSystem 组合根）· kernel/（Kernel/Runtime/builtin/agents │
-│   pilot/（user0 扮演接口）· events/（PilotEvent + EventHub）          │
+│   pilot/（根 user#0 扮演接口）· events/（PilotEvent + EventHub）      │
 │   lineage/（族谱纯关系视图）· context/（邮局 + legalize + 持久化端口）│
 │   tools/（注册表 + access + accessRequest + bash + SkillRegistry）    │
 ├───────────────────────────────────────────────────────────────────────┤
@@ -50,9 +50,9 @@
 | 概念 | 说明 |
 |---|---|
 | **AgentClass（模板）** | 角色设定：name（即 id）/ description / systemPrompt / **tools**（四态 Record，键即白名单）/ contextStrategy / model / sendCountdown / panel / custom——全量参数速查见下表。用户主权载体。 |
-| **AgentInstance** | 运行时原子单位：classRef / **parentId**（=创建者，族谱）/ displayName / status / turnCount / totalCost。 |
+| **AgentInstance** | 运行时原子单位：**id**（出生路径，系统全托管：根 `0`，子 `<父id>-<序号>`，永不复用）/ classRef / **parentId**（=创建者，族谱）/ **name**（全局唯一称呼，呈现 `name#id`）/ status / turnCount / totalCost。 |
 | **族谱树 LineageTree** | 无状态关系视图：parentId 挂实例上，实时推导 children/ancestors/descendants；销毁权判定。 |
-| **user0** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.user` = 其内嵌 agent 类完整对象（人格/权限/模型声明式可配 + `displayName` 出生名，S9）。 |
+| **根（user#0）** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.user` = 其类配置完整对象（人格/权限/模型声明式可配 + `name` 出生称呼，缺省 'user'）。 |
 | **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`lineage/AccessLedger` 注册期物化：继承→收敛，键即白名单；grant 加法为系统特权），tools 经 `AccessResolver` 端口查询。 |
 | **邮局** | 无集中式总线：仓库（存储）→ 管理员（打戳/策略处理/组装 + legalize）→ 快递员（倒计时+发送，只发不组装）。个体层经 MessageStore/InstanceStore 端口 write-through 落 SQLite（宿主注入），缺省纯内存。 |
 | **上下文策略** | `context/strategies/` 独立子模块（契约：note/role/assemble/process/actions/init；process 触发=user_prompt 抵达、终点=就绪唤醒快递员）。classic = 全量直出 + compact（markInvalid 归档可逆）；cortex = 三层外挂记忆（LTM/笔记/STM）+ 阈值做梦二段事务（记忆组轮替、`.stem/mem/` 单向镜像）；`.stem/context/*.ts` 可加载用户策略（自我进化承载之一）。 |
@@ -77,9 +77,9 @@
 | `custom` | – | 自由槽（`.stem/agent` 未知字段全透传于此；策略基因如 `custom.cortex={dreamAt?,consolidateModel?}` 住这里） | 策略经 `StrategyApi.custom` 消费 |
 | `maxSteps` | – | 单轮工具步数上限（S9 引入）；**≤0/未设 = 无限制**（长程工作默认放开）；解析 = 类基因 > 全局 config.maxSteps > 无限。资源上限而非权限，不进族谱律不继承不封顶 | Runtime 轮循环 |
 
-**实例侧参数**（不在类上；运行期唯一写面 `agent_update`，缺省目标=自身，canReach）：`displayName`（显示名；user0 出生名 = `config.user.displayName`，S9 补）/ `model` 显式行（四级律顶层）/ `tools` 收敛 patch / `grantTools` 清单整表（逐键祖先封顶）。
+**实例侧参数**（不在类上；运行期唯一写面 `agent_update`，缺省目标=自身，canReach）：`name`（全局唯一称呼，撞名拒；根的出生名 = `config.user.name`）/ `model` 显式行（四级律顶层）/ `tools` 收敛 patch / `grantTools` 清单整表（逐键祖先封顶）。
 
-**user0 特判清单**（全部是接线事实非类特权）：`parentId=null`（根）、`assemble:false`（面板性=pilot 扮演）、家学锚点（`config.user.model` 必填）、`agent_id=USER_ID` 固定；类本体 = 内置类表普通条目（S9 起 `userClass.ts` 退役并入 `kernel/builtin/agents.ts` 统一形态）。
+**根的全部特殊性**（皆为接线/结构事实非类特权）：`parentId=null`、出生路径 id 恒 `0`、`assemble:false`（面板性=pilot 扮演）、家学锚点（`config.user.model` 必填）；类本体 = 内置类表普通条目（`kernel/builtin/agents.ts` 统一形态）。
 
 ## 工具清单
 
@@ -87,7 +87,7 @@
 
 ### ① core 系统工具（`kind=internal`，20 个，`src/core/kernel/systemTools.ts`）
 
-系统自我管理与邮局机制的模型侧能力面；"user0 默认"列 = 首启模板的 `user.tools` 推荐实值（config 是唯一清单源，代码零缺省表；boot 校验律审判 access_reply=allow 缺位拒启）。
+系统自我管理与邮局机制的模型侧能力面；"根清单（模板实值）"列 = 首启模板的 `user.tools` 推荐实值（config 是唯一清单源，代码零缺省表；boot 校验律审判 access_reply=allow 缺位拒启）。
 
 | 分组 | 工具 | 说明 | 根清单（模板实值） |
 |---|---|---|---|

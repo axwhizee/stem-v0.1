@@ -28,7 +28,7 @@
 补丁式更新是本项目文档的头号病灶——只写增量、不清旧账，过时内容沉底不被审视：
 
 - `docs/code-style.md`（已于本卷合并后退役删除）：正文停留在 VSCode 时代愿景——`ContextAssetPool/KVStore/MessageBus/adapters/extension.ts` 组合根、`oc_*` 工具前缀、`normal/advanced/admin` 权限三级、`'idle'|'running'|'waiting'` 状态机。这些概念**全部已被废除**，直到有人拿它当契约才会中毒。
-- AGENTS.md 曾长期表述「panel……如 user0」——暗示 user0 的类携带 `panel: true` 字段；实况是 **user0 的面板性来自根接线**（`Kernel` 对 `parentId=null` 的 `assemble:false`），`panel` 字段是策略 role 的泛化形态。一字之差会让人去 userClass.ts 找不存在的字段。
+- AGENTS.md 曾长期表述「panel……如 user0」——暗示根的类携带 `panel: true` 字段；实况是 **根（user#0）的面板性来自根接线**（`Kernel` 对 `parentId=null` 的 `assemble:false`），`panel` 字段是策略 role 的泛化形态。一字之差会让人去 userClass.ts 找不存在的字段。
 - `shell/cli/main.ts` 头注释残留「bus.send → 邮局 → 自动寄信」旧叙事（bus 早已工具化为 `bus_*` 系统工具）。
 
 **判定标准：一段文字如果描述的是已经不存在的机制，它就是死文字。死文字零容忍——删掉或重写成活的事实，二者必居其一。**

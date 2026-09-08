@@ -1,6 +1,6 @@
 # stem 接口清单（api.md · v1.0 冻结基线）
 
-> 与代码同批冻结（2026-09-02，v1.0 全量验收通过后定稿；验收方案卷已落地退役，记录见 docs/log1.md）。
+> 与代码同批冻结（2026-09-02 定稿 v1.0；2026-09-08 身份模型换代后全表重对拍——路径 id/全局 name/信件戳 v2→v3，漂移检查脚本见 §6，记录见 docs/log2.md）。
 > 机械事实来源：各模块 `index.ts` 出口 × 声明定位（脚本核对，219 符号）；
 > 手工层：高价值端口语义注释、宿主注入面、HTTP API 表。
 > **跨层引用铁律**：外部消费任何模块只 import 其 `index.ts`；本清单只收录公开面。
@@ -27,7 +27,7 @@
 | `normalizeConfig` | `export function normalizeConfig(raw: Record<string, unknown>): StemConfig {` | `src/core/config/parse.ts` |
 | `parseConfigText` | `export function parseConfigText(text: string, file?: string): StemConfig {` | `src/core/config/parse.ts` |
 
-### 1.2 `context/` — 重建邮局（仓库/管理员/快递员/策略/持久端口）（47 项）
+### 1.2 `context/` — 重建邮局（仓库/管理员/快递员/策略/持久端口）（53 项）
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
@@ -77,6 +77,8 @@
 | `estimateTokens` | `export function estimateTokens(message: ChatMessage): number {` | `src/core/context/Repository.ts` |
 | `legalize` | `export function legalize(messages: readonly ChatMessage[]): ChatMessage[] {` | `src/core/context/legalize.ts` |
 | `messageSeqOf` | `export function messageSeqOf(id: string): number {` | `src/core/context/store.ts` |
+| `stampSender` / `formatStampAt` / `hasSenderStamp` / `SENDER_PREFIX` | 信件戳代数（B4：`<sender id="name#id" at="yymmdd.hhmm">`，打戳与格式断言唯一收口） | `src/core/context/stamp.ts` |
+| `StrategyInitFs` / `StrategyLogEvent` | 策略 init 文件端口与日志事件形状 | `src/core/context/strategies/types.ts` |
 
 ### 1.3 `events/` — 事件中心（PilotEvent/EventHub）（3 项）
 
@@ -114,14 +116,13 @@
 | `isGatewayError` | `export function isGatewayError(value: unknown): value is GatewayError {` | `src/core/gateway/types.ts` |
 | `textEvents` | `export function textEvents(text: string, usage?: { inputTokens?: number; outputTokens?: number }): LLMEvent[] {` | `src/core/gateway/FakeGateway.ts` |
 
-### 1.5 `init/` — 初始化与装配（组合根/矩阵管线/类文件双向）（24 项）
+### 1.5 `init/` — 初始化与装配（组合根/矩阵管线/类文件双向）（23 项）
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
 | `AGENT_KNOWN_KEYS` | `export const AGENT_KNOWN_KEYS: ReadonlySet<string> = new Set([` | `src/core/init/agentSerialize.ts` |
 | `AgentFrontmatter` | `export interface AgentFrontmatter {` | `src/core/init/agentParse.ts` |
 | `ClassFs` — 类回写端口（ensureDir/writeText，进化书写面） | `export interface ClassFs {` | `src/core/init/types.ts` |
-| `DEFAULT_EXTENSION_TOOLS` | `export const DEFAULT_EXTENSION_TOOLS: readonly string[] = ['read', 'write', 'edit', 'grep', 'glob']` | `src/core/init/init.ts` |
 | `DiscoveredEntry` | `export interface DiscoveredEntry {` | `src/core/init/types.ts` |
 | `InitDeps` | `export interface InitDeps {` | `src/core/init/types.ts` |
 | `InitError` | `export type InitError =` | `src/core/init/types.ts` |
@@ -150,12 +151,11 @@
 | `AgentClass` — 类模板（name 即 id；tools Record 键即白名单；panel/custom） | `export interface AgentClass {` | `src/core/kernel/types.ts` |
 | `AgentClassID` | `export type AgentClassID = string & { readonly [agentClassId]: 'AgentClassID' }` | `src/core/kernel/types.ts` |
 | `AgentID` | `export type AgentID = string & { readonly [agentId]: 'AgentID' }` | `src/core/kernel/types.ts` |
-| `AgentInstance` — 实例行（parentId 即族谱父；model/modelSnapshot 随行 JSON 持久） | `export interface AgentInstance {` | `src/core/kernel/types.ts` |
-| `AgentInstancePatch` | `export interface AgentInstancePatch {`（displayName/toolOverride/model 三项可选——实例运行期唯一可写面） | `src/core/kernel/types.ts` |
-| `AgentUpdateSpec` | `export interface AgentUpdateSpec {`（kernel.updateAgent 入参；toolsPatch/toolsGrant 互斥） | `src/core/kernel/Kernel.ts` |
+| `AgentInstance` — 实例行（id = 出生路径系统托管；name 全局称呼；parentId 即族谱父；model/modelSnapshot 随行 JSON 持久） | `export interface AgentInstance {` | `src/core/kernel/types.ts` |
+| `AgentInstancePatch` | `export interface AgentInstancePatch {`（name/toolOverride/model 三项可选——实例运行期唯一可写面） | `src/core/kernel/types.ts` |
 | `AgentSpace` | `export interface AgentSpace {` | `src/core/kernel/types.ts` |
 | `AgentSpaceID` | `export type AgentSpaceID = string & { readonly [agentSpaceId]: 'AgentSpaceID' }` | `src/core/kernel/types.ts` |
-| `AgentStatus` | `export type AgentStatus = 'idle' \| 'thinking' \| 'holding' \| 'interrupted'` | `src/core/kernel/types.ts` |
+| `AgentStatus` | `export type AgentStatus =`（idle/thinking/holding/interrupted/**terminated**——terminated = 归档墓碑，只在持久层在场） | `src/core/kernel/types.ts` |
 | `BUILTIN_TEMPLATES` | `export const BUILTIN_TEMPLATES: readonly AgentClass[] = [` | `src/core/kernel/Kernel.ts` |
 | `ClassStore` | `export interface ClassStore {` | `src/core/kernel/Kernel.ts` |
 | `DefaultInstanceManager` | `export class DefaultInstanceManager implements InstanceManager {` | `src/core/kernel/InstanceManager.ts` |
@@ -168,20 +168,21 @@
 | `Kernel` | `export class Kernel {` | `src/core/kernel/Kernel.ts` |
 | `KernelError` | `export type KernelError =` | `src/core/kernel/types.ts` |
 | `KernelOptions` | `export interface KernelOptions {` | `src/core/kernel/Kernel.ts` |
-| `MemoryInstanceStore` | `export class MemoryInstanceStore implements InstanceStore {` | `src/core/kernel/store.ts` |
 | `ModelBinding` | `export interface ModelBinding {` | `src/core/kernel/types.ts` |
 | `ModelOrigin` | `export type ModelOrigin =` | `src/core/kernel/types.ts` |
 | `PersistedInstanceManager` | `export class PersistedInstanceManager implements InstanceManager {` | `src/core/kernel/persisted.ts` |
 | `PersistedSpaceManager` | `export class PersistedSpaceManager implements SpaceManager {` | `src/core/kernel/persisted.ts` |
 | `ProjectRef` | `export type ProjectRef = string` | `src/core/kernel/types.ts` |
 | `Runtime` | `export interface Runtime {` | `src/core/kernel/Runtime.ts` |
-| `RuntimeDeps` | `export interface RuntimeDeps {` | `src/core/kernel/Runtime.ts` |
 | `SpaceManager` | `export interface SpaceManager {` | `src/core/kernel/SpaceManager.ts` |
 | `TemplateRegistry` | `export interface TemplateRegistry {` | `src/core/kernel/TemplateRegistry.ts` |
 | `USER_CLASS_ID` | `export const USER_CLASS_ID = makeAgentClassID('user')` | `src/core/kernel/types.ts` |
-| `USER_ID` | `export const USER_ID = 'user0'` | `src/core/kernel/Kernel.ts` |
+| `ROOT_ID` / `ROOT_NAME` | `export const ROOT_ID = makeAgentID('0')` / `export const ROOT_NAME = 'user'`（根出生路径 id 与缺省称呼，全名 user#0） | `src/core/kernel/types.ts` |
+| `formatFull` | `export function formatFull(name: string, agentId: AgentID \| string): string`（呈现面统一 `name#id`） | `src/core/kernel/types.ts` |
+| `parentIdOf` / `AGENT_ID_PATTERN` | 路径父纯推导（去尾段）/ id 合法形 `/^\d+(-\d+)*$/` | `src/core/kernel/types.ts` |
+| `ResolveResult` | `export type ResolveResult =`（寻址三形态解析结果：found/ambiguous/notFound） | `src/core/kernel/InstanceManager.ts` |
 | `createSystemTools` | `export function createSystemTools(kernel: Kernel): ToolCapability[] {` | `src/core/kernel/systemTools.ts` |
-| `buildUserClass` / `BUILTIN_AGENT_CLASSES` / `DEFAULT_USER_TOOLS` | 内置类唯一定义域（user 默认档 + assistant 白纸） | `src/core/kernel/builtin/agents.ts` |
+| `buildUserClass` / `USER_DEFAULT` / `ASSISTANT` / `BUILTIN_AGENT_CLASSES` / `UserClassConfig` | 内置类唯一定义域（user 默认档 + assistant 白纸；根称呼经 UserClassConfig.name 注入） | `src/core/kernel/builtin/agents.ts` |
 | `makeAgentClassID` | `export function makeAgentClassID(id: string): AgentClassID {` | `src/core/kernel/types.ts` |
 | `makeAgentID` | `export function makeAgentID(id: string): AgentID {` | `src/core/kernel/types.ts` |
 | `makeAgentSpaceID` | `export function makeAgentSpaceID(id: string): AgentSpaceID {` | `src/core/kernel/types.ts` |
@@ -204,7 +205,7 @@
 | `ModelOrigin` | `export type ModelOrigin =` | `src/core/kernel/types.ts` |
 | `NodeConfig` | `export interface NodeConfig {` | `src/core/lineage/LineageTree.ts` |
 
-### 1.8 `logging/` — 结构化日志（LogEvent/Logger/LogSink）（20 项）
+### 1.8 `logging/` — 结构化日志（LogEvent/Logger/LogSink）（22 项）
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
@@ -228,17 +229,19 @@
 | `MailboxDelivered` | `export interface MailboxDelivered {` | `src/core/logging/events.ts` |
 | `ToolInvoked` | `export interface ToolInvoked {` | `src/core/logging/events.ts` |
 | `eventInvolvesAgent` | `export function eventInvolvesAgent(event: LogEvent, agentId: string): boolean {` | `src/core/logging/Logger.ts` |
+| `forget` | `export function forget(promise, site, sink)`（孤儿 promise 安全阀——高价值端口） | `src/core/logging/forget.ts` |
+| `KernelOrphanError` | `export interface KernelOrphanError {`（孤儿 promise 落账事件） | `src/core/logging/events.ts` |
 
-### 1.9 `pilot/` — Pilot（user0 扮演接口）（4 项）
+### 1.9 `pilot/` — Pilot（根 user#0 扮演接口）（4 项）
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
 | `DefaultPilot` | `export class DefaultPilot implements Pilot {` | `src/core/pilot/Pilot.ts` |
-| `Pilot` — user0 扮演接口（sendMessage/instantiate/setModel/replyAccess/runContextAction/subscribe） | `export interface Pilot {` | `src/core/pilot/Pilot.ts` |
+| `Pilot` — 根扮演接口（sendMessage/instantiate(model/name 可选)/setModel/replyAccess/runContextAction/subscribe） | `export interface Pilot {` | `src/core/pilot/Pilot.ts` |
 | `PilotOptions` | `export interface PilotOptions {` | `src/core/pilot/Pilot.ts` |
 | `createPilot` | `export async function createPilot(options: PilotOptions): Promise<Pilot> {` | `src/core/pilot/Pilot.ts` |
 
-### 1.10 `tools/` — 工具体系（注册表/访问四态/ask 消息化/bash）（40 项）
+### 1.10 `tools/` — 工具体系（注册表/访问四态/ask 消息化/bash）（43 项）
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
@@ -284,6 +287,9 @@
 | `accessRank` / `checkToolsConvergence` | 总序数值 + 清单收敛校验（类书写/实例更新共用） | `src/core/tools/access.ts` |
 | `validateArgs` | `export function validateArgs(input: unknown, schema: ToolParametersSchema): string \| undefined {` | `src/core/tools/validate.ts` |
 
+| `foldConvergenceSteps` | `export function foldConvergenceSteps(parentExplicit, caps, steps)`（收敛链单一代数：物化钳制/写入拒绝共用） | `src/core/tools/access.ts` |
+| `checkToolsConvergence` | `export function checkToolsConvergence(`（类书写面纯校验：violation 字符串清单） | `src/core/tools/access.ts` |
+| `ConvergenceLayer` / `ConvergenceViolation` | 层名四元（根/类/策略/实例收敛）与违例形状 | `src/core/tools/access.ts` |
 
 ## 2. 高价值端口速查（开发者最常触碰）
 
@@ -296,7 +302,7 @@
 | `ToolCapability` | 工具统一形状 + `init?(ToolInitContext)` 生命周期；kind 三分类（internal/extension/custom） | registry.register / runInit 矩阵装载 |
 | `ContextStrategyModule` | note/role/assemble/process/actions/init 六面；注册同名覆盖内置；init 先于工具 initAll（registerTool 窄口注策略自带工具） | 策略注册表 / `.stem/context/` / extension 点名 |
 | `LineageTree` | 权限与模型的唯一门面：attach/detach/replay、effectiveAccess、modelOf、nodeConfigOf、canReach（能力面无直改 setter；运行期变更 = kernel.updateAgent 写行后全树 replay，快照层保证改父不动子） | Kernel 内部（tools 经 AccessResolver 查询） |
-| `Pilot` | user0 扮演接口（一切外部驱动经它）：sendMessage/instantiate(model 可选)/setModel/replyAccess/runContextAction/subscribe | 各 shell |
+| `Pilot` | 根扮演接口（一切外部驱动经它）：sendMessage/instantiate(model/name 可选)/setModel/replyAccess/runContextAction/subscribe | 各 shell |
 | `EventHub`/`PilotEvent` | stream/letter/status/notice 判别联合，多订阅者（SSE 直转） | `system.pilot.subscribe` |
 
 ## 3. 装配与矩阵装载（宿主侧）
@@ -307,7 +313,7 @@
 | `runInit(deps: InitDeps): Promise<InitReport>` | `src/core/init` | 三维矩阵统一装载（internal→extension→custom，后层同名覆盖）；DEFAULT_EXTENSION_TOOLS=fs 五件套 |
 | `bootStem(opts: BootOptions): Promise<BootResult>` | `shell/cli/platform` | 参考 shell 装配（网关路由+SQLite+bash+extension 根）；`extensionRoots()` 给出仓库三根 |
 | `buildGateway(config, env)` | `shell/cli/gateway` | providers 注册表 → ModelGateway 路由门面（R1 两段式） |
-| `createSqliteStateStore(file, project)` | `shell/cli/storage` | 两端口 + close（user_version v2 迁移） |
+| `createSqliteStateStore(file)` | `shell/cli/storage` | 两端口 + close（user_version v3：版本不符 = 拒载硬错零兼容） |
 
 ## 4. 文件契约（用户主权面）
 
@@ -332,8 +338,8 @@
 | GET `/api/agents` | 第一视角行集（id/status/turnCount/model+modelOrigin/lastPrompt） |
 | GET `/api/templates` / `/api/models` | 类清单 / 模型候选（providers 白名单展开） |
 | GET `/api/agents/:id/context` | 行级语料（role/tag/tokens/turn/valid——**无 at 字段**） |
-| POST `/api/send` `{agentId,text}` | 扮演 user0 送信 |
-| POST `/api/instantiate` `{className,userPrompt,model?,displayName?}` | 建实例（model=显式层出生） |
+| POST `/api/send` `{agentId,text}` | 扮演根送信（agentId 缺省 = 根） |
+| POST `/api/instantiate` `{className,userPrompt,model?,name?}` | 建实例（model=显式层出生；name=出生称呼） |
 | POST `/api/terminate` `{agentId,recursive?}` / `/api/interrupt` `{agentId}` | 销毁（canReach）/ 当前轮中断 |
 | POST `/api/set_model` `{agentId,model}` | 模型热切换（不级联子女） |
 | POST `/api/access` `{requestId,reply,message?}` | ask 答复（once/always/reject） |
