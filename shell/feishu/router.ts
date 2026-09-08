@@ -5,7 +5,7 @@
 //   1. 身份闸门：owner 白名单之外零服务（权限由族谱树定义，不由聊天渠道定义）；
 //   2. 命令面：/help /tree /status /logs /watch /unwatch /stop 管理命令解析；
 //   3. 路由表：chat_id → 目标 agent（单聊默认接待员，绑定表可覆盖/群聊按绑）；
-//   4. 信箱读 aloud：user0 来信（接待员回复/审批申请）→ 出口消息/审批卡；
+//   4. 信箱读 aloud：根来信（接待员回复/审批申请）→ 出口消息/审批卡；
 //   5. watch 订阅：任意 chat 订阅任意 agent 的 letter/status 事件（节流聚合）；
 //   6. 幂等去重：平台事件有重试，message_id LRU 判重（手册 §8 硬建议）。
 // ============================================================
@@ -26,7 +26,7 @@ export interface InboundMsg {
 
 export type OutAction =
   | { readonly kind: 'reply'; readonly chatId: string; readonly text: string }
-  /** 信件正文投给目标 agent（pilot.sendMessage 自 user0 身份）。 */
+  /** 信件正文投给目标 agent（pilot.sendMessage 自根身份）。 */
   | { readonly kind: 'deliver'; readonly chatId: string; readonly to: string; readonly text: string }
   /** 发送审批交互卡（targets = 主人单聊 + approvalChatIds）。 */
   | { readonly kind: 'approvalCard'; readonly chatIds: readonly string[]; readonly request: AccessRequestView }
@@ -37,6 +37,7 @@ export type OutAction =
 export interface AccessRequestView {
   readonly requestId: string
   readonly accessKey: string
+  /** 申请者全名 `name#id`（B3 呈现面；审批卡直读，回投以 requestId 配对）。 */
   readonly agentId: string
   readonly detail: string
 }
@@ -143,11 +144,11 @@ export const HELP_TEXT = [
   '其余文本 = 交给接待员（或本会话绑定的 agent）处理。',
 ].join('\n')
 
-// —— 信箱读 aloud（user0 来信 → 出口） ——
+// —— 信箱读 aloud（根来信 → 出口） ——
 
 /** 解析根信箱来信里的审批申请（XML 形状 = formatAccessRequest 产物）。 */
 export function parseAccessRequest(text: string): AccessRequestView | undefined {
-  const m = /<access_request\s+id="([^"]+)"\s+accessKey="([^"]+)"\s+agentId="([^"]+)">/.exec(text)
+  const m = /<access_request\s+id="([^"]+)"\s+accessKey="([^"]+)"\s+agent="([^"]+)">/.exec(text)
   if (!m) return undefined
   return {
     requestId: m[1]!,
@@ -158,7 +159,7 @@ export function parseAccessRequest(text: string): AccessRequestView | undefined 
 }
 
 /**
- * user0 新来信 → 出口动作：审批申请发卡（附状态行文本兜底），其余按来信身份分流——
+ * 根（user#0）新来信 → 出口动作：审批申请发卡（附状态行文本兜底），其余按来信身份分流——
  * 接待员（或绑定 agent）回给船长的信 = 读 aloud 给主人；旁支通信不打扰主人，仅走 watch。
  */
 export function routeUserMail(state: RouterState, mail: readonly MailItem[]): OutAction[] {
@@ -175,7 +176,7 @@ export function routeUserMail(state: RouterState, mail: readonly MailItem[]): Ou
     if (item.from === state.secretaryId || isBoundSource(state, item.from)) {
       out.push({ kind: 'reply', chatId: ownerChat, text: item.content })
     }
-    // 其余（如 user0 自身 assistant 回声/旁支）不读 aloud。
+    // 其余（如根自身 assistant 回声/旁支）不读 aloud。
   }
   return out
 }
@@ -233,6 +234,8 @@ export function parseCardAction(value: unknown): CardActionView | undefined {
 // —— 文本渲染（纯函数，输入为 main 投影出的平数据） ——
 
 export interface TreeRow {
+  /** 全局称呼（B2/B3 呈现面 name#id；缺位回落裸 id）。 */
+  readonly name?: string
   readonly id: string
   readonly classRef: string
   readonly parentId: string
@@ -240,7 +243,7 @@ export interface TreeRow {
   readonly turnCount: number
 }
 
-/** /tree 渲染：user0 根起缩进树 + 状态徽标。 */
+/** /tree 渲染：根起缩进树 + 状态徽标（呈现面 name#id）。 */
 export function formatTree(agents: readonly TreeRow[]): string {
   const badge: Record<string, string> = { idle: '🟢', thinking: '🔵', holding: '🟡', interrupted: '⚪' }
   const children = new Map<string, TreeRow[]>()
@@ -248,14 +251,15 @@ export function formatTree(agents: readonly TreeRow[]): string {
     const list = children.get(a.parentId) ?? []
     children.set(a.parentId, [...list, a])
   }
-  const lines: string[] = ['👤 user0 (船长/根)']
+  const root = agents.find((a) => a.parentId === '')
+  const lines: string[] = [`👤 ${root?.name ?? 'user'}#0 (根)`]
   const walk = (parent: string, depth: number): void => {
     for (const a of (children.get(parent) ?? []).slice().sort((x, y) => x.id.localeCompare(y.id))) {
-      lines.push(`${'  '.repeat(depth)}${badge[a.status] ?? '❓'} ${a.id} (${a.classRef}, ${a.status}, ${a.turnCount}轮)`)
+      lines.push(`${'  '.repeat(depth)}${badge[a.status] ?? '❓'} ${a.name ? a.name + '#' : ''}${a.id} (${a.classRef}, ${a.status}, ${a.turnCount}轮)`)
       walk(a.id, depth + 1)
     }
   }
-  walk('user0', 1)
+  walk('0', 1)
   if (lines.length === 1) lines.push('  （旗下暂无实例）')
   return lines.join('\n')
 }

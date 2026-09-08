@@ -8,7 +8,7 @@ import { FakeGateway } from '../gateway'
 import type { ConfigPaths, ConfigStore, StemConfig } from '../config'
 import type { InitFs, InitToolLoader } from './types'
 import { createStemSystem } from './system'
-import { makeAgentClassID, makeAgentID, USER_ID } from '../kernel'
+import { makeAgentClassID, makeAgentID, ROOT_ID } from '../kernel'
 
 /** 家学锚点（S6/R12 boot 硬校验必填：config.user.model = 全链缺省本体）。 */
 const HOME: StemConfig = { user: { model: { provider: 'fake', id: 'home-model' } } }
@@ -55,7 +55,7 @@ function makeDeps(
 }
 
 describe('createStemSystem（系统装配组合根）', () => {
-  test('装配：user0 实例化（user 类）+ 系统工具 + skill 工具 + pilot 身份', async () => {
+  test('装配：根实例化（user 类）+ 系统工具 + skill 工具 + pilot 身份', async () => {
     const d = makeDeps(HOME)
     const system = await createStemSystem({
       config: { store: d.store, paths: d.paths },
@@ -64,22 +64,22 @@ describe('createStemSystem（系统装配组合根）', () => {
       gateway: d.gateway,
       userHooks: [
         async (ctx) => {
-          assert.equal(ctx.pilot.identity, USER_ID)
+          assert.equal(ctx.pilot.identity, ROOT_ID)
         },
       ],
     })
-    // user0 是普通实例（user 类，根）。
-    const user0 = system.kernel.instances.getSync(makeAgentID(USER_ID))
-    assert.ok(user0)
-    assert.equal(user0!.classRef, makeAgentClassID('user'))
-    assert.equal(user0!.parentId, null)
+    // user#0 是普通实例（user 类，根）。
+    const rootInst = system.kernel.instances.getSync(makeAgentID(ROOT_ID))
+    assert.ok(rootInst)
+    assert.equal(rootInst!.classRef, makeAgentClassID('user'))
+    assert.equal(rootInst!.parentId, null)
     // S6/R11：根挂真实项目空间（伪空间行已废除；kernel project = paths.projectRoot）。
     const spaces = await system.kernel.spaces.list()
     assert.equal(spaces.length, 1)
-    assert.equal(spaces[0]?.project, '/proj', 'user0 与后代共享项目空间')
-    assert.equal(user0!.spaceId, spaces[0]?.id)
+    assert.equal(spaces[0]?.project, '/proj', 'user#0 与后代共享项目空间')
+    assert.equal(rootInst!.spaceId, spaces[0]?.id)
     // S6/R6：根绑定即家学层。
-    assert.deepEqual(system.kernel.lineage.modelOf(USER_ID), {
+    assert.deepEqual(system.kernel.lineage.modelOf(ROOT_ID), {
       ref: { provider: 'fake', id: 'home-model' },
       origin: 'home',
     })
@@ -115,7 +115,7 @@ describe('createStemSystem（系统装配组合根）', () => {
     await system.dispose()
   })
 
-  test('config.user 对象全生效：user0 人格/整表权限/面板无策略 note；context 映射 compact 参数', async () => {
+  test('config.user 对象全生效：user#0 人格/整表权限/面板无策略 note；context 映射 compact 参数', async () => {
     const d = makeDeps({
       user: {
         model: { provider: 'fake', id: 'home-model' },
@@ -132,15 +132,15 @@ describe('createStemSystem（系统装配组合根）', () => {
       tools: d.loader,
       gateway: d.gateway,
     })
-    // user0 人格进配置文件（面板态不跑 LLM 但 transcript 真实）。
-    const state = await system.kernel.contextManager.getState(USER_ID)
+    // user#0 人格进配置文件（面板态不跑 LLM 但 transcript 真实）。
+    const state = await system.kernel.contextManager.getState(ROOT_ID)
     const systemLine = String(state.messages.find((m) => m.message.role === 'system')!.message.content)
     assert.match(systemLine, /你是根。/)
     assert.ok(!systemLine.includes('<stem_context>'), '面板绑定 none 策略——不注入 classic note')
     // user.tools 整表替换：声明生效、默认表（含 access_reply）被替换——用户自担根义务配置。
-    assert.equal(system.kernel.lineage.effectiveAccess(USER_ID, 'read'), 'allow')
-    assert.equal(system.kernel.lineage.effectiveAccess(USER_ID, 'agent_terminate'), 'deny')
-    assert.equal(system.kernel.lineage.effectiveAccess(USER_ID, 'agent_instantiate'), 'deny', '未列出 = 白名单封闭')
+    assert.equal(system.kernel.lineage.effectiveAccess(ROOT_ID, 'read'), 'allow')
+    assert.equal(system.kernel.lineage.effectiveAccess(ROOT_ID, 'agent_terminate'), 'deny')
+    assert.equal(system.kernel.lineage.effectiveAccess(ROOT_ID, 'agent_instantiate'), 'deny', '未列出 = 白名单封闭')
     // config.context 已映射（缺省参数兜底不炸；compact 动作可执行）。
     const result = await system.kernel.contextManager.runStrategyAction(
       await system.kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj'),
@@ -170,7 +170,7 @@ describe('createStemSystem（系统装配组合根）', () => {
     )
   })
 
-  test('pilot.sendMessage：user0 发消息 → agent 回复 → letter 事件', async () => {
+  test('pilot.sendMessage：user#0 发消息 → agent 回复 → letter 事件', async () => {
     const d = makeDeps({ ...HOME, sendCountdown: 0 })
     const letters: string[] = []
     const system = await createStemSystem({
@@ -221,7 +221,7 @@ describe('createStemSystem（系统装配组合根）', () => {
       gateway: d.gateway,
     })
     // 模板家学 = opencode-go/deepseek-v4-flash（R2 预设 = 模板数据）。
-    assert.deepEqual(system.kernel.lineage.modelOf(USER_ID), {
+    assert.deepEqual(system.kernel.lineage.modelOf(ROOT_ID), {
       ref: { provider: 'opencode-go', id: 'deepseek-v4-flash' },
       origin: 'home',
     })

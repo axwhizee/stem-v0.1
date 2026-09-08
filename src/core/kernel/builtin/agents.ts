@@ -8,7 +8,7 @@
 // 策略自带类（CLASSIC_ROLE/SUMMARIZER/CORTEX_ROLE/DREAM_WORKER）**不在
 // 此表**——"策略自带人设"（决策 C），生命周期随策略模块；形状已统一。
 //
-// user0 = user 类的普通实例（parentId=null 即根），无任何特判。
+// 根 = user 类的普通实例（id `0`，parentId=null），与全体 agent 平等无特判。
 // 类配置 = config.user 对象（完整可配）。**DEFAULT_USER_TOOLS 代码兜底表已
 // 退役**（出生声明+收敛链模型）：config.user.tools 给出即为根收敛清单（键
 // 即白名单，逐键被注册表出生值封顶——越界 = boot 硬错）；缺省 = 完整继承
@@ -31,8 +31,8 @@ export interface UserClassConfig {
   readonly contextStrategy?: string
   readonly model?: ModelRef
   readonly sendCountdown?: number
-  /** user0 出生显示名（S9；实例参数不上类——缺省 'User'，运行期可经 agent_update 改）。 */
-  readonly displayName?: string
+  /** 根的出生称呼（B2：实例参数不上类——缺省 'user'（全名 user#0），运行期可经 agent_update.name 改）。 */
+  readonly name?: string
 }
 
 /** user 类默认档（config.user 缺位时的全字段值；tools 不设 = 完整继承出生表）。 */

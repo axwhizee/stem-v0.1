@@ -19,7 +19,7 @@ import type { ToolCapabilityRegistry, ToolContext } from '../tools'
 import type { AgentClass, AgentClassID } from './types'
 import type { InstanceManager } from './InstanceManager'
 import type { AgentID, AgentStatus } from './types'
-import { makeAgentID } from './types'
+import { makeAgentID, ROOT_ID } from './types'
 
 export interface RuntimeDeps {
   readonly gateway: ModelGateway
@@ -288,7 +288,7 @@ export class DefaultRuntime implements Runtime {
       // 最终回复：寄给创建者（= 族谱父；发原始文本，发送者戳由管理员打标签时统一生成）。
       const finalText = allText.join('')
       if (finalText !== '') {
-        await this.deps.contextManager.deposit(instance.parentId ?? 'user0', { role: 'user', content: finalText }, instance.id)
+        await this.deps.contextManager.deposit(instance.parentId ?? ROOT_ID, { role: 'user', content: finalText }, instance.id)
       }
     } catch (cause) {
       // 中断/错误发生在当前轮 for-await 内部：roundText 持有中断前已产出的部分文本。

@@ -27,12 +27,14 @@ export const DEFAULT_CONFIG_TEXT = `{
   "providers": {
     "opencode-go": { "base_url": "https://opencode.ai/zen/go/v1", "key_env": "OPENCODE_API_KEY" }
   },
-  // user0 内嵌 agent 类。model = **家学锚点**（必填）：全体 agent 的模型解析链
-  //   显式（实例化/set_model）> 类基因 > 父继承 > 家学（本值）。
+  // 根（user#0）的类配置：name = 出生称呼（缺省 'user'，全名 user#0——名字全局
+  //   唯一，这是你的根在族谱里的称呼）。model = **家学锚点**（必填）：全体 agent
+  //   的模型解析链 显式（实例化/agent_update）> 类基因 > 父继承 > 家学（本值）。
   // tools = 根收敛清单（收敛链第一环：键即白名单，未列一律 deny——缺席 ≠ 否决，
   //   不锁子孙显式申请；逐键被注册表出生值封顶）。下面是写好的推荐值，按你的
   //   主权增删（access_reply 保持 allow，缺位系统拒启——ask 审批闭环的答复义务）。
   "user": {
+    // "name": "user",
     "model": "opencode-go/deepseek-v4-flash",
     "tools": {
       "access_reply": "allow",

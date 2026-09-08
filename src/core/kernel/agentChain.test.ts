@@ -14,8 +14,8 @@ import assert from 'node:assert/strict'
 import { FakeGateway } from '../gateway'
 import type { LLMRequest, LLMEvent } from '../gateway'
 import type { AgentClass } from './types'
-import { makeAgentClassID, makeAgentID } from './types'
-import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
+import { makeAgentClassID, makeAgentID, ROOT_ID } from './types'
+import { BUILTIN_TEMPLATES } from './Kernel'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
@@ -84,7 +84,7 @@ describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
     await kernel.registerSystemTools(tools)
 
     const creatorId = await kernel.instantiateAgent(
-      { className: makeAgentClassID('creator'), parentId: makeAgentID(USER_ID), userPrompt: '请创建一个能读取时间的助手并让它把时间报告给我。' },
+      { className: makeAgentClassID('creator'), parentId: makeAgentID(ROOT_ID), userPrompt: '请创建一个能读取时间的助手并让它把时间报告给我。' },
       '/proj',
     )
 
@@ -131,7 +131,7 @@ describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
     })
     void tools
     const creatorId = await kernel.instantiateAgent(
-      { className: makeAgentClassID('creator'), parentId: makeAgentID(USER_ID), userPrompt: '占位（不经 LLM）' },
+      { className: makeAgentClassID('creator'), parentId: makeAgentID(ROOT_ID), userPrompt: '占位（不经 LLM）' },
       '/proj',
     )
     // 直接走 manager 层（绕过 LLM 编排）验证超时通道本身。
@@ -160,7 +160,7 @@ describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
     })
     await kernel.registerSystemTools(tools)
     const creatorId = await kernel.instantiateAgent(
-      { className: makeAgentClassID('creator'), parentId: makeAgentID(USER_ID), userPrompt: '先挂起等我攒信' },
+      { className: makeAgentClassID('creator'), parentId: makeAgentID(ROOT_ID), userPrompt: '先挂起等我攒信' },
       '/proj',
     )
     // 泵到位：首信投递 → 父轮 → pause 注册 → 到点唤醒（manualTimers 幂等 flush）。

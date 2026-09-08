@@ -20,7 +20,7 @@ async function waitTurn(id: string, min: number, t = 150): Promise<boolean> {
   return false
 }
 async function userLetterText(): Promise<string> {
-  const d = (await (await fetch(B + '/api/agents/user0/context')).json()) as { messages: Array<{ role: string; content?: string }> }
+  const d = (await (await fetch(B + '/api/agents/0/context')).json()) as { messages: Array<{ role: string; content?: string }> }
   return d.messages.map((m) => String(m.content ?? '')).join('\n')
 }
 async function waitForRequest(agent: string, accessKey: string, minCount = 1, t = 90): Promise<string | undefined> {

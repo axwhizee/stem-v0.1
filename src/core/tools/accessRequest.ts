@@ -4,9 +4,9 @@
 // 扁平化设计：ask 审批是**消息交换**，不是系统耦合通道。
 //   - 工具权限评估命中 ask → assert 自动触发「投递申请消息到申请者的
 //     族谱根 agent 信箱」（机制同向模型发消息），并挂起等待回复；
-//   - 根 agent（一般即 user0）经 access_reply 工具批准/拒绝
+//   - 根 agent（一般即根）经 access_reply 工具批准/拒绝
 //     （once/always/reject），bus.reply 解析挂起。
-//   - 无任何 agent 特判：user0 也是普通 agent，其自身 ask 同样发给自己
+//   - 无任何 agent 特判：user#0 也是普通 agent，其自身 ask 同样发给自己
 //     的根（= 自己），由扮演它的 shell 经 pilot 确认。
 //
 // 权限评估（查询反转）：生效访问经注入的 AccessResolver 端口向族谱台账
@@ -133,13 +133,13 @@ export class DefaultAccessAskBus implements AccessAskBus {
         message: `无此待批申请（requestId=${input.requestId}）——可能已被答复或申请者已注销；用 telemetry 查 access.asked 事件核对在场申请`,
       } satisfies AccessError
     }
-    // 授权校验：仅申请者的族谱根可回复（一般即 user0）。
+    // 授权校验：仅申请者的族谱根可回复（一般即根）。
     if (by !== this.getRoot(entry.info.agentId)) {
       throw {
         kind: 'access_reply_not_root',
         accessKey: entry.info.accessKey,
         agentId: entry.info.agentId,
-        message: '答复权专属申请者的族谱根（一般是 user0）——你不是根，请停止重试并等待根的答复（申请者此刻正挂起等待）',
+        message: '答复权专属申请者的族谱根（一般是 user#0）——你不是根，请停止重试并等待根的答复（申请者此刻正挂起等待）',
       } satisfies AccessError
     }
     this.pending.delete(input.requestId)
@@ -198,12 +198,16 @@ export class DefaultAccessAskBus implements AccessAskBus {
   }
 }
 
-/** 格式化访问申请消息（投递到根信箱的 user 消息内容；带请求 id 供 access_reply 答复）。 */
-export function formatAccessRequest(request: AccessRequest): string {
+/**
+ * 格式化访问申请消息（投递到根信箱的 user 消息内容；带请求 id 供 access_reply 答复）。
+ * 呈现面 B3 统一 `name#id`（display 注入；缺省回落裸 id）——审批卡可读、可直接回 address。
+ */
+export function formatAccessRequest(request: AccessRequest, display?: (agentId: string) => string): string {
   const meta = request.metadata ? `（${JSON.stringify(request.metadata)}）` : ''
+  const who = display ? display(request.agentId) : request.agentId
   return (
-    `<access_request id="${request.id}" accessKey="${request.accessKey}" agentId="${request.agentId}">` +
-    `agent ${request.agentId} 申请使用工具「${request.accessKey}」${meta}。` +
+    `<access_request id="${request.id}" accessKey="${request.accessKey}" agent="${who}">` +
+    `agent ${who} 申请使用工具「${request.accessKey}」${meta}。` +
     `请用 access_reply 工具答复（requestId=${request.id}）。</access_request>`
   )
 }

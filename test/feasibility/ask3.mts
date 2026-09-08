@@ -18,7 +18,7 @@ const agents = async () => (await (await fetch(B + '/api/agents')).json()) as Ar
 const turnOf = async (id: string) => agents().then((l) => l.find((a) => a.id === id)?.turnCount ?? -1)
 async function waitTurn(id: string, min: number, t = 120) { const e = Date.now() + t * 1000; while (Date.now() < e) { await sleep(2000); const tn = await turnOf(id); const st = (await agents()).find((a) => a.id === id)?.status; if (tn >= min && st !== 'thinking') return true } return false }
 const userLetters = async () => {
-  const d = (await (await fetch(B + '/api/agents/user0/context')).json()) as { messages: Array<{ role: string; content?: string }> }
+  const d = (await (await fetch(B + '/api/agents/0/context')).json()) as { messages: Array<{ role: string; content?: string }> }
   return d.messages.map((m) => String(m.content ?? '')).filter((c) => c.includes('<access_request')).join('\n')
 }
 const lastRequestId = (letters: string, contains: string): string | undefined => {
@@ -66,7 +66,7 @@ base = await turnOf(id)
 await post('/api/send', { to: id, text: '第三次调用 agent_class_list，直接执行不必等审批。' })
 await waitTurn(id, base + 1)
 const L3 = await userLetters()
-// 按当前实例过滤（user0 信箱跨实例累积——首轮未过滤致假 FAIL 的教训）
+// 按当前实例过滤（根信箱跨实例累积——首轮未过滤致假 FAIL 的教训）
 const total3 = (L3.match(new RegExp(`accessKey="agent_class_list"[^>]*agentId="${id}"`, 'g')) ?? []).length
 ok('R3 always 豁免生效（本实例申请数仍为 2，第三轮零新增）', total3 === 2, `total=${total3}`)
 

@@ -14,7 +14,7 @@ import type { ConfigPaths, ConfigStore, StemConfig } from '../config'
 import { defaultStemConfig } from '../config'
 import type { ClassFs, InitFs, InitToolLoader } from './types'
 import { createStemSystem } from './system'
-import { makeAgentClassID, USER_ID } from '../kernel'
+import { makeAgentClassID, ROOT_ID } from '../kernel'
 import { MemoryInstanceStore } from '../../../test/support/memoryInstanceStore'
 
 /** 共享内存文件表（写侧 classFs + 读侧 InitFs 同一 map = 文件系统替身）。 */
@@ -81,8 +81,8 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
       tools: d.loader,
       gateway,
     })
-    const ctx = { agentId: USER_ID, spaceId: 'space-1' }
-    // user0 默认表 create/update = ask → 走 access_reply 正规授权链（根答复义务 +
+    const ctx = { agentId: ROOT_ID, spaceId: 'space-1' }
+    // 根表 create/update = ask → 走 access_reply 正规授权链（根答复义务 +
     // per-(agent,key) always 备忘各实弹验证一次）：执行挂起 → 从 ask-bus 取
     // 挂起请求 → 答复 → promise 兑现。
     const runApproved = async (toolName: string, input: Record<string, unknown>) => {
@@ -118,8 +118,8 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
     })
     assert.match(updated.text, /已更新类 reviewer/)
     assert.deepEqual(system.kernel.access.listApprovals(), [
-      { agentId: USER_ID, accessKey: 'agent_class_create' },
-      { agentId: USER_ID, accessKey: 'agent_class_update' },
+      { agentId: ROOT_ID, accessKey: 'agent_class_create' },
+      { agentId: ROOT_ID, accessKey: 'agent_class_update' },
     ], 'always 备忘 = per-(agent,key) 豁免询问')
 
     // ---------- 重启：全新系统从同一文件表装载 ----------
@@ -138,7 +138,7 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
     assert.equal(cls!.description, '审查 v1')
     // 进化类即刻可用（实例化携带新基因）。
     const agentId = await revived.kernel.instantiateAgent(
-      { className: makeAgentClassID('reviewer'), parentId: null, userPrompt: 'go' },
+      { className: makeAgentClassID('reviewer'), parentId: ROOT_ID, userPrompt: 'go' },
       '/proj',
     )
     assert.equal(revived.kernel.lineage.effectiveAccess(agentId, 'bash'), 'deny')

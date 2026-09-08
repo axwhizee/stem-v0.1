@@ -33,22 +33,22 @@ export interface StemProviderConfig {
 }
 
 /**
- * user0 内嵌 agent 类完整配置（`config.user`——元 agent 单独处理为对象）。
- * 与 AgentClass 形状同构（name 固定 'user' 不可配，防命名空间入侵）：
- * user0 = user 类的普通实例，其"人格"（工具清单/提示词/倒计时/模型/策略）
- * 全部声明式可配，缺省走内置默认（DEFAULT_USER_* 见 kernel/userClass）。
+ * 根（user#0）的类配置（`config.user`——根实例出生即 user 类的普通实例）。
+ * 与 AgentClass 形状同构（类名固定 'user' 不可配，防命名空间入侵）：
+ * 根之"人格"（工具清单/提示词/倒计时/模型/策略/称呼）全部声明式可配，
+ * 缺省走内置默认（USER_DEFAULT 见 kernel/builtin/agents）。
  */
 export interface StemUserClass {
   readonly description?: string
   readonly systemPrompt?: string
   /**
-   * 工具清单 = 收敛链第一环（键即白名单：未列出的工具对 user0 一律 deny；
+   * 工具清单 = 收敛链第一环（键即白名单：未列出的工具对根一律 deny；
    * 对子孙则只供显式判定——缺席 ≠ 否决，显式 deny = 铁律锁子孙）；逐键被
    * 注册表出生值封顶（越界 = boot 硬错）。缺省 = 完整继承出生表面；
    * 推荐清单实值见首启模板（DEFAULT_CONFIG_TEXT）——模板不是机制。
    */
   readonly tools?: Readonly<Record<string, ToolAccess>>
-  /** 上下文管理策略（user0 面板态默认不消费，pilot 未来 as() 扩展预留）。 */
+  /** 上下文管理策略（根面板态默认不消费，pilot 未来 as() 扩展预留）。 */
   readonly contextStrategy?: string
   /**
    * **家学锚点**（S6/R12 必填，boot 硬校验）：全体 agent 模型解析链
@@ -57,8 +57,8 @@ export interface StemUserClass {
   readonly model?: ModelRef
   /** 送信倒计时毫秒（缺省 0 = 直接获得回复）。 */
   readonly sendCountdown?: number
-  /** user0 出生显示名（S9；缺省 'User'——实例参数不上类，运行期改走 agent_update）。 */
-  readonly displayName?: string
+  /** 根的出生称呼（B2；缺省 'user' → 全名 user#0。实例参数不上类，运行期改名走 agent_update.name）。 */
+  readonly name?: string
 }
 
 /** 上下文策略配置块（`config.context`；classic 的 compact 参数面）。 */
@@ -114,7 +114,7 @@ export interface StemConfig {
   readonly providers?: Readonly<Record<string, StemProviderConfig>>
   /** 是否开启权限自动批准（true 时 ask 直接放行，不弹窗）。 */
   readonly autoApprove?: boolean
-  /** user0 内嵌 agent 类完整配置（元 agent = 族谱根 = 全局权限首层）。 */
+  /** 根的类配置（族谱根 = 收敛链首层）。 */
   readonly user?: StemUserClass
   /** 单轮 LLM 循环最大步数（含工具轮；缺省 5）。 */
   readonly maxSteps?: number

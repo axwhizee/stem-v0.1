@@ -1,8 +1,8 @@
 // ============================================================
-// test/feasibility/v10-live.mts —— v1.0 发布前实测（真模型 qwen3.8-flash）
+// test/feasibility/v10-live.mts —— v1.x 发布前实测在线档（真模型；验收现场 space-v12）
 //
 // 剧本 = docs/v10-test-plan.md（本轮聚焦可行性，场景 4 自进化不追）。
-// 我以 user0（船长面板）第一视角经 pilot 编排：pilot.instantiate /
+// 我以根（user#0 船长面板）第一视角经 pilot 编排：pilot.instantiate /
 // sendMessage 驱动真模型，mailbox 监听 access_request 自动批 once。
 //
 // 每个场景独立进程（防互相拖累），**全局 watchdog 硬超时**（用户要求：
@@ -20,7 +20,7 @@ import { spawnSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'space-v11')
+const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..', 'space-v12')
 const ART = join(ROOT, '.artifacts')
 mkdirSync(ART, { recursive: true })
 
@@ -30,7 +30,7 @@ const scenario = argOf('scenario') ?? '1'
 const phase = argOf('phase') ?? ''
 
 const { bootStem } = await import('../../shell/cli/platform.ts')
-const { makeAgentClassID, USER_ID } = await import('../../src/core/kernel')
+const { makeAgentClassID, ROOT_ID } = await import('../../src/core/kernel')
 const { makeAgentID } = await import('../../src/core/kernel/types')
 const { parseConfigText } = await import('../../src/core/config')
 import type { Pilot } from '../../src/core/pilot'
@@ -131,14 +131,14 @@ async function waitIdle(stage: Stage, capMs = 120_000): Promise<boolean> {
 }
 
 /** 幂等复用/创建（DB 持久 = 断点续跑）。 */
-async function findOrCreate(stage: Stage, className: string, userPrompt: string, displayName?: string): Promise<string> {
+async function findOrCreate(stage: Stage, className: string, userPrompt: string, name?: string): Promise<string> {
   const agents = await stage.sys.pilot.listAgents()
   const hit = agents.find((a) => a.classRef === makeAgentClassID(className) && a.status !== 'terminated')
   if (hit !== undefined) return hit.id
-  return stage.sys.pilot.instantiate({ className: makeAgentClassID(className), userPrompt, ...(displayName !== undefined ? { displayName } : {}) })
+  return stage.sys.pilot.instantiate({ className: makeAgentClassID(className), userPrompt, ...(name !== undefined ? { name } : {}) })
 }
 
-/** 发给 agent 并等回信到达 user0 信箱（回复文本；超时返回 ''）。 */
+/** 发给 agent 并等回信到达 根信箱（回复文本；超时返回 ''）。 */
 /**
  * 发信并等"这一封信的回复"——以目标实例 turnCount 递增 + 全体静默为配对判据
  * （纯信件时间戳会被上一轮迟到回复污染，v1.0 实测抓获的编排竞态）。
@@ -158,8 +158,8 @@ async function ask(stage: Stage, agentId: string, text: string, capMs = 120_000)
       console.log(`  [ask] ${agentId} turn=${String(inst.turnCount)}/${String(t0)} ${inst.status} active=${String(stage.sys.pilot.activeAgents().length)} 审批=${String(stage.approved.length)}`)
     }
     if (inst.turnCount > t0 && stage.sys.pilot.activeAgents().length === 0) {
-      // 本轮闭合：user0 信箱取发信后的最新一封（排除审批信）。
-      const fresh = stage.letters.filter((l) => l.agentId === USER_ID && l.at >= sentAt && !l.text.includes('<access_request'))
+      // 本轮闭合：根信箱取发信后的最新一封（排除审批信）。
+      const fresh = stage.letters.filter((l) => l.agentId === ROOT_ID && l.at >= sentAt && !l.text.includes('<access_request'))
       return fresh.length > 0 ? fresh.at(-1)!.text.replace(/<[^>]+>/g, '') : `(turn+1 但无回信文本，status=${inst.status})`
     }
   }
@@ -179,8 +179,8 @@ function cost(stage: StemSystem | Stage): number {
 async function scenario1(): Promise<void> {
   console.log('\n== 场景 1：常驻助理（双轮 + 真重启 + needle）==')
   let stage = await boot()
-  const uid = await stage.sys.pilot.inspect(USER_ID)
-  ok('S1 user0 displayName 配置链 = 船长', uid.displayName === '船长', uid.displayName)
+  const uid = await stage.sys.pilot.inspect(ROOT_ID)
+  ok('S1 根 name 配置链 = 船长', uid.name === '船长', uid.name)
   const companion = await findOrCreate(stage, 'assistant', '记住这条事实：我每天早上喝气泡水加柠檬。回复"记下了"即可。')
   const r1 = await ask(stage, companion, '我每天早上喝什么？直接简短回答。')
   ok('S1 首轮对话回含 needle（气泡水）', r1.includes('气泡'), r1.slice(0, 120))
@@ -234,7 +234,7 @@ async function scenario3(): Promise<void> {
   ok('S3 两次 wait 的 tool 结果行配对入库', toolRows.length >= 2, String(toolRows.length))
   // 部门墙：organizer 的孙（helper）看不到旁支树。取任意 helper 验证 canReach。
   const helpers = (await stage.sys.pilot.listAgents()).filter((a) => a.classRef === makeAgentClassID('helper'))
-  const root = stage.sys.kernel.lineage.canReach(helpers[0]?.id ?? '', makeAgentID(USER_ID))
+  const root = stage.sys.kernel.lineage.canReach(helpers[0]?.id ?? '', makeAgentID(ROOT_ID))
   ok('S3 墙机制在场（helper 不可达根）', helpers.length >= 2 ? root === false : true, `helpers=${String(helpers.length)}`)
   dumpEvidence('done', { events: eventsDump(stage).filter((e) => String(e.type).startsWith('context.') || String(e.type) === 'kernel.orphan.error' || String(e.type) === 'access.asked'),  organizerReply: r.slice(0, 600), costUsd: cost(stage) })
   await stage.sys.dispose()

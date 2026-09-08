@@ -10,8 +10,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway } from '../gateway'
 import type { LLMRequest, LLMEvent } from '../gateway'
-import { makeAgentClassID, makeAgentID } from './types'
-import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
+import { makeAgentClassID, makeAgentID, ROOT_ID } from './types'
+import { BUILTIN_TEMPLATES } from './Kernel'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
@@ -37,13 +37,13 @@ async function spawnWorker(h: Awaited<ReturnType<typeof createKernelHarness>>, p
   const id = await h.kernel.instantiateAgent(
     {
       className: makeAgentClassID('coder'),
-      parentId: makeAgentID(USER_ID),
+      parentId: makeAgentID(ROOT_ID),
       userPrompt: prompt,
     },
     '/proj',
   )
   // coder 类 tools 表放行 echo_pad。
-  await h.deliveries.next(0) // user0 收信（或超时 null）
+  await h.deliveries.next(0) // user#0 收信（或超时 null）
   h.timers.flushAll()
   await tick()
   h.timers.flushAll()

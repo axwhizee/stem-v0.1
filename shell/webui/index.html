@@ -365,7 +365,7 @@ async function selectAgent(id) {
   const agents = await fetch('/api/agents').then((r) => r.json())
   agentsCache = agents
   const a = agents.find((x) => x.id === id)
-  $('curName').textContent = a ? a.displayName : id
+  $('curName').textContent = a ? a.name : id
   $('curMeta').textContent = a ? `${a.id} · <${a.classRef}> · ${statusGlyph(a.status)} ${a.status}${a.parentId ? ' · 父 ' + a.parentId : ' · 根'}` : '—'
   renderModelRow(a)
   applyActions(a)

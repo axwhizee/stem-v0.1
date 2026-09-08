@@ -1,8 +1,8 @@
 // ============================================================
 // core/kernel/builtin/agents.test.ts —— 内置类表与 user 类装配
 //
-// S9 类形态统一后的唯一定义域：buildUserClass 全字段消费、整表替换
-// 语义、内置表形状（user/assistant）、user0 出生显示名配置链。
+// 类形态统一后的唯一定义域：buildUserClass 全字段消费、整表替换
+// 语义、内置表形状（user/assistant）、根出生称呼配置链。
 // （原 userClass.test.ts 迁入，断言保真。）
 // ============================================================
 
@@ -10,11 +10,11 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../../gateway'
 import { buildUserClass, BUILTIN_AGENT_CLASSES, USER_DEFAULT, ASSISTANT } from './agents'
-import { USER_CLASS_ID, makeAgentID } from '../types'
-import { USER_ID } from '../Kernel'
+import { ROOT_ID, USER_CLASS_ID, makeAgentID } from '../types'
+
 import { createKernelHarness } from '../../../../test/support/kernelHarness'
 
-describe('buildUserClass（user0 内嵌 agent 类配置）', () => {
+describe('buildUserClass（根的类配置）', () => {
   test('缺省档 = 无注入清单（DEFAULT_USER_TOOLS 退役；根义务由 boot 律与模板实值分管）', () => {
     const cls = buildUserClass()
     assert.equal(cls.name, USER_CLASS_ID)
@@ -58,14 +58,14 @@ describe('内置类表（类形态统一的静态面）', () => {
   })
 })
 
-describe('user0 出生显示名（config.user.displayName → 实例行）', () => {
-  test('配置给名 = 根实例 displayName 非缺省；缺省 = User', async () => {
+describe('根出生称呼（config.user.name → 实例行）', () => {
+  test('配置给名 = 根实例 name 非缺省；缺省 = user', async () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
     const named = await createKernelHarness(gateway, {
-      userClass: { displayName: '管家', model: { provider: 'fake', id: 'home-model' } } as never,
+      userClass: { name: '管家', model: { provider: 'fake', id: 'home-model' } } ,
     })
-    assert.equal(named.kernel.instances.getSync(makeAgentID(USER_ID))?.displayName, '管家')
+    assert.equal(named.kernel.instances.getSync(ROOT_ID)?.name, '管家')
     const plain = await createKernelHarness(new FakeGateway(() => textEvents('ok')))
-    assert.equal(plain.kernel.instances.getSync(makeAgentID(USER_ID))?.displayName, 'User')
+    assert.equal(plain.kernel.instances.getSync(ROOT_ID)?.name, 'user')
   })
 })

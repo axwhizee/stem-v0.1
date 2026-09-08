@@ -40,7 +40,7 @@ const corpus = String(JSON.stringify(await get(`/api/agents/${org}/context`)))
 const outsideLeaks = ['ramx', 'skii', 'jn2c', '848r', 'eavj'].filter((x) => corpus.includes(`"${x}`) || corpus.includes(`${x} |`))
 ok('部门墙：telemetry 结果不含旁支实例事件', outsideLeaks.length === 0, JSON.stringify(outsideLeaks))
 ok('可见域含自身与孙辈', corpus.includes(org) && grand.every((g) => corpus.includes(g.id)), 'ids in corpus')
-// 级联裁撤：terminate recursive（user0 经 API）
+// 级联裁撤：terminate recursive（根经 API）
 await post('/api/terminate', { agentId: org, recursive: true })
 await sleep(3000)
 // 实况口径：terminated 实例退出 webui 活跃清单；归档语料的审计面 = dashboard DB 直查。

@@ -1,8 +1,8 @@
 // ============================================================
 // shell/feishu/main.ts —— 飞书 shell 装配入口（与 cli/webui 平级的第三宿主）
 //
-// 扮演模型：user0 是面板不跑 LLM 轮 → 单聊默认对象 = 船长名下的**接待员实例**
-// （内置 assistant 占位类，族谱挂 user0）。飞书消息 = 船长的话（pilot 自 user0
+// 扮演模型：根（user#0）是面板不跑 LLM 轮 → 单聊默认对象 = 船长名下的**接待员实例**
+// （内置 assistant 占位类，族谱挂根）。飞书消息 = 船长的话（pilot 自根
 // 身份投递），接待员回船长的信 = 读 aloud 给主人；审批申请经交互卡三按钮远程
 // 裁决（→ pilot.replyAccess）。一切决策在 router.ts（纯逻辑可测），本文件只做
 // 接线与动作执行。core 零改动。
@@ -12,8 +12,7 @@
 
 import { resolve } from 'node:path'
 import { bootStem } from '../cli/platform'
-import { USER_ID } from '../../src/core/kernel'
-import { makeAgentID } from '../../src/core/kernel/types'
+import { ROOT_ID } from '../../src/core/kernel'
 import type { PilotEvent } from '../../src/core/events'
 import { loadFeishuConfig } from './config'
 import { createFeishuPlatform } from './feishu'
@@ -55,7 +54,7 @@ async function main(): Promise<void> {
   const state = createRouterState(config)
   const cardOfRequest = new Map<string, { messageId: string; request: AccessRequestView }>()
 
-  // —— 接待员：解析或创建（族谱挂 user0，内置 assistant 占位类起步） ——
+  // —— 接待员：解析或创建（族谱挂根，内置 assistant 占位类起步） ——
   state.secretaryId = await resolveSecretary()
   console.log(`[feishu-shell] 接待员=${state.secretaryId}（主人 open_id 白名单 ${config.ownerOpenIds.length} 人）`)
 
@@ -87,9 +86,9 @@ async function main(): Promise<void> {
 
   // —— 出站：内核事件流 ——
   system.pilot.subscribe((ev: PilotEvent) => {
-    if (ev.type === 'letter' && ev.agentId === USER_ID) {
+    if (ev.type === 'letter' && ev.agentId === ROOT_ID) {
       // 根信箱新来信：反查 StoredMessage.from → 读 aloud / 审批分流。
-      const rows = [...system.kernel.repository.list(makeAgentID(USER_ID))].reverse()
+      const rows = [...system.kernel.repository.list(ROOT_ID)].reverse()
       const mails: MailItem[] = ev.letters.map((letter) => {
         const content = String(letter.content)
         return { from: rows.find((r) => String(r.message.content) === content)?.from ?? '', content }
@@ -159,7 +158,7 @@ async function main(): Promise<void> {
     switch (name) {
       case 'tree': {
         const agents = await system.pilot.listAgents()
-        return formatTree(agents.map((a) => ({ id: a.id, classRef: String(a.classRef), parentId: a.parentId ?? '', status: a.status, turnCount: a.turnCount })))
+        return formatTree(agents.map((a) => ({ id: a.id, name: a.name, classRef: String(a.classRef), parentId: a.parentId ?? '', status: a.status, turnCount: a.turnCount })))
       }
       case 'status': {
         const target = args[0] ?? state.secretaryId
@@ -213,7 +212,7 @@ async function main(): Promise<void> {
 
   async function resolveSecretary(): Promise<string> {
     const agents = await system.pilot.listAgents()
-    const found = agents.find((a) => String(a.classRef) === config.secretaryClass && a.parentId === USER_ID)
+    const found = agents.find((a) => String(a.classRef) === config.secretaryClass && a.parentId === ROOT_ID)
     if (found !== undefined) return found.id
     return await system.pilot.instantiate(
       {

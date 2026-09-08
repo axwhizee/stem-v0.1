@@ -29,7 +29,7 @@
 //   - 不承载运行时/时间轴状态（status/turnCount/送信 = Runtime/kernel）；
 //   - 零类层依赖：自身清单（own）与类基因（classModel）由 kernel 算好传入。
 //
-// user0 是族谱根（parentId = null）：getAncestors(user0) = []；
+// 根（user#0，id `0`）是族谱起点（parentId = null）：getAncestors(根) = []；
 // 根无实例/类覆盖时其 classModel（= config.user.model）即**家学层**。
 // ============================================================
 

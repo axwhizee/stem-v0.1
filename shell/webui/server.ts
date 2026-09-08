@@ -71,7 +71,7 @@ async function main(): Promise<void> {
         const agentId = decodeURIComponent(path.slice('/api/agents/'.length, -'/context'.length))
         return sendJson(res, await contextOf(system, agentId))
       }
-      // —— 扮演（user0 action） ——
+      // —— 扮演（根 action） ——
       if (req.method === 'POST') {
         const body = await readBody(req)
         if (path === '/api/send') {
@@ -101,10 +101,10 @@ async function main(): Promise<void> {
           return sendJson(res, { ok: true })
         }
         if (path === '/api/set_model') {
-          // 运行时换模型（S6/R7 扮演通道，pilot.setModel = user0 根授权）。
+          // 运行时换模型（扮演通道，pilot.setModel = 根授权）。
           const model = parseModel(String(body.model ?? ''))
           if (model === undefined) return sendJson(res, { error: 'model 必须是 "提供商/模型" 格式' }, 400)
-          await system.pilot.setModel(String(body.agentId ?? 'user0'), model)
+          await system.pilot.setModel(String(body.agentId ?? '0'), model)
           return sendJson(res, { ok: true })
         }
         if (path === '/api/access') {
@@ -116,9 +116,9 @@ async function main(): Promise<void> {
           return sendJson(res, { ok: true })
         }
         if (path === '/api/context_action') {
-          // 上下文策略专有动作（pilot 通道 = user0 根授权；如 classic compact）。
+          // 上下文策略专有动作（pilot 通道 = 根授权；如 classic compact）。
           const result = await system.pilot.runContextAction(
-            String(body.agentId ?? 'user0'),
+            String(body.agentId ?? '0'),
             String(body.action),
             body.args !== undefined ? String(body.args) : '',
           )
@@ -169,10 +169,10 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
     // S6 批 2：侧栏行摘要 = 最近一条 user 信剥 <sender>（view.js truncate 渲染）。
     const lastUser = [...system.kernel.repository.list(a.id)].reverse().find((m) => m.message.role === 'user')
     const rawContent = typeof lastUser?.message.content === 'string' ? lastUser.message.content : ''
-    const sender = /^<sender id="([^"]+)">/.exec(rawContent)?.[1] ?? ''
+    const sender = /^<sender id="([^"]+)"(?: at="[^"]*")?>/.exec(rawContent)?.[1] ?? ''
     return {
       id: a.id,
-      displayName: a.displayName,
+      name: a.name,
       classRef: a.classRef,
       parentId: a.parentId,
       status: a.status,

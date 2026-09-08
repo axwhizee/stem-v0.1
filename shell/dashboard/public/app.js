@@ -108,7 +108,7 @@ async function renderInventory() {
   const toolsByKind = { internal: [], extension: [], custom: [] }
   for (const t of inv.tools) (toolsByKind[t.kind] ?? toolsByKind.internal).push(t)
   const toolRow = (t) => `<tr><td class="id">${esc(t.id)}</td><td>${esc(t.accessKey)}</td>
-    <td>${t.visibleToUser0 ? '<span class="g-accent">可见</span>' : '<span class="dim">隐藏/deny</span>'}</td><td class="dim">${esc(truncate(t.description, 90))}</td></tr>`
+    <td>${t.visibleToRoot ? '<span class="g-accent">可见</span>' : '<span class="dim">隐藏/deny</span>'}</td><td class="dim">${esc(truncate(t.description, 90))}</td></tr>`
   const classes = inv.classes.map((c) => `<tr><td><span class="badge-l ${c.layer}">${c.layer}</span>${esc(c.name)}${c.panel ? '<span class="tag">panel</span>' : ''}</td>
     <td>${c.model ? esc(c.model) : '<span class="dim">继承</span>'}</td><td class="num">${c.toolKeys}</td><td class="dim">${esc(truncate(c.description, 80))}</td></tr>`).join('')
   const providers = Object.entries(inv.providers ?? {}).map(([name, p]) =>
@@ -116,11 +116,11 @@ async function renderInventory() {
   $('#inv-body').innerHTML = `${issues}
     <div class="bar"><span class="hint">家学锚点 <b class="g-accent">${esc(inv.homeModel ?? '—')}</b> · extensions ${esc(JSON.stringify(inv.extensions ?? '默认'))} · 标本装配于 ${fmtAt(inv.assembledAt)}</span></div>
     <h4><span class="badge-l extension">extension</span>工具（点名启用）</h4>
-    <table><tr><th>id</th><th>访问键</th><th>user0</th><th>说明</th></tr>${toolsByKind.extension.map(toolRow).join('') || '<tr><td colspan=4 class="dim">无</td></tr>'}</table>
+    <table><tr><th>id</th><th>访问键</th><th>根可见</th><th>说明</th></tr>${toolsByKind.extension.map(toolRow).join('') || '<tr><td colspan=4 class="dim">无</td></tr>'}</table>
     <h4><span class="badge-l custom">custom</span>工具（.stem 自动扫描）</h4>
-    <table><tr><th>id</th><th>访问键</th><th>user0</th><th>说明</th></tr>${toolsByKind.custom.map(toolRow).join('') || '<tr><td colspan=4 class="dim">无</td></tr>'}</table>
+    <table><tr><th>id</th><th>访问键</th><th>根可见</th><th>说明</th></tr>${toolsByKind.custom.map(toolRow).join('') || '<tr><td colspan=4 class="dim">无</td></tr>'}</table>
     <h4><span class="badge-l internal">internal</span>系统工具（core 恒在，默认 ignore 隐藏）</h4>
-    <table><tr><th>id</th><th>访问键</th><th>user0</th><th>说明</th></tr>${toolsByKind.internal.map(toolRow).join('')}</table>
+    <table><tr><th>id</th><th>访问键</th><th>根可见</th><th>说明</th></tr>${toolsByKind.internal.map(toolRow).join('')}</table>
     <h4>类模板（族谱基因面）</h4>
     <table><tr><th>类</th><th>基因模型</th><th class="num">tools 键</th><th>说明</th></tr>${classes}</table>
     <h4>上下文策略（记忆机制清单）</h4>

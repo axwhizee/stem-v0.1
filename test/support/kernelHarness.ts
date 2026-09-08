@@ -4,7 +4,7 @@
 // 提供：手动倒计时（同步触发）、用户收信等待队列、标准 kernel 构造。
 // ============================================================
 
-import { Kernel, makeAgentClassID, USER_ID } from '../../src/core/kernel'
+import { Kernel, makeAgentClassID, ROOT_ID } from '../../src/core/kernel'
 import type { UserDelivery } from '../../src/core/context'
 import type { ContextSettings, StrategyRegistry } from '../../src/core/context'
 import { defaultStemConfig } from '../../src/core/config'
@@ -73,7 +73,7 @@ export async function createKernelHarness(
   opts: {
     countdownMs?: number
     templates?: ConstructorParameters<typeof Kernel>[0]['templates']
-    /** user0 内嵌类配置（根收敛清单 = 族谱权限链第一环；缺省 = 首启模板实值
+    /** 根的类配置（根收敛清单 = 族谱权限链第一环；缺省 = 首启模板实值
      *  defaultStemConfig().user.tools——DEFAULT_USER_TOOLS 已退役，模板是唯一推荐值源）。 */
     userClass?: ConstructorParameters<typeof Kernel>[0]['userClass']
     /** 上下文策略配置（compact 阈值等；缺省 DEFAULT_CONTEXT_SETTINGS）。 */
@@ -116,4 +116,4 @@ export function assistantId() {
   return makeAgentClassID('assistant')
 }
 
-export { USER_ID }
+export { ROOT_ID }

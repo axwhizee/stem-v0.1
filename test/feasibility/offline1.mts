@@ -106,29 +106,29 @@ try {
   // ---------- S1 装配与权限物化 ----------
   console.log('S1 装配（bootStem 全链）')
   const agents0 = await sys.pilot.listAgents()
-  ok('user0 存在且为根', agents0.some((a) => a.id === 'user0' && a.parentId === null), JSON.stringify(agents0.map((a) => [a.id, a.parentId])))
+  ok('根（user#0）存在且为根', agents0.some((a) => a.id === '0' && a.parentId === null && a.name === 'user'), JSON.stringify(agents0.map((a) => [a.id, a.parentId])))
   const toolsAll = await sys.tools.list()
   ok('internal 工具在场（bash/access_reply）', toolsAll.some((t) => t.id === 'bash') && toolsAll.some((t) => t.id === 'access_reply'))
   ok('extension 纯关（extensions.tools={} 不点名）', !toolsAll.some((t) => t.id === 'read'))
-  const mat = sys.tools.materialize('user0').map((d) => { const x = d as { name: string }; return x.name })
-  ok('族谱物化 user0 能力面', mat.includes('access_reply') && mat.includes('agent_class_create') && mat.includes('agent_update'), JSON.stringify(mat))
+  const mat = sys.tools.materialize('0').map((d) => { const x = d as { name: string }; return x.name })
+  ok('族谱物化根能力面', mat.includes('access_reply') && mat.includes('agent_class_create') && mat.includes('agent_update'), JSON.stringify(mat))
 
   // ---------- S2 端到端消息（pilot→子实例 → LLM 轮 → 回信信箱） ----------
-  console.log('S2 端到端（user0 面板模型：发信给实例，实例跑轮，回信归位）')
+  console.log('S2 端到端（根面板模型：发信给实例，实例跑轮，回信归位）')
   const reqsBefore = mock.requests.length
-  await sys.pilot.sendMessage('user0', 'PANEL-NO-TURN')
+  await sys.pilot.sendMessage('0', 'PANEL-NO-TURN')
   await sleep(600)
-  ok('user0 面板态：自消息不触发 LLM 轮（信件只落信箱）', mock.requests.length === reqsBefore)
-  const coderId = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: 'HI coder', agentId: 'coder-1' }, dir)
+  ok('根面板态：自消息不触发 LLM 轮（信件只落信箱）', mock.requests.length === reqsBefore)
+  const coderId = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: 'HI coder', name: 'coder-1' }, dir)
   await waitIdle('S2')
   ok('LLM 轮真实发生（mock 收到请求）', mock.requests.length >= 1, JSON.stringify(mock.requests.map((r) => r.body?.model)))
   const corpus2 = await sys.pilot.exportContext(coderId)
   ok('coder 回载入库（user 信 + assistant 回）', corpus2.includes('HI coder') && corpus2.includes('MOCK-DONE'), corpus2.slice(0, 200))
   ok('assistant 行真实 output token（usage 直记 15）', /"tokens":\s*15/.test(corpus2), corpus2.slice(-300))
-  ok('回信自动投递 user0 信箱（letter 事件）', letters.some((l) => l.agentId === 'user0' && l.text.includes('MOCK-DONE')), JSON.stringify(letters.slice(-2)))
+  ok('回信自动投递根信箱（letter 事件）', letters.some((l) => l.agentId === '0' && l.text.includes('MOCK-DONE')), JSON.stringify(letters.slice(-2)))
   ok('status 事件流有迁移', statuses.length > 0)
   const inst2 = await sys.pilot.inspect(coderId)
-  ok('coder 出生（parentId=user0）', inst2.parentId === makeAgentID('user0'), JSON.stringify(inst2.parentId))
+  ok('coder 出生（parentId=根 0）', inst2.parentId === makeAgentID('0'), JSON.stringify(inst2.parentId))
 
   // ---------- S3 ask 审批（消息化）+ 进化书写 + bash 对外操作面 ----------
   console.log('S3 子实例跑轮：ask→根信箱→答复→落盘；bash allow 执行')
@@ -136,41 +136,41 @@ try {
     name: makeAgentClassID('writer'), description: '书写试验类', systemPrompt: 'You write.',
     tools: { agent_class_create: 'ask', bash: 'allow' },
   })
-  const writerId = await sys.pilot.instantiate({ className: makeAgentClassID('writer'), userPrompt: 'WRITE_CLASS 创建一个 reviewer 类', agentId: 'writer-1' }, dir)
+  const writerId = await sys.pilot.instantiate({ className: makeAgentClassID('writer'), userPrompt: 'WRITE_CLASS 创建一个 reviewer 类', name: 'writer-1' }, dir)
   const reqId = await waitLetter('<access_request')
   ok('access_request 投递根信箱（ask 消息化，含 accessKey）',
-     letters.some((l) => l.agentId === 'user0' && l.text.includes('accessKey="agent_class_create"')), JSON.stringify(letters.slice(-3)))
+     letters.some((l) => l.agentId === '0' && l.text.includes('accessKey="agent_class_create"')), JSON.stringify(letters.slice(-3)))
   await sys.pilot.replyAccess({ requestId: reqId, reply: 'once' })
   await waitIdle('S3-post-approval')
   ok('审批通过后类文件落盘 .stem/agent/reviewer.md', existsSync(join(dir, '.stem', 'agent', 'reviewer.md')))
   ok('reviewer 类注册进模板表', (await sys.kernel.templates.list()).some((c) => c.name === makeAgentClassID('reviewer')))
   // bash allow 直执行（无 ask）：结果作为 tool 行回载语料
-  await sys.kernel.sendMessage('user0', writerId, 'USE_BASH 执行 echo')
+  await sys.kernel.sendMessage('0', writerId, 'USE_BASH 执行 echo')
   await waitIdle('S3-bash')
   ok('bash allow 执行且结果入库（对外操作面）', (await sys.pilot.exportContext(writerId)).includes('feasibility-bash-ok'))
 
   // ---------- S4 agent 间通信 ----------
   console.log('S4 agent 间消息驱动新轮')
-  await sys.kernel.sendMessage('user0', coderId, 'INTER-MESSAGE-2')
+  await sys.kernel.sendMessage('0', coderId, 'INTER-MESSAGE-2')
   await waitIdle('S4-cross')
   ok('跨 agent 消息驱动 coder 新轮', (await sys.pilot.exportContext(coderId)).includes('INTER-MESSAGE-2'))
 
   // ---------- S5 模型四级律 ----------
   console.log('S5 模型解析（显式>类基因>父继承>家学 + 快照 + 不级联）')
-  await sys.pilot.instantiate({ className: makeAgentClassID('reviewer'), userPrompt: 'hi', agentId: 'gene-1' }, dir)
-  const geneModel = sys.kernel.lineage.modelOf('gene-1')
+  await sys.pilot.instantiate({ className: makeAgentClassID('reviewer'), userPrompt: 'hi', name: 'gene-1' }, dir)
+  const geneModel = sys.kernel.lineage.modelOf(sys.kernel.resolveAgent('gene-1'))
   ok('类基因 origin=class', geneModel?.origin === 'class' && geneModel.ref.id === 'genomic', JSON.stringify(geneModel))
-  const expId = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: 'hi', agentId: 'exp-1', model: { provider: 'mock', id: 'explicit' } }, dir)
+  const expId = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: 'hi', name: 'exp-1', model: { provider: 'mock', id: 'explicit' } }, dir)
   ok('出生显式 origin=explicit', sys.kernel.lineage.modelOf(expId)?.origin === 'explicit')
-  const inhId = await sys.kernel.instantiateAgent({ className: makeAgentClassID('assistant'), parentId: coderId, userPrompt: 'hi', agentId: 'inh-1' }, dir)
+  const inhId = await sys.kernel.instantiateAgent({ className: makeAgentClassID('assistant'), parentId: coderId, userPrompt: 'hi', name: 'inh-1' }, dir)
   const inhModel = sys.kernel.lineage.modelOf(inhId)
   ok('家学下传保 origin=home（git-blame 语义，coder 无基因）', inhModel?.origin === 'home' && inhModel.ref.id === 'echo', JSON.stringify(inhModel))
-  ok('根 user0 origin=home', sys.kernel.lineage.modelOf('user0')?.origin === 'home')
+  ok('根 origin=home', sys.kernel.lineage.modelOf('0')?.origin === 'home')
   await sys.pilot.setModel(coderId, { provider: 'mock', id: 'hot' })
-  await sys.kernel.sendMessage('user0', coderId, 'after set model')
+  await sys.kernel.sendMessage('0', coderId, 'after set model')
   await waitIdle('S5-hot')
   ok('setModel 生效（下轮请求 model=mock/hot）', mock.requests.some((r) => r.body?.model === 'hot'), JSON.stringify(mock.requests.map((r) => r.body?.model)))
-  ok('setModel 不级联（inh-1 仍 home echo 非 hot）', sys.kernel.lineage.modelOf('inh-1')?.ref.id === 'echo')
+  ok('setModel 不级联（inh-1 仍 home echo 非 hot）', sys.kernel.lineage.modelOf(sys.kernel.resolveAgent('inh-1'))?.ref.id === 'echo')
 
   // ---------- S6 重启恢复 ----------
   console.log('S6 持久化 + 重启恢复')
@@ -178,17 +178,17 @@ try {
   boot = await bootStem({ projectRoot: dir })
   sys = boot.system
   const agents6 = await sys.pilot.listAgents()
-  ok('实例全集恢复（coder-1/gene-1/exp-1/inh-1）', ['coder-1', 'gene-1', 'exp-1', 'inh-1'].every((id) => agents6.some((a) => a.id === id)), JSON.stringify(agents6.map((a) => a.id)))
+  ok('实例全集恢复（coder-1/gene-1/exp-1/inh-1）', ['coder-1', 'gene-1', 'exp-1', 'inh-1'].every((n) => agents6.some((a) => a.name === n)), JSON.stringify(agents6.map((a) => a.id)))
   ok('状态归一化（无 thinking/holding）', !agents6.some((a) => a.status === 'thinking' || a.status === 'holding'))
-  ok('信箱语料跨重启（user0 面板信 + writer 首轮均在库）',
-     (await sys.pilot.exportContext('user0')).includes('PANEL-NO-TURN') && (await sys.pilot.exportContext('writer-1')).includes('WRITE_CLASS'))
-  ok('模型显式层跨重启（exp-1=explicit hot?→explicit）', sys.kernel.lineage.modelOf('exp-1')?.origin === 'explicit')
-  ok('coder setModel 快照跨重启（mock/hot）', sys.kernel.lineage.modelOf('coder-1')?.ref.id === 'hot', JSON.stringify(sys.kernel.lineage.modelOf('coder-1')))
+  ok('信箱语料跨重启（根面板信 + writer 首轮均在库）',
+     (await sys.pilot.exportContext('0')).includes('PANEL-NO-TURN') && (await sys.pilot.exportContext(sys.kernel.resolveAgent('writer-1'))).includes('WRITE_CLASS'))
+  ok('模型显式层跨重启（exp-1=explicit hot?→explicit）', sys.kernel.lineage.modelOf(sys.kernel.resolveAgent('exp-1'))?.origin === 'explicit')
+  ok('coder setModel 快照跨重启（mock/hot）', sys.kernel.lineage.modelOf(sys.kernel.resolveAgent('coder-1'))?.ref.id === 'hot', JSON.stringify(sys.kernel.lineage.modelOf(sys.kernel.resolveAgent('coder-1'))))
   ok('reviewer 类跨重启（目录即真相）', (await sys.kernel.templates.list()).some((c) => c.name === 'reviewer'))
   // 重启后再走一轮端到端（恢复后系统可继续工作）
-  await sys.pilot.sendMessage('user0', 'RESUMED-CHECK')
+  await sys.pilot.sendMessage('0', 'RESUMED-CHECK')
   await waitIdle('S6-resume')
-  ok('重启后新一轮正常', (await sys.pilot.exportContext('user0')).includes('RESUMED-CHECK'))
+  ok('重启后新一轮正常', (await sys.pilot.exportContext('0')).includes('RESUMED-CHECK'))
 } catch (e) {
   fail++
   console.log('  FAIL  未捕获异常：', e instanceof Error ? e.message : JSON.stringify(e))

@@ -15,11 +15,14 @@ import type { AgentID } from './types'
  * 空间随实例一并持久化——重启后 spaceId 必须可解析（listAgents 按空间遍历）。
  */
 export interface InstanceStore {
-  /** 落一行（INSERT OR UPDATE by id；状态/成本/displayName 全字段快照）。 */
+  /** 落一行（INSERT OR UPDATE by id；状态/成本/name 全字段快照——含墓碑行 upsert）。 */
   readonly upsert: (instance: AgentInstance) => void
-  /** 物理删除实例行（terminate 语义：个体消亡，消息走 MessageStore 归档）。 */
+  /**
+   * 物理删除实例行。**terminate 不走此口**（销毁 = 落 status='terminated' 墓碑行，
+   * 地址与称呼占用是持久事实）；此口专供宿主法医面（dashboard 清理）归档真删。
+   */
   readonly delete: (agentId: AgentID) => void
-  /** 加载全部实例行（恢复用）。 */
+  /** 加载全部实例行（恢复用；含墓碑——restore 内层立占用）。 */
   readonly loadAll: () => readonly AgentInstance[]
   /** 空间行 write-through（getOrCreate/remove）。 */
   readonly upsertSpace: (space: AgentSpace) => void

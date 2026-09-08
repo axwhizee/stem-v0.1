@@ -30,7 +30,7 @@ export function dbBytes(file: string): number {
 
 export interface DashAgentRow {
   readonly id: string
-  readonly displayName?: string
+  readonly name?: string
   readonly classRef: string
   readonly parentId: string | null
   readonly status: string
@@ -50,7 +50,7 @@ interface RawInstance {
   readonly id: string
   readonly classRef: string
   readonly parentId: string | null
-  readonly displayName?: string
+  readonly name?: string
   readonly status: string
   readonly spaceId: string
   readonly turnCount: number
@@ -97,11 +97,11 @@ export function dashAgents(db: DatabaseSync): DashAgentRow[] {
     const stats = agg.get(inst.id) ?? { msgs: 0, tokens: 0 }
     const tail = tails.get(inst.id)
     const raw = tail?.content ?? ''
-    const sender = /^<sender id="([^"]+)">/.exec(raw)?.[1] ?? ''
-    const prompt = raw.replace(/^<sender id="[^"]+">/, '').replace(/<\/sender>$/, '')
+    const sender = /^<sender id="([^"]+)"(?: at="[^"]*")?>/.exec(raw)?.[1] ?? ''
+    const prompt = raw.replace(/^<sender id="[^"]+"(?: at="[^"]*")?>/, '').replace(/<\/sender>$/, '')
     return {
       id: inst.id,
-      ...(inst.displayName !== undefined ? { displayName: inst.displayName } : {}),
+      ...(inst.name !== undefined ? { name: inst.name } : {}),
       classRef: inst.classRef,
       parentId: inst.parentId,
       status: inst.status,

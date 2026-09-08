@@ -227,17 +227,17 @@ function validateModelRef(value: unknown, fail: (message: string) => never, path
   return { provider: (value as string).slice(0, slash), id: (value as string).slice(slash + 1) }
 }
 
-/** user0 内嵌 agent 类对象（完整可配）。 */
+/** 根的类配置对象（完整可配）。 */
 function validateUser(value: unknown, fail: (message: string) => never): StemUserClass | undefined {
   if (value === undefined) return undefined
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    fail('user 必须是对象（user0 内嵌 agent 类配置）')
+    fail('user 必须是对象（根 user#0 的类配置）')
   }
   const raw = value as Record<string, unknown>
   if (raw.description !== undefined && typeof raw.description !== 'string') fail('user.description 必须是字符串')
   if (raw.systemPrompt !== undefined && typeof raw.systemPrompt !== 'string') fail('user.systemPrompt 必须是字符串')
   if (raw.contextStrategy !== undefined && typeof raw.contextStrategy !== 'string') fail('user.contextStrategy 必须是字符串')
-  if (raw.displayName !== undefined && typeof raw.displayName !== 'string') fail('user.displayName 必须是字符串')
+  if (raw.name !== undefined && typeof raw.name !== 'string') fail('user.name 必须是字符串')
   return {
     ...(raw.description !== undefined ? { description: raw.description as string } : {}),
     ...(raw.systemPrompt !== undefined ? { systemPrompt: raw.systemPrompt as string } : {}),
@@ -245,7 +245,7 @@ function validateUser(value: unknown, fail: (message: string) => never): StemUse
     ...(raw.contextStrategy !== undefined ? { contextStrategy: raw.contextStrategy as string } : {}),
     ...(raw.model !== undefined ? { model: validateModelRef(raw.model, fail, 'user.model') } : {}),
     ...(raw.sendCountdown !== undefined ? { sendCountdown: validateNumber(raw.sendCountdown, fail, 'user.sendCountdown') } : {}),
-    ...(raw.displayName !== undefined ? { displayName: raw.displayName as string } : {}),
+    ...(raw.name !== undefined ? { name: raw.name as string } : {}),
   }
 }
 

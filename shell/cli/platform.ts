@@ -59,7 +59,7 @@ export interface BootResult {
   readonly stateStore?: StemSystemDeps['stateStore']
 }
 
-/** 节点平台装配：读取配置 → 构建网关（providers 路由）→ createStemSystem（user0 实例化 + SQLite 恢复）。 */
+/** 节点平台装配：读取配置 → 构建网关（providers 路由）→ createStemSystem（根实例化 + SQLite 恢复）。 */
 export async function bootStem(opts: BootOptions): Promise<BootResult> {
   const bundle = createNodeConfigBundle(opts.projectRoot)
   const loaded = await bundle.store.load()
@@ -71,7 +71,7 @@ export async function bootStem(opts: BootOptions): Promise<BootResult> {
   const stateStore =
     opts.stateStore === false
       ? undefined
-      : (opts.stateStore ?? createSqliteStateStore(defaultDbFile(opts.projectRoot), opts.projectRoot))
+      : (opts.stateStore ?? createSqliteStateStore(defaultDbFile(opts.projectRoot)))
   const shellRunner = opts.shellRunner === false ? undefined : (opts.shellRunner ?? createNodeShellRunner({ defaultCwd: opts.projectRoot }))
   const system = await createStemSystem({
     config: { store: bundle.store, paths: bundle.paths },

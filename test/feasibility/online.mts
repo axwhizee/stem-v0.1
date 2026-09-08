@@ -69,7 +69,7 @@ async function waitLetter(marker: string, timeoutMs = 90_000): Promise<string> {
 try {
   // ---------- W1 真 LLM 轮 ----------
   console.log('W1 真网关端到端（coder 小任务）')
-  const coderId = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: '只回答一个数字：2+3 等于几？不要调用任何工具。', agentId: 'on-coder' }, dir)
+  const coderId = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: '只回答一个数字：2+3 等于几？不要调用任何工具。', name: 'on-coder' }, dir)
   await waitIdle('W1')
   const w1 = await sys.pilot.exportContext(coderId)
   ok('真 LLM 轮闭合且答案含 5', w1.includes('"assistant"') && /5/.test(w1), w1.slice(-300))
@@ -81,36 +81,36 @@ try {
     name: makeAgentClassID('operator'), description: '操作试验类', systemPrompt: '按指令使用工具，完成后用一句话总结。',
     tools: { bash: 'allow', agent_class_create: 'ask', websearch: 'allow', webfetch: 'allow', telemetry_query: 'allow' },
   })
-  const opId = await sys.pilot.instantiate({ className: makeAgentClassID('operator'), userPrompt: '用 bash 执行 echo stem-online-ok，然后告诉我输出了什么。', agentId: 'on-op' }, dir)
+  const opId = await sys.pilot.instantiate({ className: makeAgentClassID('operator'), userPrompt: '用 bash 执行 echo stem-online-ok，然后告诉我输出了什么。', name: 'on-op' }, dir)
   await waitIdle('W2')
   const w2 = await sys.pilot.exportContext(opId)
   ok('bash tool_call 真实发生（tool 结果行入库）', w2.includes('"role":"tool"') && w2.includes('stem-online-ok'), w2.slice(0, 400))
 
   // ---------- W3 真 websearch / webfetch ----------
   console.log('W3 extension 工具实弹（websearch + webfetch）')
-  await sys.kernel.sendMessage('user0', opId, '用 websearch 搜一下「西湖 在哪座城市」，只搜一次，告诉我城市名。')
+  await sys.kernel.sendMessage('0', opId, '用 websearch 搜一下「西湖 在哪座城市」，只搜一次，告诉我城市名。')
   await waitIdle('W3-search')
   const w3 = await sys.pilot.exportContext(opId)
   const searchHit = /杭州/.test(w3) || /hangzhou/i.test(w3)
   ok('websearch 真实检索结果进入语料', searchHit, w3.slice(-500))
-  await sys.kernel.sendMessage('user0', opId, '用 webfetch 打开 https://example.com ，说出页面标题里的第一个英文单词。')
+  await sys.kernel.sendMessage('0', opId, '用 webfetch 打开 https://example.com ，说出页面标题里的第一个英文单词。')
   await waitIdle('W3-fetch')
   const w3f = await sys.pilot.exportContext(opId)
   ok('webfetch 真实抓取（example 域正文特征）', /example/i.test(w3f) && w3f.length > w3.length, w3f.slice(-300))
 
   // ---------- W4 真 ask 审批链 ----------
   console.log('W4 真模型触发 ask → 根信箱 → 答复 → 落盘')
-  await sys.kernel.sendMessage('user0', opId, '用 agent_class_create 创建一个类：name=online-reviewer，description=在线审查类，systemPrompt=You review。不要执行任何 shell 命令，只创建类。')
+  await sys.kernel.sendMessage('0', opId, '用 agent_class_create 创建一个类：name=online-reviewer，description=在线审查类，systemPrompt=You review。不要执行任何 shell 命令，只创建类。')
   const reqId = await waitLetter('accessKey="agent_class_create"')
   ok('真 LLM 申请触发 access_request（ask 消息化投递根信箱）',
-     letters.some((l) => l.agentId === 'user0' && l.text.includes('accessKey="agent_class_create"') && l.text.includes('agentId="on-op"')), JSON.stringify(letters.slice(-1)))
+     letters.some((l) => l.agentId === '0' && l.text.includes('accessKey="agent_class_create"') && l.text.includes('agentId="on-op"')), JSON.stringify(letters.slice(-1)))
   await sys.pilot.replyAccess({ requestId: reqId, reply: 'once' })
   await waitIdle('W4-post')
   ok('审批后类文件真实落盘', existsSync(join(dir, '.stem', 'agent', 'online-reviewer.md')))
 
   // ---------- W5 telemetry 观测面 ----------
   console.log('W5 telemetry_query 模型侧观测')
-  await sys.kernel.sendMessage('user0', opId, '调用 telemetry_query 查询你自己的最近运行记录，回复"看到 N 条"即可，不要其他动作。')
+  await sys.kernel.sendMessage('0', opId, '调用 telemetry_query 查询你自己的最近运行记录，回复"看到 N 条"即可，不要其他动作。')
   await waitIdle('W5')
   const w5 = await sys.pilot.exportContext(opId)
   ok('telemetry 查询轮闭合（含结果回注）', w5.length > 100 && /条|记录|telemetry|log/i.test(w5.slice(-800)), w5.slice(-300))
@@ -138,11 +138,11 @@ try {
     }
     throw new Error(`waitIdle2 超时 ${label}`)
   }
-  const cid = await sys2.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: '请用 200 字介绍光合作用。', agentId: 'on-compact' }, wdir)
+  const cid = await sys2.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: '请用 200 字介绍光合作用。', name: 'on-compact' }, wdir)
   await waitIdle2('W6-a')
-  await sys2.kernel.sendMessage('user0', cid, '很好，再用 200 字介绍呼吸作用。')
+  await sys2.kernel.sendMessage('0', cid, '很好，再用 200 字介绍呼吸作用。')
   await waitIdle2('W6-b')
-  await sys2.kernel.sendMessage('user0', cid, '最后用 50 字总结上面两个概念的关系。')
+  await sys2.kernel.sendMessage('0', cid, '最后用 50 字总结上面两个概念的关系。')
   await waitIdle2('W6-c')
   const w6 = await sys2.pilot.exportContext(cid)
   ok('真实 compact 触发（summary 合成行入库）', /"tag":"summary"/.test(w6), w6.slice(-400))

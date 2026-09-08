@@ -14,7 +14,7 @@
 shell/feishu（你的主机，本目录）
    │ pilot.sendMessage / replyAccess      ▲ PilotEvent 订阅（letter/status/notice）
    ▼                                      │
-stem core（user0 生态：接待员、organizer、cortex-pet……全部照族谱树运行）
+stem core（根 user#0 生态：接待员、organizer、cortex-pet……全部照族谱树运行）
 ```
 
 ---
@@ -68,16 +68,16 @@ stem core（user0 生态：接待员、organizer、cortex-pet……全部照族�
 
 ### 2.1 扮演模型（最重要的一节）
 
-stem 的第一性事实：**user0 是面板**——它不组装、不跑 LLM 轮（AGENTS.md 设计原则 1）。所以"在飞书跟船长说话"的真实机制是：
+stem 的第一性事实：**根（user#0）是面板**——它不组装、不跑 LLM 轮（AGENTS.md 设计原则 1）。所以"在飞书跟船长说话"的真实机制是：
 
 ```
-你的消息 ──pilot（以 user0 身份）──▶ 接待员实例（缺省 assistant 类，族谱挂 user0）
+你的消息 ──pilot（以根身份）──▶ 接待员实例（缺省 assistant 类，族谱挂根）
                                         │ 真 LLM 轮 + 工具（bash/读写/bus_*/…按族谱权限）
               接待员的回信落进根信箱 ◀──┘
 你的聊天窗口 ◀──读 aloud：root letter 事件反查 StoredMessage.from 后转发──
 ```
 
-- **接待员（secretary）**：启动时在你的空间里找 `classRef == secretaryClass` 且父为 user0 的活跃实例，没有就创建（带一段启动信人设）。跨重启复用同一实例——记忆连续。
+- **接待员（secretary）**：启动时在你的空间里找 `classRef == secretaryClass` 且父为根的活跃实例，没有就创建（带一段启动信人设）。跨重启复用同一实例——记忆连续。
 - **读 aloud 忠于信件原文**：回信带 `<sender id="…">` 发件人戳（邮局打戳是信件真相的一部分，仓库/审计面与出口同源）。单主人自用场景这是特性不是噪音；若将来 shell 面向多用户产品化，出口美化（剥戳/换名片格式）归表现层决策，勿动审计链。
 - **权限的本体在族谱树，不在聊天渠道**：open_id 白名单只是**渠道闸门**（谁能跟这个 shell 说话）；说的每句话能触发什么工具，永远由 agent 在族谱中的位置 + 类/实例配置收敛出的生效权限决定（AGENTS.md 原则 3）。白名单外的人：零服务、零泄漏。
 
@@ -85,7 +85,7 @@ stem 的第一性事实：**user0 是面板**——它不组装、不跑 LLM 轮
 
 | 你做什么 | shell 做什么 | 走哪条链路 |
 |---|---|---|
-| 单聊发普通消息 | 以 user0 身份投给接待员，回信读 aloud | `pilot.sendMessage` → 回信 letter |
+| 单聊发普通消息 | 以根身份投给接待员，回信读 aloud | `pilot.sendMessage` → 回信 letter |
 | 发 `/tree` | 族谱树卡（缩进 + 状态徽标 🟢idle 🔵thinking 🟡holding ⚪interrupted） | `pilot.listAgents` |
 | 发 `/status [agent]` | 实例详情 + **生效接线反射**（策略/组装/custom/倒计时，`boxFacts`） | `pilot.inspect` + `contextManager.boxFacts` |
 | 发 `/logs [agent] [n]` | 该 agent 最近 n 条运行账（状态/审批/工具/做梦…） | `kernel.logger.query` |
@@ -155,6 +155,6 @@ config.ts   .stem/feishu.jsonc 装载（裸 JSONC + 顶层键白名单 fail-fast
 cards.ts    卡片 JSON 构造（审批卡三键 / 裁决留档态 / 信息卡）
 ```
 
-对 core 的态度：**零改动、零特权**。本 shell 用到的全部是 pilot/kernel 既有门面（`sendMessage/instantiate/inspect/listAgents/replyAccess/interrupt/subscribe` + `boxFacts` + `logger.query`），与 CLI/WebUI 完全同权——它只是第四个"扮演 user0 的外部大脑接口"（AGENTS.md 原则 4：shell 只做平台适配 + UI）。
+对 core 的态度：**零改动、零特权**。本 shell 用到的全部是 pilot/kernel 既有门面（`sendMessage/instantiate/inspect/listAgents/replyAccess/interrupt/subscribe` + `boxFacts` + `logger.query`），与 CLI/WebUI 完全同权——它只是第四个"扮演根的外部大脑接口"（AGENTS.md 原则 4：shell 只做平台适配 + UI）。
 
 **已知边界与预留**（都有明确的平台机制支撑，未做纯属范围裁剪）：流式打字机回复（cardkit streaming，10/s 下节流即可）；断线期间消息补偿（重连后 `im.v1.message.list` 拉历史去重——平台事件重投窗口约 90s，长时间离线会丢触发）；图片入站 → 多模态；语音入站 → 自备 ASR；免 @ 群环境感知（敏感权限，可开）；单聊自定义菜单按钮（`application:bot.menu:write`）；多用户化（出口美化、每用户会话隔离——当前架构默认单主人）。

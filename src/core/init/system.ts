@@ -9,7 +9,7 @@
 //   3. 系统工具（agent_*/bus_*/context_* + access_reply）+ bash（注入 ShellRunner 才装配）；
 //   4. init 管线：三维资源矩阵统一装载（internal 恒在 → extension 点名 →
 //      custom 自动扫描，S7；后层同名覆盖前层）；
-//   5. Pilot 初始化（内部实例化根 agent user0，user 类）；
+//   5. Pilot 初始化（内部实例化根 agent `0`，user 类）；
 //   6. 工具 initAll 生命周期（projectRoot/fs/log 注入）；
 //   7. 用户注入钩子（init 末尾，深度扩展自定义）。
 // ============================================================
@@ -26,7 +26,7 @@ import type { ClassStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
 import { createBashTool, DefaultToolCapabilityRegistry } from '../tools'
 import type { ShellRunner } from '../tools'
-import { Kernel, USER_ID } from '../kernel'
+import { Kernel, ROOT_ID } from '../kernel'
 import type { Pilot } from '../pilot'
 import { createPilot } from '../pilot'
 import type { PilotEvent } from '../events'
@@ -37,7 +37,7 @@ import { agentFileOf, serializeAgentClass } from './agentSerialize'
 /** 系统上下文（用户注入钩子入参）。 */
 export interface StemSystem {
   readonly kernel: Kernel
-  /** user0 扮演接口（外部交互核心）。 */
+  /** 根（user#0）扮演接口（外部交互核心）。 */
   readonly pilot: Pilot
   readonly tools: ToolCapabilityRegistry
   /** 生效配置（唯一配置文件读取结果；目录即真相，无镜像回写）。 */
@@ -208,20 +208,20 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   // custom 蒸发）。类/策略/工具全部载齐后统一补对齐（幂等，箱缺失 no-op）。
   await kernel.realignRestoredInstances()
 
-  // Pilot（user0 扮演接口）：pilot 初始化内实例化根 agent user0（user 类，普通实例）。
+  // Pilot（根扮演接口）：pilot 初始化内实例化根 agent（user 类普通实例，id `0`）。
   const pilot = await createPilot({ kernel })
   if (deps.onEvent) pilot.subscribe(deps.onEvent)
 
   // boot 校验律（A3，替代一切代码兜底）：ask 审批是消息交换——根信箱的答复
   // 通道若不可用，全系统 ask 死锁。根生效表 access_reply ≠ allow = 拒启并
   // 明示死锁理由（主权归 config.user.tools，法只做审判——DEFAULT_USER_TOOLS 已退役）。
-  const replyExplicit = kernel.lineage.effectiveAccess(USER_ID, 'access_reply')
+  const replyExplicit = kernel.lineage.effectiveAccess(ROOT_ID, 'access_reply')
   const replyAccess = replyExplicit ?? tools.birthOf('access_reply')
   if (replyAccess !== 'allow') {
     throw {
       kind: 'invalid_config',
       message:
-        `boot 校验律：根（user0）生效 access_reply = ${String(replyAccess)}，必须为 allow——` +
+        `boot 校验律：根（user#0）生效 access_reply = ${String(replyAccess)}，必须为 allow——` +
         'ask 审批经 access_request→根信箱→access_reply 消息交换闭环，根答复缺位 = 权限系统死锁。' +
         '请在 .stem/stem.jsonc 的 user.tools 补 "access_reply": "allow"（首启模板含推荐清单实值）。',
     } as ConfigError

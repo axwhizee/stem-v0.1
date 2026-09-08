@@ -3,13 +3,13 @@
 //
 // 不造第二套清册：清单 = `bootStem({stateStore:false})` 纯内存标本的
 // 真实装配结果——runInit 矩阵装载（extension 点名 + custom 扫描 + init
-// issues）+ registry.materialize(user0) 的生效可见集 + 族谱模型解析，
+// issues）+ registry.materialize(root) 的生效可见集 + 族谱模型解析，
 // 所见即所跑。标本常驻（无信件即零 LLM 成本），refresh 重建。
 // ============================================================
 
 import { bootStem } from '../cli/platform'
 import { existsSync } from 'node:fs'
-import { BUILTIN_TEMPLATES } from '../../src/core/kernel'
+import { BUILTIN_TEMPLATES, ROOT_ID } from '../../src/core/kernel'
 import { createBuiltinStrategyRegistry } from '../../src/core/context'
 import type { AgentClass } from '../../src/core/kernel'
 import type { ToolCapability } from '../../src/core/tools'
@@ -21,7 +21,7 @@ export interface InventoryTool {
   readonly kind: string
   readonly accessKey: string
   readonly description: string
-  readonly visibleToUser0: boolean
+  readonly visibleToRoot: boolean
   readonly category?: string
 }
 
@@ -68,14 +68,14 @@ const BUILTIN_NAMES = new Set<string>(['user', ...BUILTIN_TEMPLATES.map((t) => S
 async function assemble(projectRoot: string): Promise<Holder> {
   const system = await bootStem({ projectRoot, stateStore: false }).then((r) => r.system)
   const tools: InventoryTool[] = []
-  const visible = new Set(system.tools.materialize('user0').map((d) => d.name))
+  const visible = new Set(system.tools.materialize(ROOT_ID).map((d) => d.name))
   for (const t of (await system.tools.list()) as ToolCapability[]) {
     tools.push({
       id: t.id,
       kind: t.kind ?? 'internal',
       accessKey: t.accessKey ?? t.id,
       description: t.description.slice(0, 160),
-      visibleToUser0: visible.has(t.id),
+      visibleToRoot: visible.has(t.id),
       ...(t.category !== undefined ? { category: t.category } : {}),
     })
   }

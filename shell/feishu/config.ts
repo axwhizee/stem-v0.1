@@ -13,7 +13,7 @@ import { parse as parseJsonc } from 'jsonc-parser'
 export interface FeishuConfig {
   /** 主人 open_id 白名单（空 = 拒服并打印来话者 open_id，人工回填后重启认领）。 */
   readonly ownerOpenIds: readonly string[]
-  /** 单聊默认接待员类（缺省内置 assistant 占位类；user0 是面板不跑轮，聊天对象必为实例）。 */
+  /** 单聊默认接待员类（缺省内置 assistant 占位类；根（user#0）是面板不跑轮，聊天对象必为实例）。 */
   readonly secretaryClass: string
   /** 会话绑定：chat_id → 目标 agent id（未绑定 = 单聊落接待员、群聊拒服）。 */
   readonly chatBindings: Readonly<Record<string, string>>

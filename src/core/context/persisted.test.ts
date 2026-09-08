@@ -17,7 +17,7 @@ function makePersisted(store: MemoryMessageStore = new MemoryMessageStore()) {
 
 async function seed(repository: PersistedRepository): Promise<void> {
   await repository.register('a1', 'sys-1')
-  await repository.append('a1', { message: { role: 'user', content: 'hello' }, from: 'user0' })
+  await repository.append('a1', { message: { role: 'user', content: 'hello' }, from: '0' })
   await repository.append('a1', { message: { role: 'assistant', content: 'hi' } })
   await repository.append('a1', { message: { role: 'user', content: 'again' } })
   await repository.append('a1', { message: { role: 'assistant', content: 'thinking' }, tag: 'summary' })
@@ -34,7 +34,7 @@ describe('PersistedRepository write-through', () => {
     const [sys, u, a] = boxes[0]!.messages
     assert.equal(sys?.message.role, 'system')
     assert.equal(u?.message.role, 'user')
-    assert.equal(u?.from, 'user0')
+    assert.equal(u?.from, '0')
     assert.equal(boxes[0]?.messages[4]?.tag, 'summary')
   })
 
@@ -95,7 +95,7 @@ describe('PersistedRepository 恢复', () => {
       restored.map((m) => ({ id: m.id, role: m.message.role, turn: m.turn, indexInTurn: m.indexInTurn, valid: m.valid })),
       live.map((m) => ({ id: m.id, role: m.message.role, turn: m.turn, indexInTurn: m.indexInTurn, valid: m.valid })),
     )
-    assert.equal(restored[1]?.from, 'user0')
+    assert.equal(restored[1]?.from, '0')
     assert.equal(restored[4]?.tag, 'summary')
   })
 

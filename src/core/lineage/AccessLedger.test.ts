@@ -18,36 +18,36 @@ const table = (entries: Record<string, ToolAccess>) => entries
 describe('AccessLedger（族谱权限收敛台账）', () => {
   test('减法·白名单本地性：自身清单未列键 → deny（父显式 allow 也压不过子的封闭白名单）', () => {
     const ledger = new DefaultAccessLedger()
-    ledger.bind({ agentId: 'user0', parentId: null, own: table({ read: 'allow', write: 'allow' }) })
-    ledger.bind({ agentId: 'a1', parentId: 'user0', own: table({ read: 'allow' }) })
+    ledger.bind({ agentId: '0', parentId: null, own: table({ read: 'allow', write: 'allow' }) })
+    ledger.bind({ agentId: 'a1', parentId: '0', own: table({ read: 'allow' }) })
 
     assert.equal(ledger.effectiveAccess('a1', 'read'), 'allow')
     // write：父显式 allow，但子自身清单未列 → 本地封闭 deny（键即白名单）。
     assert.equal(ledger.effectiveAccess('a1', 'write'), 'deny')
-    // user0 未列 bash：自身清单已定义 → fallback deny。
-    assert.equal(ledger.effectiveAccess('user0', 'bash'), 'deny')
+    // user#0 未列 bash：自身清单已定义 → fallback deny。
+    assert.equal(ledger.effectiveAccess('0', 'bash'), 'deny')
   })
 
   test('减法·祖先匿名兜底不下传：父 {read} 不锁死子新申请 {write:allow}', () => {
     const ledger = new DefaultAccessLedger()
-    ledger.bind({ agentId: 'user0', parentId: null, own: table({ read: 'allow' }) })
-    ledger.bind({ agentId: 'a1', parentId: 'user0', own: table({ write: 'allow' }) })
+    ledger.bind({ agentId: '0', parentId: null, own: table({ read: 'allow' }) })
+    ledger.bind({ agentId: 'a1', parentId: '0', own: table({ write: 'allow' }) })
     // 父的 read-only 白名单对父自己生效（bash 等 = deny），
     // 但缺席 ≠ 否决——子的显式 write:allow 成立。
     assert.equal(ledger.effectiveAccess('a1', 'write'), 'allow')
-    assert.equal(ledger.effectiveAccess('user0', 'write'), 'deny')
+    assert.equal(ledger.effectiveAccess('0', 'write'), 'deny')
   })
 
   test('减法·祖先显式判定取严（总序）：deny/ask 锁死子孙；藏匿与放宽均被压回', () => {
     const ledger = new DefaultAccessLedger()
     ledger.bind({
-      agentId: 'user0',
+      agentId: '0',
       parentId: null,
       own: table({ bash: 'deny', edit: 'ask', hidden: 'ignore', shown: 'allow' }),
     })
     ledger.bind({
       agentId: 'a1',
-      parentId: 'user0',
+      parentId: '0',
       own: table({ bash: 'allow', edit: 'allow', hidden: 'allow', shown: 'ignore' }),
     })
     assert.equal(ledger.effectiveAccess('a1', 'bash'), 'deny', '显式 deny 铁律：子的 allow 被压回 deny')
@@ -58,8 +58,8 @@ describe('AccessLedger（族谱权限收敛台账）', () => {
 
   test('减法·不设限（undefined）= 完整继承父档案（显式判定 + 本地封闭）', () => {
     const ledger = new DefaultAccessLedger()
-    ledger.bind({ agentId: 'user0', parentId: null, own: table({ read: 'allow' }) })
-    ledger.bind({ agentId: 'a1', parentId: 'user0' /* own undefined */ })
+    ledger.bind({ agentId: '0', parentId: null, own: table({ read: 'allow' }) })
+    ledger.bind({ agentId: 'a1', parentId: '0' /* own undefined */ })
 
     assert.equal(ledger.effectiveAccess('a1', 'read'), 'allow', '父显式 allow 完整继承')
     assert.equal(ledger.effectiveAccess('a1', 'write'), 'deny', '父的封闭随之继承——子面不宽于父')
@@ -72,20 +72,20 @@ describe('AccessLedger（族谱权限收敛台账）', () => {
 
   test('减法·链上任一层显式 deny 逐级摊平（deny 不可被后序撤销）', () => {
     const ledger = new DefaultAccessLedger()
-    ledger.bind({ agentId: 'user0', parentId: null })
-    ledger.bind({ agentId: 'mid', parentId: 'user0', own: table({ bash: 'deny' }) })
+    ledger.bind({ agentId: '0', parentId: null })
+    ledger.bind({ agentId: 'mid', parentId: '0', own: table({ bash: 'deny' }) })
     ledger.bind({ agentId: 'leaf', parentId: 'mid', own: table({ bash: 'allow' }) })
     assert.equal(ledger.effectiveAccess('leaf', 'bash'), 'deny')
   })
 
   test('加法·grant 清单形：整表替换（不受祖先匿名封闭追及），未列出键一律 deny', () => {
     const ledger = new DefaultAccessLedger()
-    ledger.bind({ agentId: 'user0', parentId: null, own: table({ read: 'ask' }) })
-    ledger.bind({ agentId: 'host', parentId: 'user0', own: table({}) })
+    ledger.bind({ agentId: '0', parentId: null, own: table({ read: 'ask' }) })
+    ledger.bind({ agentId: 'host', parentId: '0', own: table({}) })
     // 系统机制（策略模块）为 worker 加法给定：免逐个填 deny，其余自动 deny。
     ledger.bind({ agentId: 'worker', parentId: 'host', own: table({ read: 'allow', bash: 'allow' }), mode: 'grant' })
 
-    assert.equal(ledger.effectiveAccess('worker', 'read'), 'allow', 'user0 的 ask 被 host 空表匿名本地化（不下传）→ grant 不封顶')
+    assert.equal(ledger.effectiveAccess('worker', 'read'), 'allow', 'user#0 的 ask 被 host 空表匿名本地化（不下传）→ grant 不封顶')
     assert.equal(ledger.effectiveAccess('worker', 'bash'), 'allow', '祖先未列（host 封闭）不构成否决')
     assert.equal(ledger.effectiveAccess('worker', 'edit'), 'deny', '未指定 = 一律 deny（清单形即完整白名单）')
     assert.deepEqual(ledger.profileOf('worker')?.fallback, 'deny')
@@ -93,8 +93,8 @@ describe('AccessLedger（族谱权限收敛台账）', () => {
 
   test('受限 grant：直接父摊平显式判定逐键封顶（ask 洗不成 allow；deny 铁律=最严特例）', () => {
     const ledger = new DefaultAccessLedger()
-    ledger.bind({ agentId: 'user0', parentId: null, own: table({ edit: 'ask', bash: 'deny', hidden: 'ignore' }) })
-    ledger.bind({ agentId: 'host', parentId: 'user0' /* 不设限：显式链原样摊平传递 */ })
+    ledger.bind({ agentId: '0', parentId: null, own: table({ edit: 'ask', bash: 'deny', hidden: 'ignore' }) })
+    ledger.bind({ agentId: 'host', parentId: '0' /* 不设限：显式链原样摊平传递 */ })
     ledger.bind({
       agentId: 'w',
       parentId: 'host',
@@ -109,8 +109,8 @@ describe('AccessLedger（族谱权限收敛台账）', () => {
 
   test('加法·grant 鉴权：祖先链显式 deny 是不可豁免的铁律', () => {
     const ledger = new DefaultAccessLedger()
-    ledger.bind({ agentId: 'user0', parentId: null, own: table({ bash: 'deny' }) })
-    ledger.bind({ agentId: 'host', parentId: 'user0' })
+    ledger.bind({ agentId: '0', parentId: null, own: table({ bash: 'deny' }) })
+    ledger.bind({ agentId: 'host', parentId: '0' })
     ledger.bind({ agentId: 'worker', parentId: 'host', own: table({ bash: 'allow', read: 'allow' }), mode: 'grant' })
 
     assert.equal(ledger.effectiveAccess('worker', 'bash'), 'deny', 'grant 无法豁免链上显式 deny')

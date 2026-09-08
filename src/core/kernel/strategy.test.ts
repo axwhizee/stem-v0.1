@@ -14,8 +14,8 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../gateway'
 import type { LLMRequest } from '../gateway'
-import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
-import { makeAgentClassID, makeAgentID } from './types'
+import { BUILTIN_TEMPLATES } from './Kernel'
+import { makeAgentClassID, makeAgentID, ROOT_ID } from './types'
 import type { AgentClass } from './types'
 import type { AssembleInput, AssembleResult } from '../context'
 import { createBuiltinStrategyRegistry } from '../context'
@@ -64,7 +64,7 @@ describe('上下文策略框架（组装权 / note / fail-fast）', () => {
       strategies: registry,
     })
     const agentId = await kernel.instantiateAgent(
-      { className: makeAgentClassID('shout-agent'), parentId: makeAgentID(USER_ID), userPrompt: 'hello world' },
+      { className: makeAgentClassID('shout-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hello world' },
       '/proj',
     )
     await deliveries.next()
@@ -101,7 +101,7 @@ describe('上下文策略框架（组装权 / note / fail-fast）', () => {
     await assert.rejects(
       () =>
         kernel.instantiateAgent(
-          { className: makeAgentClassID('ghost-strategy'), parentId: makeAgentID(USER_ID), userPrompt: 'hi' },
+          { className: makeAgentClassID('ghost-strategy'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
           '/proj',
         ),
       (e: { kind?: string }) => e.kind === 'context_strategy_unknown',

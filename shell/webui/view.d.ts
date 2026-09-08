@@ -38,7 +38,7 @@ export declare function routeLetters(messages: ContextMessage[] | undefined, cur
 export interface AgentRow {
   id: string
   parentId: string | null
-  displayName?: string
+  name?: string
   classRef?: string
   status?: string
   lastPrompt?: string

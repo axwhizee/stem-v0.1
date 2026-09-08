@@ -27,6 +27,7 @@ import { legalize } from './legalize'
 import type { ContextStrategyModule, StrategyApi, StrategyAgentSpec, ContextSettings, StrategyRegistry } from './strategies'
 import type { AgentClass } from '../kernel/types'
 import { forget } from '../logging'
+import { hasSenderStamp, stampSender } from './stamp'
 import { createBuiltinStrategyRegistry, DEFAULT_CONTEXT_SETTINGS } from './strategies'
 
 export interface ContextManagerOptions {
@@ -47,6 +48,11 @@ export interface ContextManagerOptions {
   readonly spawnWorker?: (roleAgentId: string, task: string, spec: AgentClass) => Promise<string>
   /** 回收策略工具 worker（kernel 接线：terminate → 消息归档保语料）。 */
   readonly terminateWorker?: (workerId: string, by: string) => Promise<void>
+  /**
+   * 身份全名解析（信件戳 B4：agentId → `name#id`；kernel 接线实例表）。
+   * 缺省 = 回落裸 id（纯 context 单测形态）。
+   */
+  readonly identityOf?: (agentId: string) => string
   /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: (event: LogEvent) => void
 }
@@ -56,7 +62,7 @@ export interface ContextRegistration {
   readonly agentId: string
   readonly systemPrompt?: string
   readonly sendCountdownMs?: number
-  /** false = 用户面板（user0/策略扮演 agent：不组装只汇总）。 */
+  /** false = 面板（根/策略扮演 agent：不组装只汇总）。 */
   readonly assemble?: boolean
   /** 上下文管理策略名（缺省 = 注册表 default 'classic'；未知 → 注册期报错）。 */
   readonly contextStrategy?: string
@@ -203,6 +209,7 @@ export class DefaultContextManager implements ContextManager {
   private readonly spawnRole?: (hostAgentId: string, role: AgentClass) => Promise<string>
   private readonly spawnWorker?: (roleAgentId: string, task: string, spec: AgentClass) => Promise<string>
   private readonly terminateWorker?: (workerId: string, by: string) => Promise<void>
+  private readonly identityOf: (agentId: string) => string
   private readonly onLog?: (event: LogEvent) => void
 
   constructor(options: ContextManagerOptions) {
@@ -217,6 +224,7 @@ export class DefaultContextManager implements ContextManager {
     this.spawnRole = options.spawnRole
     this.spawnWorker = options.spawnWorker
     this.terminateWorker = options.terminateWorker
+    this.identityOf = options.identityOf ?? ((id) => id)
     this.onLog = options.onLog
   }
 
@@ -225,7 +233,7 @@ export class DefaultContextManager implements ContextManager {
       throw { kind: 'mailbox_conflict', agentId: registration.agentId }
     }
     // 策略解析（开辟上下文空间时确定——上下文属性）：
-    // 面板（user0 / 模块扮演 role：不组装不处理）恒用 none——策略 note 不污染人格
+    // 面板（根 / 模块扮演 role：不组装不处理）恒用 none——策略 note 不污染人格
     // systemPrompt；未知策略名注册期 fail-fast；恢复接线兜底默认策略
     //（策略文件被删不炸启动）。
     let strategy: ContextStrategyModule | undefined
@@ -672,8 +680,9 @@ export class DefaultContextManager implements ContextManager {
     for (const stored of valid) {
       if (stored.from === undefined || stored.message.role !== 'user') continue
       const text = contentOf(stored.message)
-      if (text.startsWith('<sender id=')) continue // 已打戳
-      const stamped: ChatMessage = { role: 'user', content: `<sender id="${stored.from}">${text}</sender>` }
+      if (hasSenderStamp(text)) continue // 已打戳
+      // B4：戳面 = 全名 name#id + 入库时刻（分钟精度）；打戳器唯一在此。
+      const stamped: ChatMessage = { role: 'user', content: stampSender(this.identityOf(stored.from), stored.at, text) }
       forget(this.repository.updateMessage(box.agentId, stored.id, stamped), 'cm:stamp', this.onLog)
     }
   }

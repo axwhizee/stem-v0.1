@@ -13,7 +13,7 @@ import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../../../gateway'
 import type { LLMEvent, LLMRequest } from '../../../gateway'
 import type { ChatMessage } from '../../../gateway'
-import { BUILTIN_TEMPLATES, USER_ID } from '../../../kernel'
+import { BUILTIN_TEMPLATES, ROOT_ID } from '../../../kernel'
 import { makeAgentClassID, makeAgentID } from '../../../kernel/types'
 import type { AgentClass } from '../../../kernel/types'
 import type { ContextStrategyModule, StrategyApi } from '../types'
@@ -321,7 +321,7 @@ async function cortexHarness(workerTurns: (turn: number) => LLMEvent[]) {
     await h.tools.register(t, { replace: true })
   }
   const agentId = await h.kernel.instantiateAgent(
-    { className: makeAgentClassID('mem-agent'), parentId: makeAgentID(USER_ID), userPrompt: '开工写 cortex 测试' },
+    { className: makeAgentClassID('mem-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: '开工写 cortex 测试' },
     '/space',
   )
   await h.deliveries.next()

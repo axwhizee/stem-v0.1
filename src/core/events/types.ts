@@ -12,7 +12,7 @@ import type { ChatMessage, LLMEvent } from '../gateway'
 export type PilotEvent =
   /** LLM 流式事件（agentId + LLMEvent）。 */
   | { readonly type: 'stream'; readonly agentId: string; readonly event: LLMEvent }
-  /** 信箱来信（user0 收信/回信；access_request 申请也经此送达）。 */
+  /** 信箱来信（根收信/回信；access_request 申请也经此送达）。 */
   | { readonly type: 'letter'; readonly agentId: string; readonly letters: readonly ChatMessage[]; readonly at: number }
   /** 状态变化（thinking/holding/interrupted…）。 */
   | { readonly type: 'status'; readonly agentId: string; readonly from: string; readonly to: string; readonly at: number }

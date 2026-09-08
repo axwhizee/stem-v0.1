@@ -10,8 +10,8 @@ import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../gateway'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
 import { checkToolsConvergence } from '../tools'
-import { USER_ID } from './Kernel'
-import { makeAgentClassID, makeAgentID, type AgentClass } from './types'
+
+import { makeAgentClassID, makeAgentID, ROOT_ID, type AgentClass } from './types'
 
 function harnessWithStore() {
   const saved: AgentClass[] = []
@@ -28,13 +28,13 @@ const userTools = {
   agent_list: 'allow',
 } as const
 
-/** 走工具通道创建类（user0 身份）。 */
+/** 走工具通道创建类（根 身份）。 */
 async function createViaTool(tools: Awaited<ReturnType<typeof createKernelHarness>>['tools'], input: Record<string, unknown>) {
-  return tools.execute({ id: 'call_create', name: 'agent_class_create', input }, { agentId: USER_ID, spaceId: 'space-1' })
+  return tools.execute({ id: 'call_create', name: 'agent_class_create', input }, { agentId: ROOT_ID, spaceId: 'space-1' })
 }
 
 async function updateViaTool(tools: Awaited<ReturnType<typeof createKernelHarness>>['tools'], input: Record<string, unknown>) {
-  return tools.execute({ id: 'call_update', name: 'agent_class_update', input }, { agentId: USER_ID, spaceId: 'space-1' })
+  return tools.execute({ id: 'call_update', name: 'agent_class_update', input }, { agentId: ROOT_ID, spaceId: 'space-1' })
 }
 
 describe('checkToolsConvergence（纯校验矩阵：序不升 + deny 铁律）', () => {
@@ -205,7 +205,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     await kernel.registerSystemTools(tools)
     await createViaTool(tools, { name: 'runner', description: 'd', systemPrompt: 'p', tools: { bash: 'allow' } })
     const first = await kernel.instantiateAgent(
-      { className: makeAgentClassID('runner'), parentId: makeAgentID(USER_ID), userPrompt: 'go', agentId: makeAgentID('r1') },
+      { className: makeAgentClassID('runner'), parentId: makeAgentID(ROOT_ID), userPrompt: 'go' },
       '/proj',
     )
     assert.equal(kernel.lineage.effectiveAccess(first, 'bash'), 'allow')
@@ -213,7 +213,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     await updateViaTool(tools, { name: 'runner', tools: { bash: 'deny' } })
     assert.equal(kernel.lineage.effectiveAccess(first, 'bash'), 'allow', '现役实例保持出生时物化（防"改类即远程改现役"）')
     const second = await kernel.instantiateAgent(
-      { className: makeAgentClassID('runner'), parentId: makeAgentID(USER_ID), userPrompt: 'go' },
+      { className: makeAgentClassID('runner'), parentId: makeAgentID(ROOT_ID), userPrompt: 'go' },
       '/proj',
     )
     assert.equal(kernel.lineage.effectiveAccess(second, 'bash'), 'deny', '新实例携带新基因出生')

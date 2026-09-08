@@ -100,11 +100,11 @@ describe('命令面', () => {
 describe('信箱分流（读 aloud / 审批）', () => {
   test('access_request XML 解析', () => {
     const req = parseAccessRequest(
-      '<access_request id="r7" accessKey="edit" agentId="tester9"><EditFile path="a.py" ...>请用 access_reply 工具答复（requestId=r7）。</access_request>',
+      '<access_request id="r7" accessKey="edit" agent="tester#0-1"><EditFile path="a.py" ...>请用 access_reply 工具答复（requestId=r7）。</access_request>',
     )
     assert.deepEqual(
       { requestId: req?.requestId, accessKey: req?.accessKey, agentId: req?.agentId },
-      { requestId: 'r7', accessKey: 'edit', agentId: 'tester9' },
+      { requestId: 'r7', accessKey: 'edit', agentId: 'tester#0-1' },
     )
     assert.equal(parseAccessRequest('普通信件'), undefined)
   })
@@ -113,8 +113,8 @@ describe('信箱分流（读 aloud / 审批）', () => {
     const s = state({ approvalChatIds: ['oc_admin_grp'] })
     const acts = routeUserMail(s, [
       { from: 'sec1', content: '主人，天气晴。' },
-      { from: 'tester9', content: '<access_request id="r7" accessKey="edit" agentId="tester9">…</access_request>' },
-      { from: 'user0', content: '（船长的话回声，不该读 aloud）' },
+      { from: 'tester#0-1', content: '<access_request id="r7" accessKey="edit" agent="tester#0-1">…</access_request>' },
+      { from: '0', content: '（船长的话回声，不该读 aloud）' },
     ])
     assert.equal(acts[0]!.kind, 'reply')
     assert.equal((acts[0] as { text: string }).text, '主人，天气晴。')
@@ -147,12 +147,13 @@ describe('审批卡回调与渲染', () => {
 
   test('formatTree 缩进 + 徽标 + 空树兜底', () => {
     const tree = formatTree([
-      { id: 'sec1', classRef: 'assistant', parentId: 'user0', status: 'idle', turnCount: 3 },
-      { id: 'kid9', classRef: 'tester', parentId: 'sec1', status: 'thinking', turnCount: 1 },
+      { id: '0', name: 'user', classRef: 'user', parentId: '', status: 'idle', turnCount: 0 },
+      { id: '0-1', name: 'sec1', classRef: 'assistant', parentId: '0', status: 'idle', turnCount: 3 },
+      { id: '0-1-2', name: 'kid9', classRef: 'tester', parentId: '0-1', status: 'thinking', turnCount: 1 },
     ])
-    assert.match(tree, /user0 \(船长\/根\)/)
-    assert.match(tree, /🟢 sec1 \(assistant, idle, 3轮\)/)
-    assert.match(tree, /🔵 kid9/)
+    assert.match(tree, /user#0 \(根\)/)
+    assert.match(tree, /🟢 sec1#0-1 \(assistant, idle, 3轮\)/)
+    assert.match(tree, /🔵 kid9#0-1-2/)
     assert.ok(tree.indexOf('kid9') > tree.indexOf('sec1'), '子在父后（缩进树序）')
     assert.match(formatTree([]), /旗下暂无实例/)
   })

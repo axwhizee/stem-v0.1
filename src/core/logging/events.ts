@@ -103,7 +103,7 @@ export interface AgentInstanceCreated {
   readonly at: number
   readonly agentId: string
   readonly classId: string
-  /** 族谱父（= 创建者；user0 为空字符串）。 */
+  /** 族谱父（= 创建者；根为空字符串）。 */
   readonly parentId: string
 }
 
@@ -130,7 +130,7 @@ export interface KernelModelSet {
   readonly agentId: string
   readonly provider: string
   readonly model: string
-  /** 发起者（agent_update 工具 = 调用者；pilot 通道 = user0）。 */
+  /** 发起者（agent_update 工具 = 调用者；pilot 通道 = 根）。 */
   readonly by?: string
 }
 
@@ -141,7 +141,7 @@ export interface KernelInstanceUpdated {
   readonly agentId: string
   /** 发起者（pilot 宿主通道 = 'pilot'）。 */
   readonly by: string
-  /** 提及并生效的字段（model / displayName / tools=收敛patch / toolsGrant=清单整表）。 */
+  /** 提及并生效的字段（model / name / tools=收敛patch / toolsGrant=清单整表）。 */
   readonly fields: readonly string[]
 }
 

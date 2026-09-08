@@ -4,7 +4,7 @@
 // 零 DOM（浏览器经 <script type="module"> import；node:test 直测）。
 // 承载四组纯逻辑：
 //   1. 汉字字形表（R8：禁 emoji/几何字符，状态/动作全汉字）+ 三态语义；
-//   2. 信箱归位 routeLetters（R9 第一视角：user0 非对话窗口，来信按
+//   2. 信箱归位 routeLetters（R9 第一视角：根非对话窗口，来信按
 //      <sender> 反查归位各 agent 窗）；
 //   3. git 风族谱行序 computeTreeRows（DFS + 泳道 + 溢出折叠）；
 //   4. 按钮可用性 deriveActions（能力数据驱动，非 agent 特判——
@@ -12,7 +12,7 @@
 // ============================================================
 
 /** 本空间根（pilot 扮演身份的约定 id）。 */
-export const ROOT_ID = 'user0'
+export const ROOT_ID = '0'
 
 // ---------- 1. 字形表（R8） ----------
 
@@ -46,9 +46,9 @@ export const statusTone = (status) =>
 
 // ---------- 2. 信箱文本（sender 归位原料） ----------
 
-/** 剥发送者戳：`<sender id="x">…</sender>` → {sender, text}。 */
+/** 剥发送者戳：`<sender id="name#id" at="yymmdd.hhmm">…</sender>` → {sender, text}。 */
 export function stripSender(raw) {
-  const m = /^<sender id="([^"]+)">([\s\S]*?)<\/sender>$/.exec(String(raw ?? ''))
+  const m = /^<sender id="([^"]+)"(?: at="[^"]*")?>([\s\S]*?)<\/sender>$/.exec(String(raw ?? ''))
   if (m) return { sender: m[1] ?? '', text: m[2] ?? '' }
   return { sender: '', text: String(raw ?? '') }
 }
@@ -63,7 +63,7 @@ export function truncate(text, max = 30) {
  * 信箱消息流 → 时间线渲染描述（R9 第一视角核心，纯函数）。
  * item = {kind:'msg'|'tool'|'meta'|'ask', side:'me'|'agent'|'them', who, text, icon}
  * - 常规 agent 窗：user 信按 sender 归位（我=根来信右侧；他 agent 来信左侧）；
- * - 根（user0）窗：反相——assistant = 人类发言（右"我"），user = 后代回信（左）；
+ * - 根（user#0）窗：反相——assistant = 人类发言（右"我"），user = 后代回信（左）；
  * - access_request 来信不进时间线（归"审"面板），出 {kind:'ask'} 供计数；
  * - system 不上线；invalid（compact 归档）跳过；tag=summary 出中缝元条。
  */
@@ -83,7 +83,8 @@ export function routeLetters(messages, currentId, rootId = ROOT_ID) {
         // 根箱的 user 信 = 后代回信（左）；无 sender 的历史遗留也按来信。
         items.push({ kind: 'msg', side: 'them', who: sender ? `来自 ${sender}` : '来信', text })
       } else {
-        const mine = sender === '' || sender === rootId
+        // 戳面 = name#id 全名（B4）：裸 id 或 id 尾段命中根都算己方来信。
+        const mine = sender === '' || sender === rootId || sender.endsWith('#' + rootId)
         items.push({ kind: 'msg', side: mine ? 'me' : 'them', who: mine ? ACT_GLYPH.me : `来自 ${sender}`, text })
       }
       continue

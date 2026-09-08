@@ -76,12 +76,12 @@ try {
 
   // ---------- C2 compact 自动触发 ----------
   console.log('C2 classic compact 自动触发（wake 链内）')
-  const id = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: 'ROUND-ONE 长文本 '.padEnd(120, '字'), agentId: 'cmp-1' }, dir)
+  const id = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: 'ROUND-ONE 长文本 '.padEnd(120, '字'), name: 'cmp-1' }, dir)
   await waitIdle('C2-round1')
-  await sys.kernel.sendMessage('user0', id, 'ROUND-TWO 长文本 '.padEnd(120, '字'))
+  await sys.kernel.sendMessage('0', id, 'ROUND-TWO 长文本 '.padEnd(120, '字'))
   await waitIdle('C2-round2')
   // compact 检查点在"下一封 user 信抵达"（wake 链内、组装前）——需要第三轮做触发探针。
-  await sys.kernel.sendMessage('user0', id, 'ROUND-THREE 长文本 '.padEnd(120, '字'))
+  await sys.kernel.sendMessage('0', id, 'ROUND-THREE 长文本 '.padEnd(120, '字'))
   await waitIdle('C2-round3')
   const corpus = await sys.pilot.exportContext(id)
   const summaryReq = mock.requests.filter((r) => r.body?.model === 'summarizer')
@@ -94,7 +94,7 @@ try {
 
   // ---------- C3 手动 compact 动作面 ----------
   console.log('C3 pilot.runContextAction compact（手动通道）')
-  await sys.kernel.sendMessage('user0', id, 'ROUND-THREE 长文本 '.padEnd(120, '字'))
+  await sys.kernel.sendMessage('0', id, 'ROUND-THREE 长文本 '.padEnd(120, '字'))
   await waitIdle('C3-round3')
   const before = mock.requests.filter((r) => r.body?.model === 'summarizer').length
   const res = await sys.pilot.runContextAction(id, 'compact')
@@ -104,9 +104,9 @@ try {
   ok('手动触发第二次摘要', after >= before, JSON.stringify({ before, after }))
 
   // ---------- C4 面板/根不跑轮（策略不触发） ----------
-  console.log('C4 user0 面板：发信给自身不产生网关请求')
+  console.log('C4 根面板：发信给自身不产生网关请求')
   const reqsBefore = mock.requests.length
-  await sys.pilot.sendMessage('user0', 'PANEL-NO-TURN-CHECK')
+  await sys.pilot.sendMessage('0', 'PANEL-NO-TURN-CHECK')
   await sleep(600)
   ok('面板自消息零请求（compact 亦不触发）', mock.requests.length === reqsBefore)
 } catch (e) {

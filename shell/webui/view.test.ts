@@ -47,7 +47,8 @@ describe('字形表（R8）', () => {
 
 describe('sender 剥壳与截断', () => {
   test('stripSender 往返', () => {
-    assert.deepEqual(stripSender('<sender id="a1">你好</sender>'), { sender: 'a1', text: '你好' })
+    assert.deepEqual(stripSender('<sender id="a1">你好</sender>'), { sender: 'a1', text: '你好' }) // 旧形兼容
+    assert.deepEqual(stripSender('<sender id="w#0-1" at="260908.1234">你好</sender>'), { sender: 'w#0-1', text: '你好' }) // B4 新形
     assert.deepEqual(stripSender('裸文本'), { sender: '', text: '裸文本' })
     assert.deepEqual(stripSender(''), { sender: '', text: '' })
   })
@@ -66,9 +67,9 @@ describe('routeLetters（R9 第一视角归位）', () => {
   test('常规 agent 窗：根来信=右我、兄弟来信=左、assistant=agent、tool/摘要各归其位', () => {
     const items = routeLetters(
       [
-        msg({ role: 'user', content: '<sender id="user0">写个测试</sender>' }),
+        msg({ role: 'user', content: '<sender id="user#0" at="260908.1234">写个测试</sender>' }),
         msg({ role: 'assistant', content: '好的' }),
-        msg({ role: 'user', content: '<sender id="b2">请对齐口径</sender>' }),
+        msg({ role: 'user', content: '<sender id="buddy#b2">请对齐口径</sender>' }),
         msg({ role: 'tool', content: 'echo ok' }),
         msg({ role: 'user', content: '旧消息', tag: 'summary' }),
         msg({ role: 'system', content: 'sys prompt' }),
@@ -82,7 +83,7 @@ describe('routeLetters（R9 第一视角归位）', () => {
     assert.equal(items[1]?.side, 'agent')
     assert.equal(items[1]?.who, 'a1')
     assert.equal(items[2]?.side, 'them')
-    assert.equal(items[2]?.who, '来自 b2')
+    assert.equal(items[2]?.who, '来自 buddy#b2')
     assert.equal(items[3]?.text, 'echo ok')
     assert.equal(items[4]?.icon, '摘')
   })
@@ -91,14 +92,14 @@ describe('routeLetters（R9 第一视角归位）', () => {
     const items = routeLetters(
       [
         msg({ role: 'assistant', content: '帮我看看' }),
-        msg({ role: 'user', content: '<sender id="a1">看完了</sender>' }),
+        msg({ role: 'user', content: '<sender id="watcher#a1" at="260908.1235">看完了</sender>' }),
       ],
       ROOT_ID,
     )
     assert.equal(items[0]?.side, 'me')
     assert.equal(items[0]?.who, '我')
     assert.equal(items[1]?.side, 'them')
-    assert.equal(items[1]?.who, '来自 a1')
+    assert.equal(items[1]?.who, '来自 watcher#a1')
   })
 
   test('access_request 出 ask 项（归审面板，不入正文流）', () => {
@@ -109,7 +110,7 @@ describe('routeLetters（R9 第一视角归位）', () => {
 })
 
 describe('computeTreeRows（git 风行序：DFS/泳道/折叠）', () => {
-  const agent = (id: string, parentId: string | null) => ({ id, parentId, displayName: id, classRef: 'c', status: 'idle' })
+  const agent = (id: string, parentId: string | null) => ({ id, parentId, name: id, classRef: 'c', status: 'idle' })
 
   test('线性链：深度逐层 +1、连线逐行接父泳道、无穿越竖线', () => {
     const rows = computeTreeRows([agent(ROOT_ID, null), agent('a', ROOT_ID), agent('b', 'a')])

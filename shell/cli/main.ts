@@ -1,8 +1,8 @@
 // ============================================================
-// shell/cli/main.ts —— 参考 CLI shell（bootStem 装配，终端扮演 user0）
+// shell/cli/main.ts —— 参考 CLI shell（bootStem 装配，终端扮演根 user#0）
 //
-// 交互模型：user0 是面板（根接线 assemble:false，自身不跑 LLM 轮）——
-// 用户输入 = 以 user0 身份向当前实例投递信件；实例回信到达 user0 信箱，
+// 交互模型：根（user#0）是面板（根接线 assemble:false，自身不跑 LLM 轮）——
+// 用户输入 = 以根身份向当前实例投递信件；实例回信到达根信箱，
 // 经事件流汇总展示。ask 审批同样走信件（access_request → 确认 → access_reply）。
 //
 // 运行（S6/R11 opencode-style：`stem [path]`——在项目里直接启动，项目目录即空间）：
@@ -31,7 +31,7 @@ import {
   makeAgentID,
   makeAgentSpaceID,
   BUILTIN_TEMPLATES,
-  USER_ID,
+  ROOT_ID,
   type AgentID,
   type AgentClassID,
 } from '../../src/core/kernel'
@@ -84,7 +84,7 @@ async function createShell(): Promise<ShellState> {
     config: undefined as never,
   }
 
-  // 自治系统装配（platform.bootStem：config + 网关 + createStemSystem + user0 实例化；
+  // 自治系统装配（platform.bootStem：config + 网关 + createStemSystem + 根实例化；
   // extension 工具由 init 管线按 config.extensions 点名装载，custom 走 .stem/ 扫描）。
   const { system, source } = await bootStem({
     projectRoot: DEFAULT_PROJECT,
@@ -152,7 +152,7 @@ function handlePilotEvent(state: ShellState, event: PilotEvent): void {
     void state.dialogs.push(request).then((selected) => {
       const reply = selected[0] as AccessReply | undefined
       if (!reply) return
-      void state.kernel.access.reply({ requestId, reply }, USER_ID)
+      void state.kernel.access.reply({ requestId, reply }, ROOT_ID)
     })
     // 若该弹窗立即激活（队列空闲），打印弹窗；否则已由队列中的激活弹窗占据。
     if (state.dialogs.active) console.log('\n' + formatDialog(state.dialogs.activeRequest!))
@@ -240,7 +240,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       const agents = await state.kernel.instances.listBySpace(space.id)
       for (const a of agents) {
         const marker = a.id === state.currentAgentId ? '*' : ' '
-        console.log(` ${marker} ${a.id}  ${a.displayName}  <${a.classRef}>  parent=${a.parentId ?? '-'}  ${a.status}  turns=${a.turnCount}`)
+        console.log(` ${marker} ${a.name}#${a.id}  <${a.classRef}>  parent=${a.parentId ?? '-'}  ${a.status}  turns=${a.turnCount}`)
       }
       return false
     }
@@ -252,11 +252,11 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       }
       const userPrompt = rest[1] ?? DEFAULT_USER_PROMPT
       const agentId = await state.kernel.instantiateAgent(
-        { className: makeAgentClassID(className), parentId: makeAgentID(USER_ID), userPrompt },
+        { className: makeAgentClassID(className), parentId: ROOT_ID, userPrompt },
         DEFAULT_PROJECT,
       )
       state.currentAgentId = agentId
-      console.log(`已创建并切换到: ${agentId} (${className})`)
+      console.log(`已创建并切换到: ${state.kernel.displayOf(agentId)} (<${className}>)`)
       return false
     }
     case '/use': {
@@ -295,7 +295,7 @@ function truncate(text: string, max: number): string {
 async function main(): Promise<number> {
   const state = await createShell()
   console.log('====================================================')
-  console.log(' stem CLI shell（扮演 user0 根面板）')
+  console.log(' stem CLI shell（扮演根 user#0 面板）')
   console.log(` gateway: ${state.source}`)
   console.log(` 配置: ${DEFAULT_PROJECT}/.stem/stem.jsonc（唯一配置文件）`)
   console.log(` 注册用户工具: ${state.init.tools.length > 0 ? state.init.tools.map((t) => t.id).join(', ') : '-'}`)

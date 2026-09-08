@@ -4,7 +4,7 @@
 // 复用 system.test 的 createStemSystem 装配（FakeGateway + 内存 store），
 // 用同一对 MemoryStore 跨"三个生命周期"验证：
 //   A：装配 → 对话一轮 → 消息/实例 write-through；
-//   B：重启恢复（族谱/上下文/状态归一化/user0 幂等）→ 续对话 → 终止归档；
+//   B：重启恢复（族谱/上下文/状态归一化/根幂等）→ 续对话 → 终止归档；
 //   C：再重启（归档不加载、id 防撞）。
 // ============================================================
 
@@ -17,7 +17,7 @@ import { createStemSystem } from './system'
 import type { StemSystemDeps } from './system'
 import { MemoryMessageStore } from '../context'
 import { MemoryInstanceStore } from '../../../test/support/memoryInstanceStore'
-import { makeAgentClassID, makeAgentID, USER_ID } from '../kernel'
+import { makeAgentClassID, makeAgentID, ROOT_ID } from '../kernel'
 import { messageSeqOf } from '../context'
 
 function makeDeps(config: StemConfig = {}) {
@@ -107,10 +107,10 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     // ---------- 生命周期 B：重启恢复 ----------
     const lettersB: string[] = []
     const systemB = await boot(d, gatewayReplying('我恢复啦。'), stateStore, lettersB)
-    // 族谱恢复：user0 + child（user0 幂等，未重复注册）。
+    // 族谱恢复：根 + child（根 幂等，未重复注册）。
     const agentsB = await systemB.pilot.listAgents()
-    assert.equal(agentsB.length, 2, 'B：重启后族谱应恰为 user0 + child')
-    assert.ok(agentsB.some((a) => a.id === USER_ID) && agentsB.some((a) => a.id === childId))
+    assert.equal(agentsB.length, 2, 'B：重启后族谱应恰为 根 + child')
+    assert.ok(agentsB.some((a) => a.id === ROOT_ID) && agentsB.some((a) => a.id === childId))
     // 上下文恢复：child 消息箱完整。
     assert.equal(systemB.kernel.repository.has(childId), true)
     assert.equal(systemB.kernel.repository.list(childId).length, contextCountA)
@@ -138,17 +138,17 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     // write-through 落 store：B 新增消息同步进了持久化层。
     assert.equal(messages.loadBoxes().find((b) => b.agentId === childId)?.messages.length, idsB.length)
 
-    // 终止：实例消行 + 消息归档（语料保留在 store 底层）。
+    // 终止：实例行转墓碑（B1 地址占用永不回收）+ 消息归档（语料保留在 store 底层）。
     await systemB.pilot.terminate(childId)
     assert.equal(systemB.kernel.instances.getSync(makeAgentID(childId)), undefined)
     assert.equal(messages.loadBoxes().some((b) => b.agentId === childId), false, 'B：归档后不再出现在恢复视图')
-    assert.equal(instances.loadAll().some((i) => i.id === childId), false)
+    assert.equal(instances.loadAll().find((i) => i.id === childId)?.status, 'terminated', 'B：实例行为归档墓碑')
     await systemB.dispose()
 
     // ---------- 生命周期 C：归档不加载 + 防撞 ----------
     const systemC = await boot(d, gatewayReplying('新助手上线。'), stateStore, [])
     const agentsC = await systemC.pilot.listAgents()
-    assert.equal(agentsC.length, 1, 'C：仅剩 user0（child 归档）')
+    assert.equal(agentsC.length, 1, 'C：仅剩根（child 归档）')
     assert.equal(systemC.kernel.repository.has(childId), false)
     const newId = await systemC.pilot.instantiate({ className: 'assistant', userPrompt: 'hi' }, '/proj')
     await systemC.pilot.sendMessage(newId, '在吗')

@@ -2,7 +2,7 @@
 // core/kernel/Kernel.test.ts —— 集成测试（邮局模式）
 //
 // 覆盖：简单对话闭环 / 发送者戳 / 状态机 / 邮局信件累积 /
-// 工具轮（含 onRecord 自动记录）/ user0 与 agent 一视同仁。
+// 工具轮（含 onRecord 自动记录）/ user#0 与 agent 一视同仁。
 // ============================================================
 
 import { describe, test } from 'node:test'
@@ -10,9 +10,15 @@ import assert from 'node:assert/strict'
 import { FakeGateway, textEvents, abortError } from '../gateway'
 import type { LLMRequest } from '../gateway'
 import type { AgentClass } from './types'
-import { makeAgentClassID, makeAgentID } from './types'
+
+/** 打戳断言助手（B4 形制：`<sender id="全名" at="yymmdd.hhmm">正文</sender>`）。 */
+function stamped(identity: string, body: string): RegExp {
+  const esc = (t: string) => t.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&')
+  return new RegExp(`^<sender id="${esc(identity)}" at="\\d{6}\\.\\d{4}">${esc(body)}</sender>$`)
+}
+import { makeAgentClassID, makeAgentID, ROOT_ID } from './types'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
-import { BUILTIN_TEMPLATES, USER_ID } from './Kernel'
+import { BUILTIN_TEMPLATES } from './Kernel'
 
 const _model = { provider: 'opencode', id: 'test-model' }
 
@@ -29,7 +35,7 @@ const toolAssistant: AgentClass = {
 const templatesWithTool = [...BUILTIN_TEMPLATES, toolAssistant]
 
 describe('Kernel 邮局模式', () => {
-  test('简单对话闭环：user0 发消息 → agent 回复 → user0 收到发送者戳消息', async () => {
+  test('简单对话闭环：user#0 发消息 → agent 回复 → user#0 收到发送者戳消息', async () => {
     const gateway = new FakeGateway(() => textEvents('hello'))
     const { kernel, deliveries } = await createKernelHarness(gateway)
     const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
@@ -39,7 +45,8 @@ describe('Kernel 邮局模式', () => {
 
     assert.equal(delivery.kind, 'user')
     const letter = delivery.letters[0]
-    assert.equal(letter?.content, `<sender id="${agentId}">hello</sender>`)
+    // B4 戳面 = 全名 + 分钟时刻（§H-7：断言面统一走 stamp 代数）。
+    assert.match(String(letter?.content ?? ''), stamped(kernel.displayOf(agentId), 'hello'))
 
     const instance = await kernel.instances.get(agentId)
     assert.equal(instance.turnCount, 1)
@@ -49,7 +56,7 @@ describe('Kernel 邮局模式', () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
     const { kernel, deliveries, timers } = await createKernelHarness(gateway)
     const agentId = await kernel.instantiateAgent(
-      { className: makeAgentClassID('assistant'), parentId: makeAgentID(USER_ID), userPrompt: 'hello' },
+      { className: makeAgentClassID('assistant'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hello' },
       '/proj',
     )
 
@@ -75,7 +82,7 @@ describe('Kernel 邮局模式', () => {
     // 首信（立即送信）
     await kernel.sendUserMessage(agentId, 'first')
     await deliveries.next()
-    assert.ok(timers.count() >= 1, '送信后开始倒计时（agent + user0 信箱）')
+    assert.ok(timers.count() >= 1, '送信后开始倒计时（agent + user#0 信箱）')
 
     // cooldown 期间两封信 → 合并
     await kernel.sendUserMessage(agentId, 'second')
@@ -85,13 +92,14 @@ describe('Kernel 邮局模式', () => {
 
     // 历史应包含：默认首信 + first + second + third，且 second/third 合并为一次回复
     const state = await kernel.contextManager.getState(agentId)
-    const userContents = state.messages.filter((m) => m.message.role === 'user').map((m) => m.message.content)
+    const userContents = state.messages.filter((m) => m.message.role === 'user').map((m) => String(m.message.content))
     assert.equal(userContents.length, 4, '默认首信 + 三次用户消息')
-    // 管理员统一打发送者戳（from=user0）。
-    assert.deepEqual(userContents.slice(1), [
-      '<sender id="user0">first</sender>',
-      '<sender id="user0">second</sender>',
-      '<sender id="user0">third</sender>',
+    // 管理员统一打发送者戳（from=根 → 全名 user#0 + 时刻；剥 at= 后比对内容）。
+    assert.deepEqual(userContents.map((c) => c.replace(/ at="\d{6}\.\d{4}"/, '')), [
+      userContents[0]!.replace(/ at="\d{6}\.\d{4}"/, ''),
+      '<sender id="user#0">first</sender>',
+      '<sender id="user#0">second</sender>',
+      '<sender id="user#0">third</sender>',
     ])
     assert.equal(state.messages.filter((m) => m.message.role === 'assistant').length, 2)
   })
@@ -124,7 +132,7 @@ describe('Kernel 邮局模式', () => {
     await kernel.sendUserMessage(agentId, 'echo hi')
     timers.flushAll()
     const delivery = (await deliveries.next())!
-    assert.equal(delivery.letters[0]?.content, `<sender id="${agentId}">工具返回了</sender>`)
+    assert.match(String(delivery.letters[0]?.content ?? ''), stamped(kernel.displayOf(agentId), '工具返回了'))
 
     // onRecord 自动记录（called + success）已入邮局（tool 结果消息进入仓库）
     const state = await kernel.contextManager.getState(agentId)
@@ -198,7 +206,7 @@ describe('Kernel 邮局模式', () => {
 
   test('系统工具：agent_class_create/list（admin）创建类，且类不含实例数据', async () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
-    // user 类清单显式声明管理工具 = user0 生效权限（族谱台账物化，白名单语义）。
+    // user 类清单显式声明管理工具 = user#0 生效权限（族谱台账物化，白名单语义）。
     const { kernel, tools } = await createKernelHarness(gateway, {
       userClass: {
         tools: {
@@ -210,8 +218,8 @@ describe('Kernel 邮局模式', () => {
     })
     await kernel.registerSystemTools(tools)
 
-    // user0 身份调用：registry/ask 总线经 AccessResolver 查询台账（不再手传权限层）。
-    const adminCtx = { agentId: USER_ID, spaceId: 'space-1' }
+    // user#0 身份调用：registry/ask 总线经 AccessResolver 查询台账（不再手传权限层）。
+    const adminCtx = { agentId: ROOT_ID, spaceId: 'space-1' }
 
     const created = await tools.execute(
       {
@@ -316,7 +324,7 @@ describe('Kernel 邮局模式', () => {
     )
   })
 
-  test('中断：user0 中断活跃 agent → interrupted + 消息闭合；非祖先中断被拒', async () => {
+  test('中断：user#0 中断活跃 agent → interrupted + 消息闭合；非祖先中断被拒', async () => {
     // 慢流网关：产出部分文本后等待 signal（模拟网络流）。
     const gateway = new FakeGateway(async function* (_req, options) {
       yield { type: 'text-delta', text: 'partial' }
@@ -336,8 +344,8 @@ describe('Kernel 邮局模式', () => {
     // 等待 agent 进入 thinking（processDelivery 已开始，gateway 挂起等 signal）。
     await waitForStatus(kernel, agentId, 'thinking')
 
-    // user0 中断（当前活跃 agent）。
-    await kernel.interruptAgent(agentId as string, { by: USER_ID })
+    // user#0 中断（当前活跃 agent）。
+    await kernel.interruptAgent(agentId as string, { by: ROOT_ID })
     await new Promise((resolve) => setTimeout(resolve, 20))
 
     const instance = await kernel.instances.get(agentId)

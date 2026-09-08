@@ -13,7 +13,7 @@ import { DefaultTemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
 import { DefaultRuntime } from './Runtime'
 import type { AgentClass } from './types'
-import { makeAgentClassID, makeAgentID, makeAgentSpaceID } from './types'
+import { makeAgentClassID, makeAgentID, makeAgentSpaceID, ROOT_ID } from './types'
 
 const cls: AgentClass = {
   name: makeAgentClassID('chat'),
@@ -40,35 +40,35 @@ async function makeRuntime(
   const logs: import('../logging').LogEvent[] = []
   const templates = new DefaultTemplateRegistry(extra?.template !== undefined ? [cls, extra.template] : [cls])
   const instances = new DefaultInstanceManager(templates)
-  // 根 agent（user0）：普通实例（parentId=null），作为最终回复投递目标。
+  // 根 agent（根）：普通实例（parentId=null），作为最终回复投递目标。
   await instances.instantiate({
     className: (extra?.template ?? cls).name,
     parentId: null,
     userPrompt: '',
     spaceId: makeAgentSpaceID('__meta__'),
-    agentId: 'user0',
+
   })
   const repository = new DefaultRepository()
   const courier = new DefaultCourier({ repository, defaultCountdownMs: 0 })
   const contextManager = new DefaultContextManager({ repository, courier })
   repository.onChange = (agentId) => contextManager.handleChange(agentId)
-  // 收集寄给 user0 的信件。
+  // 收集寄给 user#0 的信件。
   const letters: Array<{ from: string; content: string }> = []
   const originalDeposit = contextManager.deposit.bind(contextManager)
   contextManager.deposit = (agentId, letter, from) => {
-    if (agentId === 'user0') letters.push({ from: from ?? '', content: String(letter.content) })
+    if (agentId === ROOT_ID) letters.push({ from: from ?? '', content: String(letter.content) })
     return originalDeposit(agentId, letter, from)
   }
 
   const instance = await instances.instantiate({
     className: extra?.template !== undefined ? extra.template.name : cls.name,
-    parentId: makeAgentID('user0'),
+    parentId: makeAgentID(ROOT_ID),
     userPrompt: 'hi',
     spaceId: makeAgentSpaceID('space-1'),
   })
   await contextManager.register({ agentId: instance.id, systemPrompt: cls.systemPrompt, onDelivery: () => {} })
-  // user0 作为接收者注册（最终回复投递目标）。
-  await contextManager.register({ agentId: 'user0', assemble: false, onDelivery: () => {} })
+  // user#0 作为接收者注册（最终回复投递目标）。
+  await contextManager.register({ agentId: ROOT_ID, assemble: false, onDelivery: () => {} })
 
   const runtime = new DefaultRuntime({
     gateway,
@@ -116,7 +116,7 @@ describe('DefaultRuntime（被动驱动）', () => {
 
     await runtime.processDelivery(deliveryFor(agentId))
 
-    // 最终回复投递到创建者（user0）上下文（发原始文本，戳由管理员生成）。
+    // 最终回复投递到创建者（根）上下文（发原始文本，戳由管理员生成）。
     assert.equal(letters.length, 1)
     assert.equal(letters[0]?.content, 'hello')
     assert.equal((await instances.get(agentId)).status, 'holding')

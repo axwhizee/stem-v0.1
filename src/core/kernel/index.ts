@@ -24,7 +24,7 @@ export type { TemplateRegistry } from './TemplateRegistry'
 export { DefaultTemplateRegistry } from './TemplateRegistry'
 
 // 实例管理
-export type { InstantiateOptions, InstanceManager } from './InstanceManager'
+export type { InstantiateOptions, InstanceManager, ResolveResult } from './InstanceManager'
 export { DefaultInstanceManager } from './InstanceManager'
 export type { InstanceStore } from './store'
 export { PersistedInstanceManager, PersistedSpaceManager } from './persisted'
@@ -38,10 +38,12 @@ export { DefaultRuntime } from './Runtime'
 
 // Kernel 容器
 export type { KernelOptions, ClassStore } from './Kernel'
-export { Kernel, BUILTIN_TEMPLATES, USER_ID } from './Kernel'
+export { Kernel, BUILTIN_TEMPLATES } from './Kernel'
 
-// 内置 user 类（根模板，user0 采用）
-export { USER_CLASS_ID } from './types'
+// 身份常量与全名呈现（根 id `0` / 缺省称呼 user / `name#id`）
+export { USER_CLASS_ID, ROOT_ID, ROOT_NAME, formatFull, parentIdOf, AGENT_ID_PATTERN } from './types'
+
+// 内置 user 类（根模板）
 export { BUILTIN_AGENT_CLASSES, USER_DEFAULT, ASSISTANT, buildUserClass } from './builtin/agents'
 export type { UserClassConfig } from './builtin/agents'
 

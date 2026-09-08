@@ -12,7 +12,7 @@
 //     经 pilot / context_apply 工具调用——策略即 agent 自我进化的
 //     两大承载之一（另一为 agent 类模板）；
 //   - 策略需要"人设"时用**模块扮演 agent**（role）：懒生成的系统实例
-//     （父 = 宿主 agent，面板态不跑 LLM 轮），pilot 扮演 user0 的同构推广；
+//     （父 = 宿主 agent，面板态不跑 LLM 轮），pilot 扮演根的同构推广；
 //   - 策略模块跑在系统信任级（与 pilot 同级，非沙箱模型）：
 //     StrategyApi 授予仓库读写 + 邮局投递 + 造 agent（grant 加法权限面）能力。
 //

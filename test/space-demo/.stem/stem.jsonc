@@ -19,10 +19,10 @@
   },
   "autoApprove": false,
   "maxSteps": 8,
-  // user0 内嵌 agent 类（元 agent 完整可配；tools 给出则整表替换默认——
-  // 键即白名单锁 user0 自己；对子孙只供显式判定，缺席 ≠ 否决，显式 deny = 铁律）。
+  // 根（user#0）的类配置（完整可配）。tools = 根收敛清单：键即白名单——
+  // 未列出的工具对根一律 deny；对子孙只供显式判定（缺席 ≠ 否决，显式 deny 锁链）。
   "user": {
-    "model": "alibaba/qwen3.8-flash",   // 可指定user0使用的模型，一般来说实例创建时会默认继承父实例使用的模型
+    "model": "alibaba/qwen3.8-flash",   // 可指定根使用的模型，一般来说实例创建时会默认继承父实例使用的模型
     "tools": {
       "access_reply": "allow",
       "agent_instantiate": "allow",

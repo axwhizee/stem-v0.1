@@ -22,8 +22,32 @@ export type AgentSpaceID = string & { readonly [agentSpaceId]: 'AgentSpaceID' }
 /** 项目/工作区引用（本阶段用字符串路径，后续可升级为 WorkspaceRef）。 */
 export type ProjectRef = string
 
-/** user 类 id（内置根模板；user0 采用此类实例化。S9 自 userClass.ts 迁来 types 之家）。 */
+/** user 类 id（内置根模板；根实例采用此类。name 即 id 的类表世界）。 */
 export const USER_CLASS_ID = makeAgentClassID('user')
+
+/**
+ * 根 id = 出生路径的起点（B1：id 是纯推导的族谱地址，系统全托管）：
+ * 根 = `0`；子 = `<父id>-<出生序号>`（序号 1 起、永不回收，terminate 留墓碑）。
+ * 代际 = 段数、父 = 去尾段、祖先链 = 前缀——零查询纯字符串推导。
+ */
+export const ROOT_ID = makeAgentID('0')
+
+/** 根的缺省 name（全名呈现 `user#0`；config.user.name 可给实值）。 */
+export const ROOT_NAME = 'user'
+
+/** 出生路径 id 的合法形：数字段以 `-` 连接（`0`、`0-3`、`0-3-2-7`）。 */
+export const AGENT_ID_PATTERN = /^\d+(-\d+)*$/
+
+/** 路径父解析：`0-3-2` → `0-3`；根 `0` → null（纯推导，不查树）。 */
+export function parentIdOf(agentId: AgentID): AgentID | null {
+  const cut = agentId.lastIndexOf('-')
+  return cut < 0 ? null : (agentId.slice(0, cut) as AgentID)
+}
+
+/** 全名呈现（信件戳/列表/审批卡/错误 message 统一 `name#id`）。 */
+export function formatFull(name: string, agentId: AgentID | string): string {
+  return `${name}#${agentId}`
+}
 
 export function makeAgentClassID(id: string): AgentClassID {
   return id as AgentClassID
@@ -42,9 +66,11 @@ export function makeAgentSpaceID(id: string): AgentSpaceID {
 /**
  * 实例状态机：
  *   idle →(邮局送信)→ thinking(请求已发) →(LLM 返回)→ holding(等待下一次送信)；
- *   interrupted：当前轮被中断（用户/进程/网络/工具错误），实例仍存活、消息完整，下一次送信自动恢复。
+ *   interrupted：当前轮被中断（用户/进程/网络/工具错误），实例仍存活、消息完整，下一次送信自动恢复；
+ *   terminated：归档墓碑——个体已销毁后**地址与名字的占用记录**（序号永不回收，
+ *   历史信件指错实体绝对禁止）。只在持久层在场，永不进活体面（list/get/族谱皆不可见）。
  */
-export type AgentStatus = 'idle' | 'thinking' | 'holding' | 'interrupted'
+export type AgentStatus = 'idle' | 'thinking' | 'holding' | 'interrupted' | 'terminated'
 
 // ---------- AgentClass（模板，用户主权的载体） ----------
 
@@ -75,7 +101,7 @@ export interface AgentClass {
   /**
    * true = 模块扮演面板（不组装、不跑 LLM 轮，信件由扮演模块消费）——
    * 策略 role（context 模块扮演）经此字段声明。**面板性双入径**：根实例
-   * （user0，parentId=null）不经此字段，由 kernel 根接线 `assemble:false`
+   * （user#0，parentId=null）不经此字段，由 kernel 根接线 `assemble:false`
    * 获得同一形态（pilot 扮演）——面板性皆结构性事实，非类特权。
    */
   readonly panel?: boolean
@@ -98,7 +124,7 @@ export type ModelOrigin =
   | 'class'
   /** 父档案继承而来（父的生效模型下传）。 */
   | 'inherited'
-  /** 家学 = 根（user0）的类模型（config.user.model，全链锚点）。 */
+  /** 家学 = 根（user#0）的类模型（config.user.model，全链锚点）。 */
   | 'home'
 
 /** 模型绑定 = 生效模型 + 解析命中层（git-blame 语义）。 */
@@ -111,17 +137,21 @@ export interface ModelBinding {
 
 /**
  * AgentInstance（运行时原子单位）。
- * **parentId 即 creatorId 合并**：谁创建实例，谁就是族谱父（user0 为 null 即根）。
+ * **id = 出生路径**（B1 系统全托管：根 `0`，子 `<父id>-<序号>`；不可变、不复用）。
+ * **parentId 即 creatorId 合并**：谁创建实例，谁就是族谱父（根为 null 即根）。
  * 运行时属性多于工具调用参数（status/turnCount/totalCost 等由内核维护）。
  */
 export interface AgentInstance {
   readonly id: AgentID
   /** 模板名（即模板键）。 */
   readonly classRef: AgentClassID
-  /** 族谱父（= 创建者；user0 为 null 即根）；创建时确定、不可变。 */
+  /** 族谱父（= 创建者；根为 null）；创建时确定、不可变，且是 id 的前缀真相。 */
   readonly parentId: AgentID | null
-  /** 用户可命名（可接管改名）。 */
-  displayName: string
+  /**
+   * **全局唯一称呼**（B2）：出生 = 显式指定（撞名拒）或确定性推导 `类名-N`；
+   * 运行期可经 agent_update.name 改（撞名拒）；呈现面统一 `name#id`。
+   */
+  name: string
   readonly spaceId: AgentSpaceID
   status: AgentStatus
   turnCount: number
@@ -146,10 +176,10 @@ export interface AgentInstance {
 }
 
 /** 用户接管/微调可更新的字段。 */
-/** 实例参数更新补丁（kernel.updateAgent 的合法可写面——类定义/拓扑/
+/** 实例参数更新补丁（kernel.updateAgent 的合法可写面——类定义/父子拓扑/
  *  策略/systemPrompt/userPrompt 永不在内：族谱与类文件事实不走此通道）。 */
 export interface AgentInstancePatch {
-  displayName?: string
+  name?: string
   toolOverride?: Readonly<Record<string, ToolAccess>>
   model?: ModelRef
 }
@@ -168,7 +198,11 @@ export type KernelError =
   | { readonly kind: 'invalid_template'; readonly classId: AgentClassID; readonly message: string }
   | { readonly kind: 'template_exists'; readonly classId: AgentClassID }
   | { readonly kind: 'agent_not_found'; readonly agentId: AgentID }
+  /** 寻址歧义（唯一前缀律被破：多活体共享前缀；candidates = name#id 列表）。 */
+  | { readonly kind: 'agent_ref_ambiguous'; readonly ref: string; readonly candidates: readonly string[] }
   | { readonly kind: 'space_not_found'; readonly spaceId: AgentSpaceID }
   | { readonly kind: 'agent_conflict'; readonly message: string }
+  /** 称呼冲突（全局唯一执法面含墓碑；出生撞名/改名撞名/装载撞名三级共用）。 */
+  | { readonly kind: 'agent_name_conflict'; readonly name: string; readonly message: string }
   /** 族谱解析链无模型锚（正常不发生：boot 硬校验 config.user.model；恢复残卷防御）。 */
   | { readonly kind: 'model_unresolved'; readonly agentId: AgentID }

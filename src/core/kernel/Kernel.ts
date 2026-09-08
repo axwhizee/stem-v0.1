@@ -16,7 +16,7 @@
 //   - 事件（stream/letter/status/notice）统一经 events hub 发布（PilotEvent）；
 //   - 访问确认（ask）消息化：投递申请到根信箱 + access_reply 工具解析（见 tools/accessRequest）。
 // 参与者查询：复用 instances + 根（无独立注册表）。
-// user0（根）是 user 类的普通实例（parentId=null），与全体 agent 平等。
+// 根（user#0）是 user 类的普通实例（parentId=null、id 纯推导 `0`），与全体 agent 平等。
 // ============================================================
 
 import type { ModelGateway } from '../gateway'
@@ -44,7 +44,7 @@ interface AgentUpdateSpec {
   readonly agentId: string
   /** 发起者；缺省 = 跳过可见域判定（pilot 信任通道）。 */
   readonly by?: string
-  readonly displayName?: string
+  readonly name?: string
   readonly model?: ModelRef
   /** 收敛 patch：提及键合并，逐键对现自身清单只许收敛。 */
   readonly toolsPatch?: Readonly<Record<string, ToolAccess>>
@@ -69,17 +69,14 @@ import { createSystemTools } from './systemTools'
 import { ASSISTANT, buildUserClass } from './builtin/agents'
 import type { UserClassConfig } from './builtin/agents'
 import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, ProjectRef } from './types'
-import { makeAgentID, USER_CLASS_ID } from './types'
+import { makeAgentID, ROOT_ID, ROOT_NAME, USER_CLASS_ID } from './types'
 
 /**
- * 内置模板（S9 类形态统一：唯一定义域 `kernel/builtin/agents.ts`）。
+ * 内置模板（类形态统一：唯一定义域 `kernel/builtin/agents.ts`）。
  * = assistant 占位类（tools 不写 = 完整继承父档案，模型落四级解析链——
  * internal 保底一张白纸）；user 类不在内（config 驱动，构造期 buildUserClass 装配）。
  */
 export const BUILTIN_TEMPLATES: readonly AgentClass[] = [ASSISTANT]
-
-/** 用户面板固定 id。 */
-export const USER_ID = 'user0'
 
 export interface KernelOptions {
   readonly gateway: ModelGateway
@@ -101,7 +98,7 @@ export interface KernelOptions {
   /** 日志记录器（缺省内存版）。 */
   readonly logger?: Logger
   /**
-   * user0 内嵌 agent 类配置（config.user 全对象：tools/systemPrompt/
+   * 根的类配置（config.user 全对象：tools/systemPrompt/
    * sendCountdown/model/contextStrategy）；tools 缺省 = 不设限（完整继承
    * 注册表出生表面；推荐清单实值住首启模板 defaults.ts）。
    */
@@ -122,7 +119,7 @@ export interface KernelOptions {
   readonly classStore?: ClassStore
   /**
    * 项目空间身份（S6/R3/R11：`.stem` = 世界，一进程一空间）。
-   * 根（user0）挂此空间（废除伪 space 行）；缺省 = 匿名单空间（纯内存/测试）。
+   * 根挂此空间（废除伪 space 行）；缺省 = 匿名单空间（纯内存/测试）。
    */
   readonly project?: ProjectRef
 }
@@ -158,11 +155,11 @@ export class Kernel {
   private readonly project?: ProjectRef
   /** 启动期从持久化端口恢复出的实例（构造末尾接线上下文用；空 = 首启/纯内存）。 */
   private readonly restoredInstances: readonly AgentInstance[]
-  /** user0 出生显示名（S9：config.user.displayName，缺省 'User'——实例参数经配置面给）。 */
-  private readonly rootDisplayName: string
+  /** 根的出生称呼（config.user.name，缺省 'user'——实例参数经配置面给）。 */
+  private readonly rootName: string
 
   constructor(options: KernelOptions) {
-    this.rootDisplayName = options.userClass?.displayName ?? 'User'
+    this.rootName = options.userClass?.name ?? ROOT_NAME
     this.templates = new DefaultTemplateRegistry([
       buildUserClass(options.userClass),
       ...(options.templates ?? BUILTIN_TEMPLATES),
@@ -216,7 +213,7 @@ export class Kernel {
       askRoot: (request) =>
         this.contextManager.deposit(
           this.lineage.getRoot(makeAgentID(request.agentId)),
-          { role: 'user', content: formatAccessRequest(request) },
+          { role: 'user', content: formatAccessRequest(request, (id) => this.displayOf(id)) },
           request.agentId,
         ),
       getRoot: (agentId) => this.lineage.getRoot(makeAgentID(agentId)),
@@ -245,6 +242,8 @@ export class Kernel {
       spawnRole: (hostAgentId, role) => this.spawnRoleAgent(hostAgentId, role),
       spawnWorker: (roleAgentId, task, spec) => this.spawnStrategyWorker(roleAgentId, task, spec),
       terminateWorker: (workerId, by) => this.terminateAgent(workerId, { by }),
+      // 信件戳身份面（B4）：from id → `name#id` 全名。
+      identityOf: (agentId) => this.displayOf(agentId),
       onLog: (event) => this.emitLog(event),
     })
     // 仓库 onChange → 管理员处理入口。
@@ -302,7 +301,7 @@ export class Kernel {
   /**
    * 恢复接线（构造末尾调用一次）：为启动期恢复出的每个实例注册上下文处理
    * （restore=true：仓库箱已由 restoreFromStore 重建，只补管理员 box + 快递员注册）。
-   * 根（parentId=null，即 user0）沿用 registerRootAgent 的面板接线（assemble:false + letter 事件）。
+   * 根（parentId=null，即根）沿用 registerRootAgent 的面板接线（assemble:false + letter 事件）。
    */
   private wireRestoredInstances(): void {
     this.replayLineage()
@@ -340,7 +339,7 @@ export class Kernel {
   /**
    * 类装载后重接线（createStemSystem 在 runInit 完成后调一次）：构造期恢复接线
    * 时空间类尚未入模板表，箱的 strategy/custom 落为兜底（cortex 类会被静默接成
-   * classic——S10 实测抓获）。类表载齐后按模板实况补对齐；根箱（user0）走
+   * classic——S10 实测抓获）。类表载齐后按模板实况补对齐；根箱（user#0）走
    * userClass 同步构造不受此限，跳过。
    */
   async realignRestoredInstances(): Promise<void> {
@@ -417,19 +416,18 @@ export class Kernel {
       .filter((p): p is readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>] => p !== undefined)
   }
 
-  /** 注册根 agent（user0）：从内置 user 类实例化（parentId=null 即根，与其他实例等同）。 */
-  /** 存量根的身份对齐（pilot 幂等分支调用）：config.user.displayName 跨重启生效。 */
-  async alignRootDisplayName(): Promise<void> {
-    const root = this.instances.getSync(makeAgentID(USER_ID))
-    if (root !== undefined && root.displayName !== this.rootDisplayName) {
-      await this.instances.update(makeAgentID(USER_ID), { displayName: this.rootDisplayName })
+  /** 注册根 agent：从内置 user 类实例化（parentId=null 即根，与其他实例等同；id = 出生路径 `0`）。 */
+  /** 存量根的身份对齐（pilot 幂等分支调用）：config.user.name 跨重启生效。 */
+  async alignRootName(): Promise<void> {
+    const root = this.instances.getSync(ROOT_ID)
+    if (root !== undefined && root.name !== this.rootName) {
+      await this.instances.update(ROOT_ID, { name: this.rootName })
     }
   }
 
-  async registerRootAgent(displayName?: string): Promise<AgentID> {
+  async registerRootAgent(name?: string): Promise<AgentID> {
     const template = await this.templates.get(USER_CLASS_ID)
-    // S6/R11：根挂**真实项目空间**（废除旧 getOrCreate('user0') 伪空间行——
-    // 全体平等原则下根不需要专属空间；老卷残留由宿主存储层 v2 迁移归并）。
+    // 根挂**真实项目空间**（废除旧伪空间行——全体平等原则下根不需要专属空间）。
     const rootSpace = await this.spaces.getOrCreate(this.project ?? '')
     const rootViolations = this.validateAccessSteps(undefined, this.labeledSteps([template.tools], '根收敛'))
     if (rootViolations.length > 0) {
@@ -440,12 +438,11 @@ export class Kernel {
       parentId: null,
       userPrompt: '',
       spaceId: rootSpace.id,
-      agentId: USER_ID,
     })
     // 能力绑定（根：自身清单 = user 类 tools 整表，物化生效权限；
     // 模型相：根的类基因 = 家学锚点 config.user.model，全链默认值）。
     this.lineage.attach({
-      agentId: USER_ID,
+      agentId: instance.id,
       parentId: null,
       steps: [template.tools],
       caps: this.birthCaps(),
@@ -458,11 +455,11 @@ export class Kernel {
       classId: instance.classRef,
       parentId: '',
     })
-    // 出生显示名：显式参数 > config.user.displayName > 'User'。
-    const rootName = displayName ?? this.rootDisplayName
-    if (rootName !== instance.displayName) await this.instances.update(makeAgentID(USER_ID), { displayName: rootName })
+    // 出生称呼：显式参数 > config.user.name > 'user'。
+    const rootName = name ?? this.rootName
+    if (rootName !== instance.name) await this.instances.update(instance.id, { name: rootName })
     await this.contextManager.register({
-      agentId: USER_ID,
+      agentId: instance.id,
       systemPrompt: template.systemPrompt,
       sendCountdownMs: template.sendCountdown ?? 0,
       assemble: false,
@@ -479,12 +476,28 @@ export class Kernel {
 
   /** 用户发送消息（默认发往当前选中的 agent）。 */
   async sendUserMessage(agentId: string, text: string): Promise<void> {
-    await this.sendMessage(USER_ID, agentId, text)
+    await this.sendMessage(ROOT_ID, agentId, text)
+  }
+
+  /**
+   * 寻址解析（B3 三形态统一入口，写面专用）：`name#id` 精确制导 → 精确 id →
+   * 唯一 id 前缀 → name。失败抛 agent_not_found / agent_ref_ambiguous（带候选）。
+   */
+  resolveAgent(ref: string): AgentID {
+    const result = this.instances.resolve(ref)
+    if ('found' in result) return result.found
+    if ('ambiguous' in result) throw { kind: 'agent_ref_ambiguous', ref, candidates: result.ambiguous }
+    throw { kind: 'agent_not_found', agentId: makeAgentID(ref) }
+  }
+
+  /** 全名呈现（`name#id`；信件戳/参与者/错误 message 的统一出口）。 */
+  displayOf(agentId: string): string {
+    return this.instances.displayOf(agentId)
   }
 
   /**
    * agent 间通信（无总线，直接投递到上下文管理员）。
-   * from/to 为参与者 id（user0 或 agent 实例 id）。
+   * from/to 为参与者 id（出生路径）。
    */
   async sendMessage(from: string, to: string, payload: string): Promise<void> {
     this.emitLog({
@@ -548,7 +561,7 @@ export class Kernel {
     })
 
     // 模块扮演面板（class panel=true：策略 role 等）：不组装、不跑 LLM 轮，
-    // 信件由扮演模块消费（信箱配对 waitForReply / 审计），与 user0 面板同构。
+    // 信件由扮演模块消费（信箱配对 waitForReply / 审计），与根面板同构。
     const isPanel = template.panel === true
     await this.contextManager.register({
       agentId: instance.id,
@@ -585,13 +598,13 @@ export class Kernel {
 
     // userPrompt 作为首封信投递（from=父，管理员打戳）；面板 role 无任务信。
     if (instance.userPrompt !== '') {
-      await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt }, instance.parentId ?? USER_ID)
+      await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt }, instance.parentId ?? ROOT_ID)
     }
     return instance.id
   }
 
   /**
-   * 策略扮演 agent 懒生成（模块扮演模式：pilot 扮演 user0 的同构推广）。
+   * 策略扮演 agent 懒生成（模块扮演模式：pilot 扮演根的同构推广）。
    * 父 = 宿主 agent（级联回收 + 族谱诚实）；grant 加法权限面；已存在则复用
    * （重启后 roleAgentId 指针丢失时按 classRef 找回，天然幂等）。
    */
@@ -650,7 +663,7 @@ export class Kernel {
     const target = makeAgentID(agentId)
     const subtree = [target, ...this.lineage.getDescendants(target)]
     await this.instances.terminate(target, {
-      by: makeAgentID(opts?.by ?? USER_ID),
+      by: makeAgentID(opts?.by ?? ROOT_ID),
       recursive: opts?.recursive,
     })
     for (const id of subtree) {
@@ -665,7 +678,7 @@ export class Kernel {
    * 中断权与销毁权同源：自身或祖先（根为全树祖先，天然有权；无 agent 特判）。
    */
   async interruptAgent(agentId: string, opts?: { by?: string }): Promise<void> {
-    const by = makeAgentID(opts?.by ?? USER_ID)
+    const by = makeAgentID(opts?.by ?? ROOT_ID)
     const target = makeAgentID(agentId)
     // 中断权 = 可见域（自身或祖先，S5.1 统一树谓词）。
     if (!this.lineage.canReach(by, target)) {
@@ -731,9 +744,9 @@ export class Kernel {
       patch.model = spec.model
       fields.push('model')
     }
-    if (spec.displayName !== undefined) {
-      patch.displayName = spec.displayName
-      fields.push('displayName')
+    if (spec.name !== undefined) {
+      patch.name = spec.name
+      fields.push('name')
     }
     if (fields.length === 0) return
     await this.instances.update(id, patch)
@@ -787,7 +800,7 @@ export class Kernel {
     return this.instantiateAgent(
       {
         className,
-        parentId: makeAgentID(USER_ID),
+        parentId: ROOT_ID,
         userPrompt: opts?.userPrompt ?? '你好，请做一个简短的自我介绍。',
       },
       project,
@@ -810,15 +823,15 @@ export class Kernel {
     return this.contextManager.overview(agentId)
   }
 
-  /** 参与者列表（复用实例 + user0，无独立注册表）。 */
+  /** 参与者列表（复用实例 + 根，无独立注册表；呈现面统一 name#id——可直接作 mail to）。 */
   async listParticipants(): Promise<string[]> {
     const spaces = await this.spaces.list()
-    const ids: string[] = [USER_ID]
+    const ids: string[] = [ROOT_ID]
     for (const space of spaces) {
       const agents = await this.instances.listBySpace(space.id)
       ids.push(...agents.map((a) => a.id))
     }
-    return ids
+    return ids.map((id) => this.instances.displayOf(id))
   }
 
   private handleDelivery(delivery: MailDelivery): void {

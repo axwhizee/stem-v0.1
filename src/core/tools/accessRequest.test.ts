@@ -21,7 +21,7 @@ const makeBus = (opts: { resolve?: AccessResolver; autoApprove?: boolean } = {})
   const asked: unknown[] = []
   const bus = new DefaultAccessAskBus({
     askRoot: (req) => void asked.push(req),
-    getRoot: () => 'user0',
+    getRoot: () => '0',
     ...(opts.resolve !== undefined ? { resolve: opts.resolve } : {}),
     ...(opts.autoApprove !== undefined ? { autoApprove: opts.autoApprove } : {}),
   })
@@ -56,7 +56,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     assert.equal(req.accessKey, 'read')
     assert.equal(req.agentId, 'a1')
 
-    await bus.reply({ requestId: req.id, reply: 'once' }, 'user0')
+    await bus.reply({ requestId: req.id, reply: 'once' }, '0')
     await execution
   })
 
@@ -69,7 +69,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     assert.equal(asked.length, 1)
     const req = asked[0] as { id: string }
     table['a1/read'] = 'deny' // 根在答复前经 agent_update 把该键收严
-    await bus.reply({ requestId: req.id, reply: 'always' }, 'user0')
+    await bus.reply({ requestId: req.id, reply: 'always' }, '0')
     await assert.rejects(execution, (e: unknown) => (e as { kind?: string }).kind === 'access_rejected')
     assert.deepEqual(bus.listApprovals(), [], 'deny 复核的拒绝不得留下 always 豁免备忘')
   })
@@ -83,7 +83,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     await tick()
     assert.equal(asked.length, 1, '无判定无默认 → ask')
     const pending = bus.list()[0]!
-    await bus.reply({ requestId: pending.id, reply: 'once' }, 'user0')
+    await bus.reply({ requestId: pending.id, reply: 'once' }, '0')
     await execution
   })
 
@@ -97,7 +97,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
       () => bus.reply({ requestId: pending!.id, reply: 'once' }, 'other-agent'),
       (e: unknown) => (e as { kind: string }).kind === 'access_reply_not_root',
     )
-    await bus.reply({ requestId: pending!.id, reply: 'always' }, 'user0')
+    await bus.reply({ requestId: pending!.id, reply: 'always' }, '0')
     await execution
   })
 
@@ -106,7 +106,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     const execution = bus.assert({ accessKey: 'bash', agentId: 'a2' })
     await tick()
     const pending = bus.list()[0]!
-    void bus.reply({ requestId: pending.id, reply: 'reject', message: '不允许' }, 'user0')
+    void bus.reply({ requestId: pending.id, reply: 'reject', message: '不允许' }, '0')
     await assert.rejects(
       () => execution,
       (e: unknown) => {
@@ -130,7 +130,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     const first = bus.assert({ accessKey: 'read', agentId: 'a1' })
     await tick()
     assert.equal(asked.length, 1)
-    await bus.reply({ requestId: bus.list()[0]!.id, reply: 'always' }, 'user0')
+    await bus.reply({ requestId: bus.list()[0]!.id, reply: 'always' }, '0')
     await first
 
     // 第二次：不再产生申请（旧缺陷：allow 规则参与分层取严，ask 永远压不掉）。
@@ -145,14 +145,14 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     })
     const first = bus.assert({ accessKey: 'read', agentId: 'a1' })
     await tick()
-    await bus.reply({ requestId: bus.list()[0]!.id, reply: 'always' }, 'user0')
+    await bus.reply({ requestId: bus.list()[0]!.id, reply: 'always' }, '0')
     await first
 
     // a2 首次使用 read：仍须询问。
     const second = bus.assert({ accessKey: 'read', agentId: 'a2' })
     await tick()
     assert.equal(asked.length, 2)
-    await bus.reply({ requestId: bus.list()[0]!.id, reply: 'once' }, 'user0')
+    await bus.reply({ requestId: bus.list()[0]!.id, reply: 'once' }, '0')
     await second
   })
 
@@ -163,7 +163,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     // 先拿到 edit 的 always 豁免。
     const askPass = bus.assert({ accessKey: 'edit', agentId: 'a1' })
     await tick()
-    await bus.reply({ requestId: bus.list()[0]!.id, reply: 'always' }, 'user0')
+    await bus.reply({ requestId: bus.list()[0]!.id, reply: 'always' }, '0')
     await askPass
 
     await assert.rejects(
@@ -174,9 +174,12 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
 })
 
 describe('formatAccessRequest', () => {
-  test('内容含 requestId/accessKey/agentId（供 access_reply 答复与 UI 解析）', () => {
+  test('内容含 requestId/accessKey/申请者全名（供 access_reply 答复与审批卡解析）', () => {
     const text = formatAccessRequest({ id: 'r1', accessKey: 'read', agentId: 'a1', at: 0 })
-    assert.ok(text.includes('<access_request id="r1" accessKey="read" agentId="a1">'))
+    assert.ok(text.includes('<access_request id="r1" accessKey="read" agent="a1">'))
     assert.ok(text.includes('requestId=r1'))
+    // B3 呈现面：kernel 注入 display → 审批卡读 `name#id`（可直接回寻址）。
+    const full = formatAccessRequest({ id: 'r1', accessKey: 'read', agentId: 'a1', at: 0 }, (id) => `w#${id}`)
+    assert.ok(full.includes('agent="w#a1"'))
   })
 })
