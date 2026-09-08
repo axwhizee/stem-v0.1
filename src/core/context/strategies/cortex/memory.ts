@@ -30,10 +30,10 @@ export const ANCHOR_TEXT =
   'ltm=长期记忆（跨任务事实/教训/承诺，每条带来源）；note=主题笔记目录' +
   '（正文在 .stem/mem/<id>/<主题>.md，用 read 工具读全文）；stm=短期记忆' +
   '（"醒着的我刚才在干嘛"）。你的操作面：' +
-  'cortex_add_note/cortex_del_note 随时沉淀或清理主题笔记（无需许可）；' +
+  'cortex_add_note/cortex_del_note 随时沉淀或清理主题笔记（本策略自带操作面）；' +
   'context_remove/context_edit 随时整理自己的对话轮（删除是归档非销毁）；' +
   'context_apply(action="dream") 可提前做梦固化记忆。上下文尺寸不必自己盯——' +
-  '积累过线时系统自动做梦（dream worker 全量重写三层并归档旧对话轮）。' +
+  '积累过线时系统自动做梦（dreamer 全景重放后重写三层并归档旧对话轮）。' +
   '注意：记忆可能过时，关键决策前回语料/笔记核实（每条 LTM 的 source 即入口）。</stem_cortex>'
 
 /** 现行记忆组的四行（锚点独立返回；未做梦 = undefined）。 */

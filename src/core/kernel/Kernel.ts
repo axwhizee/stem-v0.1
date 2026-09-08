@@ -35,7 +35,7 @@ import { forget, InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
 import type { AccessAskBus, AccessResolver, ToolAccess } from '../tools'
 import { DefaultAccessAskBus, formatAccessRequest, foldConvergenceSteps } from '../tools'
-import type { ConvergenceLayer } from '../tools'
+import type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode } from '../tools'
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
 
@@ -157,9 +157,12 @@ export class Kernel {
   private readonly restoredInstances: readonly AgentInstance[]
   /** 根的出生称呼（config.user.name，缺省 'user'——实例参数经配置面给）。 */
   private readonly rootName: string
+  /** 策略注册表（收敛链策略层解析口；缺省 = 无策略声明参与）。 */
+  private readonly strategies?: StrategyRegistry
 
   constructor(options: KernelOptions) {
     this.rootName = options.userClass?.name ?? ROOT_NAME
+    this.strategies = options.strategies
     this.templates = new DefaultTemplateRegistry([
       buildUserClass(options.userClass),
       ...(options.templates ?? BUILTIN_TEMPLATES),
@@ -376,12 +379,24 @@ export class Kernel {
     )
   }
 
-  /** 某 agent 的收敛链步序（类清单 → 实例清单；两步独立、不做预合并）。 */
-  private accessStepsOf(agentId: AgentID): readonly (Readonly<Record<string, ToolAccess>> | undefined)[] {
+  /** 某 agent 的收敛链步序（类清单 → [策略声明清单 raise] → 实例清单；逐步独立、不做预合并）。 */
+  private accessStepsOf(agentId: AgentID): readonly (ConvergenceStep | undefined)[] {
     const instance = this.instances.getSync(agentId)
     if (!instance) return []
     const template = this.templates.getSync(instance.classRef)
-    return [template?.tools, instance.toolOverride]
+    return [this.listStep(template?.tools), this.strategyStep(template?.contextStrategy), this.listStep(instance.toolOverride)]
+  }
+
+  /** 白名单步原料（undefined = 该层不设限）。 */
+  private listStep(list: Readonly<Record<string, ToolAccess>> | undefined): ConvergenceStep | undefined {
+    return list === undefined ? undefined : { list }
+  }
+
+  /** 策略声明清单步（raise——只抬不封；策略未声明/解析缺位 = 无此步）。 */
+  private strategyStep(contextStrategy: string | undefined): ConvergenceStep | undefined {
+    if (contextStrategy === undefined) return undefined
+    const tools = this.strategies?.resolve(contextStrategy)?.tools
+    return tools !== undefined && Object.keys(tools).length > 0 ? { list: tools, mode: 'raise' } : undefined
   }
 
   /** 出生表（注册行为生成的全局封顶；无注册表面 = 不封顶）。 */
@@ -396,7 +411,7 @@ export class Kernel {
    */
   private validateAccessSteps(
     parent: AccessProfile | undefined,
-    steps: readonly (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>])[],
+    steps: readonly (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>, ConvergenceStepMode | undefined])[],
   ): string[] {
     const { violations } = foldConvergenceSteps(parent?.explicit ?? {}, this.birthCaps(), steps)
     return violations.map(
@@ -404,16 +419,16 @@ export class Kernel {
     )
   }
 
-  /** 收敛链步序 → 带层标签对（层名按链位分配：两步 = 类/实例；三步含策略层）。 */
+  /** 收敛链步序 → 带层标签三元组（层名按链位分配：两步 = 类/实例；三步含策略层）。 */
   private labeledSteps(
-    steps: readonly (Readonly<Record<string, ToolAccess>> | undefined)[],
+    steps: readonly (ConvergenceStep | undefined)[],
     first: ConvergenceLayer,
-  ): (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>])[] {
+  ): (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>, ConvergenceStepMode | undefined])[] {
     const labels: ConvergenceLayer[] =
       steps.length >= 3 ? [first, '策略收敛', '实例收敛'] : [first, '实例收敛']
     return steps
-      .map((list, i) => (list === undefined ? undefined : [labels[i] ?? '实例收敛', list] as const))
-      .filter((p): p is readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>] => p !== undefined)
+      .map((step, i) => (step === undefined ? undefined : [labels[i] ?? '实例收敛', step.list, step.mode] as const))
+      .filter((p): p is readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>, ConvergenceStepMode | undefined] => p !== undefined)
   }
 
   /** 注册根 agent：从内置 user 类实例化（parentId=null 即根，与其他实例等同；id = 出生路径 `0`）。 */
@@ -429,7 +444,7 @@ export class Kernel {
     const template = await this.templates.get(USER_CLASS_ID)
     // 根挂**真实项目空间**（废除旧伪空间行——全体平等原则下根不需要专属空间）。
     const rootSpace = await this.spaces.getOrCreate(this.project ?? '')
-    const rootViolations = this.validateAccessSteps(undefined, this.labeledSteps([template.tools], '根收敛'))
+    const rootViolations = this.validateAccessSteps(undefined, this.labeledSteps([this.listStep(template.tools)], '根收敛'))
     if (rootViolations.length > 0) {
       throw { kind: 'root_config_expanded', message: `config.user.tools 越出生声明被拒：\n${rootViolations.join('\n')}` }
     }
@@ -444,7 +459,7 @@ export class Kernel {
     this.lineage.attach({
       agentId: instance.id,
       parentId: null,
-      steps: [template.tools],
+      steps: [this.listStep(template.tools)],
       caps: this.birthCaps(),
       model: { instanceModel: instance.model, classModel: template.model },
     })
@@ -524,7 +539,7 @@ export class Kernel {
     if (opts.accessMode !== 'grant') {
       const violations = this.validateAccessSteps(
         opts.parentId !== null ? this.lineage.profileOf(opts.parentId as string) : undefined,
-        this.labeledSteps([template.tools, opts.tools], '类收敛'),
+        this.labeledSteps([this.listStep(template.tools), this.strategyStep(template.contextStrategy), this.listStep(opts.tools)], '类收敛'),
       )
       if (violations.length > 0) {
         throw { kind: 'tools_convergence_expanded', violations }
@@ -725,7 +740,14 @@ export class Kernel {
       const mergedOverride = { ...surface, ...spec.toolsPatch }
       const viol = this.validateAccessSteps(
         instance.parentId !== null ? this.lineage.profileOf(instance.parentId as string) : undefined,
-        this.labeledSteps([this.templates.getSync(instance.classRef)?.tools, mergedOverride], '类收敛'),
+        this.labeledSteps(
+          [
+            this.listStep(this.templates.getSync(instance.classRef)?.tools),
+            this.strategyStep(this.templates.getSync(instance.classRef)?.contextStrategy),
+            this.listStep(mergedOverride),
+          ],
+          '类收敛',
+        ),
       )
       if (viol.length > 0) {
         throw { kind: 'agent_update_expanded', agentId: spec.agentId, violations: viol }

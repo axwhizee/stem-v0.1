@@ -31,7 +31,7 @@ export type {
 export { validateArgs } from './validate'
 
 export { restrictAccess, accessRank, checkToolsConvergence, foldConvergenceSteps } from './access'
-export type { ConvergenceLayer, ConvergenceViolation } from './access'
+export type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode, ConvergenceViolation } from './access'
 
 export type { ShellRunOptions, ShellRunResult, ShellRunner, BashToolSettings } from './bash'
 export { createBashTool, formatShellOutput, BASH_DEFAULTS } from './bash'

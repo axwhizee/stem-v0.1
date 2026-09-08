@@ -58,6 +58,21 @@ export function checkToolsConvergence(
 /** 收敛链的层名（失败归因用；kernel 按链步序命名传入——"类收敛被拒"≠"实例收敛被锁"）。 */
 export type ConvergenceLayer = '根收敛' | '类收敛' | '策略收敛' | '实例收敛'
 
+/**
+ * 收敛链步的形态：
+ * - `replace`（缺省）：白名单整表步（类清单/实例清单）——写下即未列键出局；
+ * - `raise`：**策略声明清单**专用——只对表内键提升（逐键封顶照旧：出生值
+ *   ∧ 当前面显式判定），**不封闭表外键**（raise 步不产生本地封闭）。
+ *   声明宽于链上封顶 = 违例（写入面拒绝、物化面静默钳制——与其他步同姿势）。
+ */
+export type ConvergenceStepMode = 'replace' | 'raise'
+
+/** 未贴层标的收敛链步（kernel accessStepsOf 与族谱台账共用的原料形）。 */
+export interface ConvergenceStep {
+  readonly list: Readonly<Record<string, ToolAccess>>
+  readonly mode?: ConvergenceStepMode
+}
+
 /** 收敛链校验违例（带归因的结构，消费方渲染成错误文本）。 */
 export interface ConvergenceViolation {
   readonly layer: ConvergenceLayer
@@ -78,14 +93,31 @@ export interface ConvergenceViolation {
 export function foldConvergenceSteps(
   parentExplicit: Readonly<Record<string, ToolAccess>>,
   caps: Readonly<Record<string, ToolAccess>>,
-  steps: readonly (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>])[],
+  steps: readonly (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>, ConvergenceStepMode?])[],
 ): {
   readonly profile: { explicit: Record<string, ToolAccess>; fallback?: ToolAccess }
   readonly violations: ConvergenceViolation[]
 } {
   const violations: ConvergenceViolation[] = []
   let explicit: Record<string, ToolAccess> = { ...parentExplicit }
-  for (const [layer, list] of steps) {
+  for (const [layer, list, mode] of steps) {
+    if (mode === 'raise') {
+      // 提升步（策略声明清单）：逐键封顶公式与白名单步完全同一把尺，
+      // 区别只在不重建白名单（表外键原样穿过）——"只抬不封"。
+      const next: Record<string, ToolAccess> = { ...explicit }
+      for (const [key, wanted] of Object.entries(list)) {
+        const ceiling = restrictAccess(
+          caps[key] ?? wanted,
+          explicit[key] ?? 'ignore',
+        )
+        if (accessRank(wanted) > accessRank(ceiling)) {
+          violations.push({ layer, key, wanted, ceiling })
+        }
+        next[key] = restrictAccess(wanted, ceiling)
+      }
+      explicit = next
+      continue
+    }
     // 键即白名单：写了表 → 未列键出局（本地封闭 deny——匿名封闭只锁自己，不下传）。
     const next: Record<string, ToolAccess> = {}
     for (const [key, wanted] of Object.entries(list)) {
@@ -100,9 +132,11 @@ export function foldConvergenceSteps(
     }
     explicit = next
   }
-  // 任一清单写下即本地封闭：未列键一律 deny（键即白名单）。
+  // 任一白名单步写下即本地封闭：未列键一律 deny（raise 步不封闭——
+  // 它只补充表内键的判定，能力面的"在场"仍由类/实例清单决定）。
+  const hasWhitelistStep = steps.some(([, , mode]) => mode !== 'raise')
   return {
-    profile: { explicit, ...(steps.length > 0 ? { fallback: 'deny' as const } : {}) },
+    profile: { explicit, ...(hasWhitelistStep ? { fallback: 'deny' as const } : {}) },
     violations,
   }
 }

@@ -642,7 +642,7 @@ export class DefaultContextManager implements ContextManager {
       markInvalid: async (ids) => {
         await this.repository.markInvalid(box.agentId, ids)
       },
-      spawn: async (task, spec) => {
+      spawn: async (task, spec, opts) => {
         if (!this.spawnWorker || !this.terminateWorker) {
           throw { kind: 'strategy_spawn_unavailable', agentId: box.agentId }
         }
@@ -656,7 +656,26 @@ export class DefaultContextManager implements ContextManager {
         const workerId = await this.spawnWorker(box.roleAgentId, task, spec)
         box.lastWorkerId = workerId
         try {
-          return await this.waitForReply(box.roleAgentId, workerId, this.settings.compact.replyTimeoutMs)
+          const timeoutMs = this.settings.compact.replyTimeoutMs
+          let reply = await this.waitForReply(box.roleAgentId, workerId, timeoutMs)
+          // 回信纠错循环（worker 生命周期内）：validate 报不合 → role 名义
+          // 发纠错信再等回信；耗尽轮次原样返回末件（半途语义归策略裁决）。
+          let corrections = 0
+          for (;;) {
+            const why = opts?.validate?.(reply)
+            if (why === undefined || corrections >= (opts?.maxCorrections ?? 2)) return reply
+            corrections += 1
+            // 竞态纪律（对齐 instantiate 的创建配对原子性）：**先登记等待者
+            // 再发纠错信**——waitForReply 的 promise executor 同步注册，
+            // 回信绝不可能抢在配对之前。
+            const next = this.waitForReply(box.roleAgentId, workerId, timeoutMs)
+            await this.deposit(
+              workerId,
+              { role: 'user', content: `你上一件输出不合格：${why}\n请按任务书规定的完整格式重新输出全部结果（各段齐全，不要只补出错段）。` },
+              box.roleAgentId,
+            )
+            reply = await next
+          }
         } finally {
           // 回收：worker 任务完成即销毁（消息归档保语料，进化素材不丢）。
           await this.terminateWorker(workerId, box.roleAgentId)

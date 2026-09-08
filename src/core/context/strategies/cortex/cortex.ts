@@ -9,6 +9,8 @@
 // 本轮送信照常，新组下拍生效）。手动链：actions.dream（context_apply
 // 模型侧 / pilot / CLI /dream 用户侧，同步等收口拿回报）。
 // 配置：类 custom.cortex = {dreamAt?, consolidateModel?}（仅此两件）。
+// 策略 = 纯既有接口组合（s11-c）：工具注册（ignore 出生）+ 声明清单
+// raise + 标准 spawn 回信——对 core 零专属机制索取。
 // ============================================================
 
 import { classicAssemble } from '../classic'
@@ -25,9 +27,9 @@ import type { CortexSettings } from './schema'
 import { runDream } from './dream'
 import type { DreamDeps } from './dream'
 
-/** cortex 扮演 agent（做梦 worker 的父与回信收集点；面板态）。
+/** cortex 扮演 agent（dreamer 的父与回信收集点；面板态）。
  *  tools 刻意**不设**（≠ classic 的 {}）：空表 = 本地封闭且显式锁子孙，
- *  会把 worker grant 表里的 cortex_set_* 全锁死；不设 = 匿名不封顶。 */
+ *  会把 dreamer grant 表里的笔记两键全锁死；不设 = 匿名不封顶。 */
 export const CORTEX_ROLE: AgentClass = {
   name: makeAgentClassID('strategy-cortex'),
   description: 'cortex 策略扮演 agent：做梦 worker 的父与回信收集点（审计信箱，模块扮演，无 LLM 轮）',
@@ -86,6 +88,12 @@ export function createCortexStrategy(): ContextStrategyModule {
       '随时可用 cortex_add_note 沉淀主题笔记、context_remove 裁用完的对话轮、' +
       'context_apply(action="dream") 提前做梦；记忆载入示范与操作细则见上下文头部注入。</stem_context>',
     role: CORTEX_ROLE,
+    // 策略声明清单（raise 步）：本策略注册面两键抬 allow——只有启用
+    // cortex 的宿主自动持有；逐键仍被出生表与祖先显式判定封顶。
+    tools: {
+      cortex_add_note: 'allow',
+      cortex_del_note: 'allow',
+    },
     // 记忆组是真实行 → 组装恒直出（教学样板在写入端完成，读取端零特殊）。
     assemble: classicAssemble,
     init: async (ctx: StrategyInitContext): Promise<void> => {

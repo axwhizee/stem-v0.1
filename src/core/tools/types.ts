@@ -98,8 +98,6 @@ export interface ToolContext {
   readonly signal?: AbortSignal
   /** 本次调用 id（registry 执行时填充，供工具绑定自身 tool_call）。 */
   readonly callId?: string
-  /** 调用者族谱直接父 id（根 = ''；策略机制工具据此识别 worker 通道）。 */
-  readonly parent?: string
 }
 
 /** 大输出引用（对接 ContextAssetPool 的 references 存储）。 */

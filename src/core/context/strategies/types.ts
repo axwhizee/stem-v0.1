@@ -20,7 +20,7 @@
 // ============================================================
 
 import type { ChatMessage, ModelRef } from '../../gateway'
-import type { ToolCapability } from '../../tools'
+import type { ToolAccess, ToolCapability } from '../../tools'
 import type { AgentClass } from '../../kernel/types'
 import type { LogSink } from '../../logging'
 import type { ContextCompacted, ContextDreamed } from '../../logging/events'
@@ -58,6 +58,14 @@ export const DEFAULT_CONTEXT_SETTINGS: ContextSettings = {
  */
 export type StrategyAgentSpec = AgentClass
 
+/** spawn 的回信校验/纠错循环参数（通用端口能力，classic/cortex/用户策略共用）。 */
+export interface StrategySpawnOpts {
+  /** 校验最终回信：返回错误说明 = 发纠错信令 worker 再改；返回 undefined = 通过。 */
+  readonly validate?: (reply: string) => string | undefined
+  /** 纠错轮上限（缺省 2；每轮 = 一封纠错信 + 一次回信等待）。 */
+  readonly maxCorrections?: number
+}
+
 /** 策略运行时 API（管理员按宿主 agent 构造注入）。 */
 export interface StrategyApi {
   readonly agentId: string
@@ -73,8 +81,11 @@ export interface StrategyApi {
   /**
    * 在本策略的扮演 agent（role，懒生成）名下创建工具 agent 执行任务，
    * 等待其最终回信（标准邮局往返；worker 完成后自动归档回收）。
+   * opts.validate：回信不合 = role 名义发纠错信给同一 worker 再等回信
+   * （worker 生命周期内循环）；耗尽轮次仍不合 = 原样返回末件，策略端
+   * 裁决半途语义（cortex 梦 = 不轮替）。
    */
-  readonly spawn: (task: string, spec: StrategyAgentSpec) => Promise<string>
+  readonly spawn: (task: string, spec: StrategyAgentSpec, opts?: StrategySpawnOpts) => Promise<string>
   /** 本箱最近一次 spawn 的 worker 实例 id（策略机制工具的身份解析通道；未 spawn 过 = undefined）。 */
   readonly lastWorkerId?: () => string | undefined
   /** 本箱策略扮演 agent id（role 懒生成后才有值）。 */
@@ -124,6 +135,12 @@ export interface ContextStrategyModule {
   readonly note?: string
   /** 扮演 agent 规格（需要造 worker 的策略声明；懒生成，父 = 宿主）。 */
   readonly role?: StrategyAgentSpec
+  /**
+   * 策略声明清单（收敛链 raise 步——启用本策略的宿主沿链把列出的键抬到
+   * 声明值，逐键仍被出生表与祖先显式判定封顶；只抬不封，表外键不动）。
+   * 只应声明**本策略注册的工具**（非策略注册的键 = 声明无效废键）。
+   */
+  readonly tools?: Readonly<Record<string, ToolAccess>>
   /** 纯组装（同步；送信快照）。 */
   readonly assemble: (input: AssembleInput) => AssembleResult
   /**

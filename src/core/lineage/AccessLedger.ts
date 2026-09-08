@@ -41,7 +41,7 @@
 // 持久化：不入库——纯派生态，重启按族谱拓扑序 rebind 重放。
 // ============================================================
 
-import type { ToolAccess } from '../tools'
+import type { ConvergenceStep, ToolAccess } from '../tools'
 import { foldConvergenceSteps, restrictAccess } from '../tools'
 
 /** 节点权限标准形（物化的收敛结果）。 */
@@ -60,10 +60,11 @@ export interface AccessBindEntry {
   readonly parentId: string | null
   /**
    * 收敛链清单步序（同一把尺逐步套用，不做预合并）：
-   * [类清单, (策略声明清单), 实例化清单]——undefined 步 = 整表缺席（完整继承
-   * 接收表面）；全链 undefined = 纯继承父档案。
+   * [类清单, (策略声明清单 raise), 实例化清单]——undefined 步 = 整表缺席
+   * （完整继承接收表面）；全链 undefined = 纯继承父档案。raise 步只抬不封
+   * （策略声明清单专属形——能力面在场仍由白名单步决定）。
    */
-  readonly steps?: readonly (Readonly<Record<string, ToolAccess>> | undefined)[]
+  readonly steps?: readonly (ConvergenceStep | undefined)[]
   /** 单清单便利形（= steps: [own]；grant 通道与单测语义矩阵用）。 */
   readonly own?: Readonly<Record<string, ToolAccess>>
   /** 出生表（注册表供给的访问键宽度封顶，逐键钳制所有步）。 */
@@ -134,11 +135,11 @@ function computeProfile(
   entry: AccessBindEntry,
   parentProfile: AccessProfile | undefined,
 ): AccessProfile {
-  const lists =
+  const steps =
     entry.steps !== undefined
-      ? entry.steps.filter((step): step is Record<string, ToolAccess> => step !== undefined)
+      ? entry.steps.filter((step): step is ConvergenceStep => step !== undefined)
       : entry.own !== undefined
-        ? [entry.own]
+        ? [{ list: entry.own }]
         : []
 
   if (entry.mode === 'grant') {
@@ -146,7 +147,7 @@ function computeProfile(
     // 封顶（总序取严——ask 洗不成 allow，deny 铁律即封顶最严特例；父匿名
     // 封闭不在显式表上，不构成否决——与减法"匿名不下传"对称）。
     const explicit: Record<string, ToolAccess> = {}
-    for (const [key, action] of Object.entries(lists[0] ?? {})) {
+    for (const [key, action] of Object.entries(steps[0]?.list ?? {})) {
       let capped = action
       const parentCap = parentProfile?.explicit[key]
       if (parentCap !== undefined) capped = restrictAccess(capped, parentCap)
@@ -157,20 +158,27 @@ function computeProfile(
     return { explicit, fallback: 'deny' }
   }
 
-  if (lists.length === 0) {
+  if (steps.length === 0) {
     // 整链缺席 = 完整继承父档案（显式判定 + 本地封闭一并照搬）：
     // 子能力面永不宽于父（"权限完整继承自父 agent"的字面表达）。
     return parentProfile ?? { explicit: {} }
   }
+  // 纯 raise 链（只有策略声明清单、无白名单步）= 封闭面照搬父档案
+  // （raise 只抬键不改"是否本地封闭"——继承形语义与整链缺席一致）。
+  const raiseOnly = steps.every((step) => step.mode === 'raise')
 
   // 减法·键即白名单 + 逐步折叠（代数与 kernel 写入面校验共用
-  // foldConvergenceSteps，单一事实源）：每步未列键出局（本地封闭 deny）；
-  // 每键与当前面显式判定 + 出生表取严（藏匿/放宽物化压回，收缩单向）。
-  // 物化端静默钳制（重启幂等稳定）；拒绝式归因校验在 kernel 写入面。
+  // foldConvergenceSteps，单一事实源）：白名单步未列键出局（本地封闭 deny）；
+  // raise 步（策略声明清单）只抬不封；每键与当前面显式判定 + 出生表取严
+  // （藏匿/放宽物化压回，收缩单向）。物化端静默钳制（重启幂等稳定）；
+  // 拒绝式归因校验在 kernel 写入面。
   const { profile } = foldConvergenceSteps(
     parentProfile?.explicit ?? {},
     entry.caps ?? {},
-    lists.map((list) => ['类收敛' as const, list] as const),
+    steps.map((step) => ['类收敛' as const, step.list, step.mode] as const),
   )
+  if (raiseOnly && profile.fallback === undefined && parentProfile?.fallback !== undefined) {
+    return { ...profile, fallback: parentProfile.fallback }
+  }
   return profile
 }

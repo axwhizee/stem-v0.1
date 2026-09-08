@@ -14,7 +14,14 @@ import type { FakeGateway } from '../../src/core/gateway'
 export function manualTimers() {
   const pending = new Set<() => void>()
   return {
-    timer: (fn: () => void) => {
+    timer: (fn: () => void, ms: number) => {
+      // 0ms 档走真定时器：生产的 setTimeout(0) 即时回归事件循环，全量挂起
+      // 会让 0 倒计时的 worker 永滞 cooling 态、且 flushAll 连带炸掉回信超时
+      // （time-collapse 双失真）。>0 档保持手动语义（flushAll 统一触发）。
+      if (ms <= 0) {
+        const h = setTimeout(fn, 0)
+        return { cancel: () => clearTimeout(h) }
+      }
       pending.add(fn)
       return { cancel: () => void pending.delete(fn) }
     },

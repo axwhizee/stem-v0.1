@@ -2,8 +2,8 @@
 // core/context/strategies/cortex/schema.ts —— cortex 数据形状与纯校验
 //
 // 三层记忆的"合同层"：dreamAt 基因解析（类 custom.cortex）、LTM JSON
-// 结构校验、笔记名/目录渲染——全部纯函数（离线可测，无 IO 无状态）。
-// 设计依据 = docs/cortex-plan.md R2 §1/§6。
+// 结构校验、**dreamer 回信格式与解析**、笔记名/目录渲染——全部纯函数
+// （离线可测，无 IO 无状态）。机制详情 = docs/architecture.md §2.2b。
 // ============================================================
 
 import type { ModelRef } from '../../../gateway'
@@ -12,7 +12,7 @@ import type { ModelRef } from '../../../gateway'
 export interface CortexSettings {
   /** 专注度线（估算 tokens；触发做梦 + 天然兼作重启线与频控）。 */
   readonly dreamAt: number
-  /** dream worker 模型（缺省 inherit 走出生链）。 */
+  /** dreamer 模型（缺省 inherit 走出生链）。 */
   readonly consolidateModel?: ModelRef
 }
 
@@ -127,4 +127,49 @@ export function renderToc(entries: readonly TocEntry[]): string {
 /** LTM 行渲染（JSON pretty——仓库行/镜像文件同形）。 */
 export function renderLtm(items: readonly LtmItem[]): string {
   return JSON.stringify(items, null, 1)
+}
+
+// ---------- dreamer 回信合同（输出 = 回信；替代旧 cortex_set_* 工具面） ----------
+
+/** 回信格式模板（dreamer 提示词与纠错信共用——格式定义单点）。 */
+export const DREAM_REPORT_FORMAT =
+  '<cortex_dream>\n<ltm>\n[{"text": "记忆正文", "source": "t12 用户要求"}]\n</ltm>\n<stm>\n短期记忆 markdown 全文\n</stm>\n</cortex_dream>'
+
+/** 解析成功的梦报告（双段齐 = 轮替原料）。 */
+export interface DreamReport {
+  readonly ltm: readonly LtmItem[]
+  readonly stm: string
+}
+
+export interface DreamReportError {
+  readonly error: string
+}
+
+/**
+ * 解析 dreamer 回信为梦报告（纯函数，schema 校验即 spawn validate 回调）。
+ * 宽容面：外围废话（找外壳）、ltm 段代码围栏；严格面：双段齐、JSON 合法、
+ * validateLtm 全检、stm 非空——不合 = 错误说明进纠错信（C2 回信循环）。
+ */
+export function parseDreamReport(raw: string): DreamReport | DreamReportError {
+  const outer = /<cortex_dream>[\s\S]*<\/cortex_dream>/.exec(raw)
+  if (outer === null) {
+    return { error: '回信中找不到 <cortex_dream>…</cortex_dream> 报告外壳——你的最终回信本体就是报告，格式：' + DREAM_REPORT_FORMAT }
+  }
+  const body = outer[0]
+  const ltm = /<ltm>([\s\S]*?)<\/ltm>/.exec(body)
+  if (ltm === null) return { error: '缺 <ltm> 段（LTM JSON 数组须完整在段内）' }
+  const stm = /<stm>([\s\S]*?)<\/stm>/.exec(body)
+  if (stm === null) return { error: '缺 <stm> 段（短期记忆 markdown 须完整在段内）' }
+  const ltmText = (ltm[1] ?? '').trim().replace(/^```(?:json)?\s*/, '').replace(/\s*```$/, '')
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(ltmText)
+  } catch (cause) {
+    return { error: `<ltm> 段不是合法 JSON（${cause instanceof Error ? cause.message : String(cause)}）` }
+  }
+  const bad = validateLtm(parsed)
+  if (bad !== undefined) return { error: `<ltm> 段校验失败：${bad}` }
+  const stmText = (stm[1] ?? '').trim()
+  if (stmText === '') return { error: '<stm> 段为空（当次无事也须写明当前状态与待办）' }
+  return { ltm: parsed as LtmItem[], stm: stmText }
 }

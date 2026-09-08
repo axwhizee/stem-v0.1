@@ -1,11 +1,15 @@
 // ============================================================
 // core/context/strategies/cortex/cortex.test.ts —— cortex 记忆策略
 //
-// 纯逻辑组：基因解析（clamp/warn）、LTM/笔记校验、目录渲染、
-// 记忆组推导（水位线/作废面/实时选集）、轮替事务形状、工具暂存分流。
+// 纯逻辑组：基因解析（clamp/warn）、LTM/笔记校验、**dreamer 回信 schema
+// 解析**、目录渲染、记忆组推导（水位线/作废面/实时选集）、轮替事务形状、
+// 笔记归属路由（dreamer → host 目录）。
 // 集成组（kernelHarness + FakeGateway + 内存 fs）：手动 dream 端到端
-// （worker 配对→双 set→轮替→镜像→回收→下轮组装带组）、半途不轮替、
-// 阈值自动点火、权限隔离（set 对宿主 deny / note 白拿 / worker 侧兑现）。
+// （回信即交付物：spawn→schema 过→轮替→镜像→回收→下轮组装带组）、
+// 纠错回信循环（坏→纠错→好）、纠错耗尽 = 半途不轮替、阈值自动点火、
+// 权限声明清单 raise（宿主自动持有 / 非 cortex 不白拿 / set_* 灭迹）。
+// 假策略审计组：策略 = 纯既有接口组合的定律链（ignore 出生 → 声明清单
+// 抬 allow → 类/祖先显式更严 = 实例化拒绝——矛盾复用收敛检查零特判）。
 // ============================================================
 
 import { describe, test } from 'node:test'
@@ -18,12 +22,14 @@ import { makeAgentClassID, makeAgentID } from '../../../kernel/types'
 import type { AgentClass } from '../../../kernel/types'
 import type { ContextStrategyModule, StrategyApi } from '../types'
 import { DEFAULT_CONTEXT_SETTINGS } from '../types'
+import { classicAssemble } from '../classic'
 import { createBuiltinStrategyRegistry } from '../index'
 import { DefaultToolCapabilityRegistry } from '../../../tools'
+import type { ToolCapability } from '../../../tools'
 import type { StoredMessage } from '../../types'
 import { createKernelHarness } from '../../../../../test/support/kernelHarness'
 import { createCortexStrategy } from './cortex'
-import { parseCortexSettings, validateLtm, validateNoteName, renderToc, firstLineSummary, renderLtm, DEFAULT_DREAM_AT } from './schema'
+import { parseCortexSettings, validateLtm, validateNoteName, renderToc, firstLineSummary, renderLtm, parseDreamReport, DEFAULT_DREAM_AT } from './schema'
 import type { LtmItem } from './schema'
 import { currentGroup, takeSnapshot, rotateGroup, ANCHOR_TEXT } from './memory'
 import { CortexRuntime } from './state'
@@ -78,6 +84,21 @@ describe('cortex schema：基因解析与校验', () => {
     assert.equal(firstLineSummary('# 标题\n\n正文首句。'), '标题')
     assert.equal(firstLineSummary('短行'), '短行')
     assert.equal(firstLineSummary('   \n  '), '(空)')
+  })
+
+  test('parseDreamReport：回信 schema（双段齐 + JSON 严核 + 废话/围栏宽容）', () => {
+    const good = '<cortex_dream>\n<ltm>\n[{"text":"偏好中文","source":"t2 用户要求"}]\n</ltm>\n<stm># 状态\n\n在写测试。</stm>\n</cortex_dream>'
+    const parsed = parseDreamReport(good)
+    assert.ok(!('error' in parsed))
+    assert.equal(parsed.ltm.length, 1)
+    assert.equal(parsed.stm, '# 状态\n\n在写测试。')
+    // 外围废话与 ltm 代码围栏宽容。
+    assert.ok(!('error' in parseDreamReport(`整理完毕，报告如下：\n${'```json'}\n<cortex_dream><ltm>\n[{"text":"a","source":"b"}]\n</ltm><stm>x</stm></cortex_dream>`)))
+    assert.match((parseDreamReport('自由发挥的梦话') as { error: string }).error, /cortex_dream/)
+    assert.match((parseDreamReport('<cortex_dream><stm>x</stm></cortex_dream>') as { error: string }).error, /ltm/)
+    assert.match((parseDreamReport('<cortex_dream><ltm>[{bad</ltm><stm>x</stm></cortex_dream>') as { error: string }).error, /JSON/)
+    assert.match((parseDreamReport('<cortex_dream><ltm>[{"text":"a"}]</ltm><stm>x</stm></cortex_dream>') as { error: string }).error, /source/)
+    assert.match((parseDreamReport('<cortex_dream><ltm>[]</ltm><stm>   </stm></cortex_dream>') as { error: string }).error, /stm.*空|空/)
   })
 })
 
@@ -181,11 +202,9 @@ describe('cortex 记忆组：推导与轮替事务', () => {
   })
 })
 
-// ---------- 纯逻辑：工具暂存分流 ----------
+// ---------- 纯逻辑：笔记归属路由（暂存机制退役后 = 立即落盘 + 计数） ----------
 
-describe('cortex 工具面：暂存与直写分流', () => {
-  const LTM = { items: [{ text: 'a', source: 't1' }] }
-
+describe('cortex 工具面：笔记归属路由与落账', () => {
   function makeTools(): { runtime: CortexRuntime; saverCalls: string[]; tools: ReturnType<typeof createCortexTools> } {
     const runtime = new CortexRuntime()
     const saverCalls: string[] = []
@@ -202,45 +221,35 @@ describe('cortex 工具面：暂存与直写分流', () => {
     return t
   }
 
-  test('set 工具无梦拒收；有梦暂存；drain 合并释放全局锁', async () => {
-    const { runtime, tools } = makeTools()
-    const setLtm = toolOf(tools, 'cortex_set_ltm')
-    const setStm = toolOf(tools, 'cortex_set_stm')
-    const r0 = await setLtm.execute(LTM, { agentId: 'w1', spaceId: '/p' })
-    assert.match(r0.text, /没有进行中/)
-    runtime.begin('h1')
-    const r1 = await setLtm.execute(LTM, { agentId: 'w1', spaceId: '/p' })
-    assert.match(r1.text, /已暂存/)
-    const r2 = await setStm.execute({ state: 'stm 正文' }, { agentId: 'w1', spaceId: '/p' })
-    assert.match(r2.text, /收口/)
-    const drained = runtime.drain()
-    assert.equal(drained.ltm?.length, 1)
-    assert.equal(drained.stm, 'stm 正文')
-    assert.equal(runtime.dream, undefined, 'drain 释放全局锁')
+  test('工具面 = 笔记两枚（set_* 与暂存整体退役）', () => {
+    const { tools } = makeTools()
+    assert.deepEqual(tools.map((t) => t.id).sort(), ['cortex_add_note', 'cortex_del_note'])
+    assert.deepEqual(tools.map((t) => t.birth).sort(), ['ignore', 'ignore'], '策略注册工具出生恒 ignore')
   })
 
-  test('note 工具：无梦直写 caller 目录；有梦 worker 暂存；host 自己直写', async () => {
+  test('note 工具：无梦直写 caller 目录；有梦 worker 以 host 名义立即落盘并计数', async () => {
     const { runtime, saverCalls, tools } = makeTools()
     const addNote = toolOf(tools, 'cortex_add_note')
     const delNote = toolOf(tools, 'cortex_del_note')
     await addNote.execute({ name: 'x-y', content: '正文' }, { agentId: 'agent1', spaceId: '/p' })
     assert.deepEqual(saverCalls, ['add:agent1/x-y'], '平时无梦 = agent 直写自己目录')
-    runtime.begin('host1')
+    const token = runtime.begin('host1')
     await addNote.execute({ name: 'w-note', content: '梦笔记' }, { agentId: 'worker9', spaceId: '/p' })
     await delNote.execute({ name: 'old' }, { agentId: 'host1', spaceId: '/p' })
-    assert.deepEqual(saverCalls, ['add:agent1/x-y', 'del:host1/old'], 'worker 不落盘（暂存）；host 梦中也直写')
-    const drained = runtime.drain()
-    assert.deepEqual(drained.notes.map((n) => `${n.op}:${n.name}`), ['add:w-note'])
+    assert.deepEqual(saverCalls, ['add:agent1/x-y', 'add:host1/w-note', 'del:host1/old'], 'worker 当场以 host 名义落盘；host 自己落自己')
+    assert.equal(token.notesTouched, 1, 'worker 触碰计数入账（host 自己不计）')
+    assert.equal(runtime.end(), 1, 'end 结出计数')
+    assert.equal(runtime.dream, undefined, 'end 释放全局锁')
   })
 
-  test('validate 通道：LTM/笔记参数错误文本回模型', () => {
+  test('validate 通道：笔记参数错误文本回模型', () => {
     const { tools } = makeTools()
-    assert.match(toolOf(tools, 'cortex_set_ltm').validate?.({ items: [{ text: 'a' }] }) ?? '', /source/)
     assert.match(toolOf(tools, 'cortex_add_note').validate?.({ name: 'Bad Name', content: 'c' }) ?? '', /匹配/)
+    assert.match(toolOf(tools, 'cortex_del_note').validate?.({}) ?? '', /name/)
   })
 })
 
-// ---------- 集成：端到端做梦 ----------
+// ---------- 集成：端到端做梦（回信即交付物） ----------
 
 interface FakeFs {
   readonly files: Map<string, string>
@@ -276,9 +285,15 @@ function fakeFs(): FakeFs {
 
 const MEM_ROOT = '/space/.stem/mem'
 
+/** 合格梦报告（回信文本 = 交付物——替代旧双 set 工具调用）。 */
+const report = (stmBody = '# 当前状态\n\n在写 cortex 测试。'): LLMEvent[] =>
+  textEvents(`<cortex_dream>\n<ltm>\n[{"text": "用户要求：报告用中文（长期偏好）", "source": "t1 用户要求"}]\n</ltm>\n<stm>${stmBody}</stm>\n</cortex_dream>`)
+
+const BAD_REPORT: LLMEvent[] = textEvents('我把记忆想了一遍，感觉都挺牢的，不用写报告了。')
+
 // tools 刻意不设（继承形）：显式空表 = 本地封闭并锁子孙——会把
-// dream worker 的 grant 键压成 deny（祖先显式判定锁树，权限语义正确；
-// 本模板示范"正常宿主形态"）。
+// dreamer 的 grant 笔记键压成 deny（策略 raise 只作用于宿主，role 面板
+// 是 none 策略无 raise 步）。本模板示范"正常宿主形态"。
 const cortexTemplate: AgentClass = {
   name: makeAgentClassID('mem-agent'),
   description: '挂 cortex 策略的测试 agent',
@@ -330,37 +345,26 @@ async function cortexHarness(workerTurns: (turn: number) => LLMEvent[]) {
   return { ...h, fs, requests, agentId }
 }
 
-const SET_LTM_EVENT: LLMEvent = {
-  type: 'tool-call',
-  id: 'c1',
-  name: 'cortex_set_ltm',
-  input: { items: [{ text: '用户要求：报告用中文（长期偏好）', source: 't1 用户要求' }] },
+/**
+ * 等 dream 收口。时序纪律（§6.3 陷阱的计时器面）：FakeGateway 轮 = 纯
+ * microtask 链、不经计时器，而 mock flushAll 会把 60s 回信超时一并炸掉——
+ * 先只泵 microtask，真卡住（等 courier 倒计时）才 flush。
+ */
+async function awaitReport(h: { timers: { flushAll: () => void } }, action: () => Promise<string>): Promise<string> {
+  let reportText = ''
+  action().then((r) => { reportText = r }, () => { reportText = 'FAILED' })
+  for (let i = 0; i < 200 && reportText === ''; i++) {
+    await pump(3)
+    if (reportText === '' && i % 20 === 19) h.timers.flushAll()
+  }
+  return reportText
 }
-const SET_STM_EVENT: LLMEvent = {
-  type: 'tool-call',
-  id: 'c2',
-  name: 'cortex_set_stm',
-  input: { state: '# 当前状态\n\n在写 cortex 测试。' },
-}
 
-const fullDream = (turn: number): LLMEvent[] =>
-  turn === 0
-    ? [SET_LTM_EVENT, SET_STM_EVENT, { type: 'finish', reason: 'tool_calls' }]
-    : textEvents('梦毕：两层记忆已重写。')
-
-const ltmOnlyDream = (turn: number): LLMEvent[] =>
-  turn === 0 ? [SET_LTM_EVENT, { type: 'finish', reason: 'tool_calls' }] : textEvents('自以为done的梦毕')
-
-describe('cortex 端到端：做梦事务（手动 dream 触发）', () => {
-  test('双 set 齐备 → 轮替 + 镜像 + worker 回收 + 下轮组装带组', async () => {
-    const h = await cortexHarness(fullDream)
-    const reports: string[] = []
-    h.kernel.contextManager.runStrategyAction(h.agentId, 'dream').then((r) => reports.push(r), () => reports.push('FAILED'))
-    for (let i = 0; i < 40 && reports.length === 0; i++) {
-      h.timers.flushAll()
-      await pump(3)
-    }
-    assert.match(reports.join('|'), /梦成/, `dream 回报应为轮替成功，实得：${reports.join('|')}`)
+describe('cortex 端到端：做梦事务（回信即交付物）', () => {
+  test('合格回信 → 轮替 + 镜像 + dreamer 回收 + 下轮组装带组', async () => {
+    const h = await cortexHarness(() => report())
+    const r = await awaitReport(h, () => h.kernel.contextManager.runStrategyAction(h.agentId, 'dream'))
+    assert.match(r, /梦成/, `dream 回报应为轮替成功，实得：${r}`)
 
     const state = await h.kernel.contextManager.getState(h.agentId)
     const valid = state.messages.filter((m) => m.valid)
@@ -378,8 +382,8 @@ describe('cortex 端到端：做梦事务（手动 dream 触发）', () => {
       .map((id) => h.kernel.instances.getSync(id))
       .find((c) => c?.classRef === makeAgentClassID('strategy-cortex'))
     assert.ok(role, 'strategy-cortex 面板挂宿主下')
-    const aliveWorkers = (await h.kernel.instances.listAll()).filter((i) => i.classRef === makeAgentClassID('cortex-dream'))
-    assert.equal(aliveWorkers.length, 0, 'dream worker 一拍一生死（已回收）')
+    const aliveWorkers = (await h.kernel.instances.listAll()).filter((i) => i.classRef === makeAgentClassID('cortex-dreamer'))
+    assert.equal(aliveWorkers.length, 0, 'dreamer 一拍一生死（已回收）')
 
     const dreamed = h.kernel.logger.query({ type: 'context.dreamed' }).filter((e) => e.type === 'context.dreamed')
     assert.ok(dreamed.some((e) => e.consolidated), 'context.dreamed consolidated=true 入账')
@@ -399,29 +403,51 @@ describe('cortex 端到端：做梦事务（手动 dream 触发）', () => {
     assert.ok(!last.messages.some((m) => typeof m.content === 'string' && m.content.includes('开工写')), '归档实时轮不再进上下文')
   })
 
-  test('半途而废（只 set_ltm）：不轮替、水位不动、锁释放可再梦', async () => {
-    const h = await cortexHarness(ltmOnlyDream)
-    const reports: string[] = []
-    h.kernel.contextManager.runStrategyAction(h.agentId, 'dream').then((r) => reports.push(r), () => reports.push('FAILED'))
-    for (let i = 0; i < 40 && reports.length === 0; i++) {
-      h.timers.flushAll()
-      await pump(3)
-    }
-    assert.match(reports.join('|'), /梦未完成/, `半途应有半途回报：${reports.join('|')}`)
+  test('纠错回信循环：坏报告 → 策略错误信 → 同一 dreamer 修正 → 轮替落定', async () => {
+    let seen = 0
+    const h = await cortexHarness((turn) => (turn === 0 ? BAD_REPORT : report()))
+    const r = await awaitReport(h, () => h.kernel.contextManager.runStrategyAction(h.agentId, 'dream'))
+    assert.match(r, /梦成/, `纠错后应落定：${r}`)
+    seen = 2
+    // dreamer 生命周期内 = 两件（首件 + 纠错回信），纠错信由 role 名义发出。
+    const workerRequests = h.requests.filter((req) => String(req.system).includes('宿主 agent 的睡眠整理过程'))
+    assert.equal(workerRequests.length, 2, '一次纠错循环')
+    assert.equal(seen, 2)
+    assert.ok(
+      workerRequests[1]?.messages.some((m) => typeof m.content === 'string' && m.content.includes('不合格')),
+      '第二件携带纠错信（role→dreamer 生命周期内对话）',
+    )
+  })
+
+  test('纠错轮耗尽 = 半途：不轮替、水位不动、锁释放可再梦', async () => {
+    const h = await cortexHarness(() => BAD_REPORT)
+    const r = await awaitReport(h, () => h.kernel.contextManager.runStrategyAction(h.agentId, 'dream'))
+    assert.match(r, /梦未完成/, `半途应有半途回报：${r}`)
     const state = await h.kernel.contextManager.getState(h.agentId)
     assert.ok(!state.messages.some((m) => m.tag === 'ltm'), '半途无 LTM 行（不轮替）')
     assert.equal(state.messages.find((m) => String(m.message.content).includes('开工写'))?.valid, true, '实时轮未归档（水位不动）')
-    const second: string[] = []
-    h.kernel.contextManager.runStrategyAction(h.agentId, 'dream').then((r) => second.push(r), () => second.push('FAILED'))
-    for (let i = 0; i < 40 && second.length === 0; i++) {
-      h.timers.flushAll()
-      await pump(3)
-    }
-    assert.match(second.join('|'), /梦未完成/, '全局锁已释放（第二次同样半途而非拒于在途）')
+    // 第二次梦同样可达半途收口（锁已释放而非拒于在途）。
+    h.requests.length = 0
+    const r2 = await awaitReport(h, () => h.kernel.contextManager.runStrategyAction(h.agentId, 'dream'))
+    assert.match(r2, /梦未完成/, '全局锁已释放（第二次同样半途而非拒于在途）')
+    const workerRequests = h.requests.filter((req) => String(req.system).includes('宿主 agent 的睡眠整理过程'))
+    assert.equal(workerRequests.length, 3, '每场梦 = 首件 + 2 轮纠错上限')
+  })
+
+  test('dreamer 笔记 grant 兑现：梦中 add_note 以 host 名义当场落盘并计入事件账', async () => {
+    const noteCall: LLMEvent = { type: 'tool-call', id: 'n1', name: 'cortex_add_note', input: { name: 'dream-insight', content: '梦里沉淀的做法' } }
+    const h = await cortexHarness((turn) =>
+      turn === 0 ? [noteCall, { type: 'finish', reason: 'tool_calls' }] : report(),
+    )
+    const r = await awaitReport(h, () => h.kernel.contextManager.runStrategyAction(h.agentId, 'dream'))
+    assert.match(r, /梦成/, r)
+    assert.equal(h.fs.files.get(`${MEM_ROOT}/${h.agentId}/dream-insight.md`), '梦里沉淀的做法', '笔记落 host 目录')
+    const dreamed = h.kernel.logger.query({ type: 'context.dreamed' }).filter((e) => e.type === 'context.dreamed')
+    assert.ok(dreamed.some((e) => e.consolidated && e.notesTouched === 1), '笔记触碰计数进事件账')
   })
 
   test('阈值自动点火：过线送信后背景做梦自然轮替', async () => {
-    const h = await cortexHarness(fullDream)
+    const h = await cortexHarness(() => report())
     await h.kernel.sendUserMessage(h.agentId, 'x'.repeat(2000))
     await pump(10)
     h.timers.flushAll()
@@ -432,19 +458,121 @@ describe('cortex 端到端：做梦事务（手动 dream 触发）', () => {
     assert.ok(state.messages.some((m) => m.tag === 'ltm' && m.valid), 'process 点火自动做梦（异步不拦信，后台完成轮替）')
   })
 
-  test('权限隔离：set 对宿主 deny、note 对宿主 allow（根表白拿）、worker grant 由梦成侧证', async () => {
-    const h = await cortexHarness(fullDream)
-    assert.equal(h.kernel.lineage.effectiveAccess(h.agentId, 'cortex_set_ltm'), 'deny', '根表不列 = 全树匿名 deny')
-    assert.equal(h.kernel.lineage.effectiveAccess(h.agentId, 'cortex_set_stm'), 'deny')
-    assert.equal(h.kernel.lineage.effectiveAccess(h.agentId, 'cortex_add_note'), 'allow', 'note 面继承形白拿')
+  test('权限声明清单 raise：宿主自动持有笔记面；set_* 灭迹；非 cortex 宿主不白拿', async () => {
+    const h = await cortexHarness(() => report())
+    assert.equal(h.kernel.lineage.effectiveAccess(h.agentId, 'cortex_add_note'), 'allow', '策略声明清单抬上台面')
+    assert.equal(h.kernel.lineage.effectiveAccess(h.agentId, 'cortex_del_note'), 'allow')
+    assert.notEqual(h.kernel.lineage.effectiveAccess(h.agentId, 'cortex_set_ltm'), 'allow', '工具已退役 = 永不上台面')
+    assert.notEqual(h.kernel.lineage.effectiveAccess(h.agentId, 'cortex_set_stm'), 'allow')
+    // 非 cortex 宿主（经典策略、根表不含笔记键）：拿不到。
+    const plainId = await h.kernel.instantiateAgent(
+      { className: makeAgentClassID('assistant'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
+      '/space',
+    )
+    assert.notEqual(h.kernel.lineage.effectiveAccess(plainId, 'cortex_add_note'), 'allow', '非 cortex 类不再白拿')
   })
 
-  test('agent 直写笔记落盘（非 cortex 类 agent 也可用，目录按 caller 建）', async () => {
-    const h = await cortexHarness(fullDream)
+  test('agent 直写笔记落盘（目录按 caller 建）', async () => {
+    const h = await cortexHarness(() => report())
     const addNote = (await h.tools.list()).find((t) => t.id === 'cortex_add_note')
     assert.ok(addNote)
     const res = await addNote.execute({ name: 'scratch-note', content: '灵感正文' }, { agentId: h.agentId, spaceId: '/space' })
     assert.match(res.text, /落盘/)
     assert.equal(h.fs.files.get(`${MEM_ROOT}/${h.agentId}/scratch-note.md`), '灵感正文')
+  })
+})
+
+// ---------- 假策略审计：策略 = 纯既有接口组合的定律链 ----------
+
+const FAKE_TOOL: ToolCapability = {
+  id: 'fake_note',
+  kind: 'custom',
+  birth: 'ignore', // 策略注册通例
+  description: '假策略自带工具（审计用）',
+  parameters: { type: 'object', properties: {} },
+  execute: async () => ({ text: 'ok' }),
+}
+
+const fakeStrategy: ContextStrategyModule = {
+  name: 'fake',
+  assemble: classicAssemble,
+  tools: { fake_note: 'allow' }, // 声明清单（raise 步）
+  init: async (ctx) => { await ctx.registerTool(FAKE_TOOL) },
+}
+
+function fakeTemplate(tools?: AgentClass['tools']): AgentClass {
+  return {
+    name: makeAgentClassID(tools === undefined ? 'fake-agent' : 'fake-agent-locked'),
+    description: '挂假策略的审计 agent',
+    systemPrompt: 'fake base',
+    contextStrategy: 'fake',
+    ...(tools !== undefined ? { tools } : {}),
+  }
+}
+
+async function fakeHarness(userClass?: ConstructorParameters<typeof import('../../../kernel').Kernel>[0]['userClass'], extraTemplates: readonly AgentClass[] = [fakeTemplate()]) {
+  const gateway = new FakeGateway(() => textEvents('ok'))
+  const h = await createKernelHarness(gateway, {
+    templates: [...BUILTIN_TEMPLATES, ...extraTemplates],
+    strategies: createBuiltinStrategyRegistry([fakeStrategy]),
+    ...(userClass !== undefined ? { userClass } : {}),
+  })
+  await h.tools.register(FAKE_TOOL, { replace: true })
+  return h
+}
+
+describe('策略声明清单审计（定律：ignore 出生 → raise 抬升 → 矛盾拒绝）', () => {
+  test('正常宿主：类未列笔记键，声明清单使生效面 = allow', async () => {
+    const h = await fakeHarness()
+    const id = await h.kernel.instantiateAgent(
+      { className: makeAgentClassID('fake-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
+      '/space',
+    )
+    assert.equal(h.kernel.lineage.effectiveAccess(id, 'fake_note'), 'allow')
+  })
+
+  test('矛盾拒绝：类显式 deny 同键 → 实例化被拒（复用收敛检查，零特判）', async () => {
+    const locked = fakeTemplate({ fake_note: 'deny' })
+    const h = await fakeHarness(undefined, [locked])
+    await assert.rejects(
+      () => h.kernel.instantiateAgent(
+        { className: makeAgentClassID('fake-agent-locked'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
+        '/space',
+      ),
+      (cause: unknown) => {
+        const err = cause as { kind: string; violations: string[] }
+        assert.equal(err.kind, 'tools_convergence_expanded')
+        assert.ok(err.violations.some((v) => v.includes('策略收敛') && v.includes('fake_note')), `归因到策略层：${err.violations.join('|')}`)
+        return true
+      },
+    )
+  })
+
+  test('祖先封顶：根对键显式 ask → 宿主 raise 被拒（写面拒绝归因策略层）', async () => {
+    const h = await fakeHarness({ tools: { access_reply: 'allow', fake_note: 'ask' } } as never)
+    await assert.rejects(
+      () => h.kernel.instantiateAgent(
+        { className: makeAgentClassID('fake-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
+        '/space',
+      ),
+      (cause: unknown) => {
+        const err = cause as { kind: string; violations: string[] }
+        assert.equal(err.kind, 'tools_convergence_expanded')
+        assert.ok(err.violations.some((v) => v.includes('fake_note')))
+        return true
+      },
+    )
+  })
+
+  test('纯 raise 链不破继承形封闭（父白名单封闭 → 宿主未列键仍 deny）', async () => {
+    // 根写白名单表（access_reply 出生 allow 必需）→ 根 fallback deny 下传；
+    // fake-agent 类不设表 + raise fake_note → 表外键仍继承根封闭。
+    const h = await fakeHarness({ tools: { access_reply: 'allow' } } as never)
+    const id = await h.kernel.instantiateAgent(
+      { className: makeAgentClassID('fake-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
+      '/space',
+    )
+    assert.equal(h.kernel.lineage.effectiveAccess(id, 'fake_note'), 'allow', 'raise 键在封闭父面下照常抬升（封顶=出生∧父显式，父未列=不锁）')
+    assert.equal(h.kernel.lineage.effectiveAccess(id, 'bash'), 'deny', '表外键继承根的本地封闭')
   })
 })

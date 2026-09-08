@@ -1,0 +1,18 @@
+[
+ {
+  "text": "用户自称「船长」（对话中的主要指令来源，sender id 为 船长#0）。",
+  "source": "t1 用户消息"
+ },
+ {
+  "text": "船长最爱吃蓝莓酱抹吐司（用户明确要求记住的事实，标记为 needle 记忆探针；t4 提问「我最爱吃什么」已命中，验证长期记忆留存可用）。",
+  "source": "t1 用户要求 / t4 探针验证"
+ },
+ {
+  "text": "宿主执行环境的主机名（hostname 输出）为 Coles。",
+  "source": "t3 bash hostname 结果"
+ },
+ {
+  "text": "宿主具备 context_apply 工具，支持 action=dream 手动触发做梦固化；船长会直接要求用它做自我整理。",
+  "source": "t5 用户要求"
+ }
+]

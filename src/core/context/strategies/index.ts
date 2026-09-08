@@ -10,6 +10,7 @@ export type {
   StrategyInitContext,
   StrategyInitFs,
   StrategyLogEvent,
+  StrategySpawnOpts,
 } from './types'
 export { DEFAULT_CONTEXT_SETTINGS } from './types'
 
@@ -18,7 +19,7 @@ export { DefaultStrategyRegistry } from './registry'
 
 export { classicAssemble, createClassicStrategy, CLASSIC_ROLE, SUMMARIZER_SPEC } from './classic'
 export { createNoneStrategy } from './none'
-export { createCortexStrategy, CORTEX_ROLE, DREAM_WORKER_SPEC, DEFAULT_DREAM_AT } from './cortex/index'
+export { createCortexStrategy, CORTEX_ROLE, DREAMER_SPEC, DEFAULT_DREAM_AT } from './cortex/index'
 export type { CortexSettings, LtmItem } from './cortex/index'
 
 import type { StrategyRegistry } from './registry'

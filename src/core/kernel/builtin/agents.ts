@@ -5,7 +5,7 @@
 // 同产 AgentClass 一个形状；内置静态类在此一张表——**新增类参数只改
 // AgentClass 接口，本表自动够着**（旧 Assistant.json 单独文件 +
 // userClass.ts 单独域双轨制退役，手写映射漂移源根除）。
-// 策略自带类（CLASSIC_ROLE/SUMMARIZER/CORTEX_ROLE/DREAM_WORKER）**不在
+// 策略自带类（CLASSIC_ROLE/SUMMARIZER/CORTEX_ROLE/DREAMER_SPEC）**不在
 // 此表**——"策略自带人设"（决策 C），生命周期随策略模块；形状已统一。
 //
 // 根 = user 类的普通实例（id `0`，parentId=null），与全体 agent 平等无特判。

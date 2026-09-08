@@ -239,9 +239,6 @@ export class DefaultRuntime implements Runtime {
         const ctx: ToolContext = {
           agentId: instance.id,
           spaceId: instance.spaceId,
-          // 直接父 id（策略机制工具据此识别"dream worker 调用"——族谱事实的
-          // 最小透传；普通工具无视）。
-          parent: instance.parentId ?? '',
         }
         // 挂起语义（S9）：instantiate.wait / agent_pause 命中 contextWait 标记——
         // 该调用本轮**不回填**（等 deposit/到点正规填充仓库行），轮循环收束为

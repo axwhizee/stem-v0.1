@@ -56,8 +56,6 @@ export const DEFAULT_CONFIG_TEXT = `{
       "context_remove": "allow",
       "context_edit": "allow",
       "context_apply": "allow",
-      "cortex_add_note": "allow",
-      "cortex_del_note": "allow",
       "agent_class_create": "ask",
       "agent_class_update": "ask",
       "agent_terminate": "ask"
