@@ -4,7 +4,7 @@
 > 干细胞之意：如同原始 Agent 类，可分化出任意角色与能力。
 > 抛弃会话概念：以**原子化 Agent 类 + Agent 实例**为核心，配合**族谱树**与模块化 harness 系统，构建可自我进化的多智能体集群。
 
-**状态**：架构定稿，发布前收敛（核心骨架 + 个体层持久化（schema v3）+ 上下文策略框架 classic/cortex + 族谱权限台账与出生声明 + 根配置对象化 + 身份代数（路径 id + 全局 name + 带时戳信件）+ bash 最小操作面 + extensions 点名装载，386 单测全绿）。
+**状态**：架构定稿，发布前收敛（核心骨架 + 个体层持久化（schema v3）+ 上下文策略框架 classic/cortex + 族谱权限台账与出生声明 + 根配置对象化 + 身份代数（路径 id + 全局 name + 带时戳信件）+ bash 最小操作面 + extensions 点名装载，393 单测全绿）。
 **日期**：2026-08
 
 ---
@@ -55,7 +55,7 @@
 | **根（user#0）** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.user` = 其类配置完整对象（人格/权限/模型声明式可配 + `name` 出生称呼，缺省 'user'）。 |
 | **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`lineage/AccessLedger` 注册期物化：继承→收敛，键即白名单；grant 加法为系统特权），tools 经 `AccessResolver` 端口查询。 |
 | **邮局** | 无集中式总线：仓库（存储）→ 管理员（打戳/策略处理/组装 + legalize）→ 快递员（倒计时+发送，只发不组装）。个体层经 MessageStore/InstanceStore 端口 write-through 落 SQLite（宿主注入），缺省纯内存。 |
-| **上下文策略** | `context/strategies/` 独立子模块（契约：note/role/assemble/process/actions/init；process 触发=user_prompt 抵达、终点=就绪唤醒快递员）。classic = 全量直出 + compact（markInvalid 归档可逆）；cortex = 三层外挂记忆（LTM/笔记/STM）+ 阈值做梦二段事务（记忆组轮替、`.stem/mem/` 单向镜像）；`.stem/context/*.ts` 可加载用户策略（自我进化承载之一）。 |
+| **上下文策略** | `context/strategies/` 独立子模块（契约：note/role/assemble/process/actions/init；process 触发=user_prompt 抵达、终点=就绪唤醒快递员）。classic = 全量直出 + compact（markInvalid 归档可逆）；cortex = 三层外挂记忆（LTM/笔记/STM）+ 阈值做梦二段事务（dreamer 回信交付、记忆组轮替、`.stem/mem/` 单向镜像）；`.stem/context/*.ts` 可加载用户策略（自我进化承载之一）。 |
 | **ask 消息化** | ask 审批 = 消息交换：`access_request` 投递根信箱 → 根经 `access_reply` 回复（once/always/reject；always = per-agent 免询问备忘）。 |
 | **PilotEvent** | 统一事件流（stream/letter/status/notice）+ EventHub 多订阅者；外部（shell/webui）订阅。 |
 | **tag + 双索引** | StoredMessage 带 tag（非原生合成消息）+ turn/indexInTurn（双索引），为上下文策略提供精确定位。 |
@@ -75,7 +75,7 @@
 | `sendCountdown` | – | 送信倒计时 ms（缺省 = 全局 config.sendCountdown） | 快递员 |
 | `panel` | – | true = 模块扮演面板（不组装、不跑 LLM 轮；策略 role 承载）。根的面板性不经此字段（kernel 根接线的结构性事实） | 注册接线 |
 | `custom` | – | 自由槽（`.stem/agent` 未知字段全透传于此；策略基因如 `custom.cortex={dreamAt?,consolidateModel?}` 住这里） | 策略经 `StrategyApi.custom` 消费 |
-| `maxSteps` | – | 单轮工具步数上限（S9 引入）；**≤0/未设 = 无限制**（长程工作默认放开）；解析 = 类基因 > 全局 config.maxSteps > 无限。资源上限而非权限，不进族谱律不继承不封顶 | Runtime 轮循环 |
+| `maxSteps` | – | 单轮工具步数上限；**≤0/未设 = 无限制**（长程工作默认放开）；解析 = 类基因 > 全局 config.maxSteps > 无限。资源上限而非权限，不进族谱律不继承不封顶 | Runtime 轮循环 |
 
 **实例侧参数**（不在类上；运行期唯一写面 `agent_update`，缺省目标=自身，canReach）：`name`（全局唯一称呼，撞名拒；根的出生名 = `config.user.name`）/ `model` 显式行（四级律顶层）/ `tools` 收敛 patch / `grantTools` 清单整表（逐键祖先封顶）。
 
@@ -108,7 +108,7 @@
 | | `context_remove` | `markInvalid` 删消息/整轮（归档可逆；仅自身或祖先） | allow |
 | | `context_edit` | 重写指定消息内容（system 不可改） | allow |
 | | `context_apply` | 执行策略专有动作（如 classic 手动 `compact`） | allow |
-| | `agent_pause` | 自主挂起攒信：ms 到点唤醒，期间来信自然堆积（S9） | 未列=隐藏 |
+| | `agent_pause` | 自主挂起攒信：ms 到点唤醒，期间来信自然堆积 | 未列=隐藏 |
 | 系统义务 | `access_reply` | 答复 `access_request`（once/always/reject；仅族谱根可答）——**根义务，删则 ask 死锁** | allow |
 
 ### ② core 外部操作面（`kind=internal`）

@@ -82,7 +82,7 @@
   三类基因源并存、文档脱节、视图层 user0 特判、pilot 双通道、Runtime 单层模型解析、
   opencodeLlm 的 process.env 违规；产出 = 逐条"特判→吸收机制→风险→裁决"报告）。
   ✅ **cortex 睡眠策略已实施**（S8）：三层外挂记忆（LTM/笔记/STM）+ 阈值做梦——估算过
-  `custom.cortex.dreamAt` 线即异步唤起 dream worker 全景重放、二段事务重写记忆并归档实时轮。
+  `custom.cortex.dreamAt` 线即异步唤起 dreamer 全景重放、回信交付重写记忆并归档实时轮。
   **策略自调度薄层（schedule/timer 心跳）被方案否决**——阈值激活一个数字兼任触发/频控/防线；
   agent 亦可 `context_apply(action="dream")` 提前做梦、`agent_pause` 挂起攒信。
   🚧 余 = 在线跨梦 needle 验收（docs/v10-test-plan 场景 5，沿革 brain-plan→cortex R1→R2→落地见 log）。

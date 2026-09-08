@@ -97,8 +97,8 @@ extension/（矩阵 extension 层资源：tools / agent / context 目录形态�
 
 | 点位 | 契约/位置 | 时机 | 语义与边界 |
 |---|---|---|---|
-| `ContextStrategyModule` 六面 | `src/core/context/strategies/types.ts` | — | `name`（注册键）/ `note`（追加宿主 systemPrompt，模型知晓自身记忆机制）/ `role`（AgentClass——S9 类形态统一，策略 spec 与用户类同形状）/ `assemble`（**纯函数**）/ `process`（异步许可）/ `actions`（Record<名,(api,args)=>string>） |
-| `StrategyApi` 能力包 | 管理员构造注入 | process/actions 内 | list/listValid/append(tag)/markInvalid/updateMessage/estimatedTokens/settings/custom（宿主类基因槽）/spawn（role+worker 正规往返含回收）/lastWorkerId·roleAgentId（身份通道）/log——策略**不直连 kernel**；fs 与工具注册走 `init(ctx)`（`StrategyInitContext = {projectRoot,fs,settings,log,registerTool}`，cortex 为参考样板） |
+| `ContextStrategyModule` 七面 | `src/core/context/strategies/types.ts` | — | `name`（注册键）/ `note`（追加宿主 systemPrompt，模型知晓自身记忆机制）/ `role`（AgentClass——类形态统一，策略 spec 与用户类同形状）/ `tools?`（**声明清单 = 收敛链 raise 步**：只抬不封地把本策略注册面键抬到声明值，宿主启用本策略即自动持有；封顶 = 出生 ∧ 链上显式，与类矛盾 = 实例化拒绝）/ `assemble`（**纯函数**）/ `process`（异步许可）/ `actions`（Record<名,(api,args)=>string>） |
+| `StrategyApi` 能力包 | 管理员构造注入 | process/actions 内 | list/listValid/append(tag)/markInvalid/updateMessage/estimatedTokens/settings/custom（宿主类基因槽）/spawn（role+worker 正规往返含回收；`opts.validate` = 回信纠错循环：不合发纠错信给同一 worker 再等，缺省 ≤2 轮、轮尽返回末件）/lastWorkerId·roleAgentId（身份通道）/log——策略**不直连 kernel**；fs 与工具注册走 `init(ctx)`（`StrategyInitContext = {projectRoot,fs,settings,log,registerTool}`，cortex 为参考样板） |
 | 触发/终点 | 管理员 wake 链 | user_prompt 抵达 → 唤醒快递员 | 重入合并、失败兜底不卡死（契约义务） |
 | `tag` 词表 | 策略自定；**现状六元收口**（''/summary/cortex/ltm/note/stm） | append 合成消息时 | 组装器按该 agent 策略解释 tag；**strategy 不入库为 tag 的一部分**（上下文属性）；新策略要新 tag 先议后扩 |
 | 面板态 | `AgentClass.panel=true` → 恒绑 none 策略 | — | 不组装不跑 LLM（根接线/role 承载）；`contextStrategy` 字段对其无意义 |
@@ -226,7 +226,7 @@ anything_else: 自由键        # 未知键透传 AgentClass.custom
 
 ### 3.5 context 策略
 
-`.stem/context/windowed.ts` 默认导出 `ContextStrategyModule`（五面契约见 §2-F）；同名覆盖内置。策略要造 agent 只用 `StrategyApi.spawnRole/spawnWorker`（模块扮演形态），worker 用完 terminate 归档。
+`.stem/context/windowed.ts` 默认导出 `ContextStrategyModule`（五面契约见 §2-F）；同名覆盖内置。策略要造 agent 只用 `StrategyApi.spawn`（模块扮演形态：role 懒生成 + worker 回信 + 用完 terminate 归档），自带工具走 `init` 的 registerTool（出生恒 ignore）+ `tools` 声明清单抬权（cortex 为完整参考样板）。
 
 ## 4. 配置速查（唯一文件 `.stem/stem.jsonc`）
 
@@ -266,7 +266,7 @@ R12 全量有效：**未知顶层键 fail-fast**，`custom` 唯一自由位（§
 
 - 单测与源码同目录（`node:test` + `assert/strict`）；**不 mock 全局**：注入 fake（FakeGateway 注 usage、内存 registry、mkdtemp 真 fs、kernelHarness 手动计时器、gateway `fetch?` 传输口）。
 - 分模块跑 `npm run test:module -- "<glob>"`；提交前 typecheck 0 + 全量绿；`reference/` 噪音忽略。
-- **装载时序铁律**：Kernel 构造期恢复接线（wireRestoredInstances）跑在 runInit 类矩阵装载**之前**——恢复实例看不到空间类配置（策略/custom/类级倒计时全落兜底）。新增类参数若影响运行期行为，生效面在 `realignRestoredInstances`（组合根载齐后补对齐，箱字段可变面仅此一通道）；验收走 classRestart 双 boot e2e + `boxFacts` 断言——**mock 策略 api 的单测盖不住这类装配期快照 bug**（S10 实测教训：347 绿 + cortex 永不做梦）。
+- **装载时序铁律**：Kernel 构造期恢复接线（wireRestoredInstances）跑在 runInit 类矩阵装载**之前**——恢复实例看不到空间类配置（策略/custom/类级倒计时全落兜底）。新增类参数若影响运行期行为，生效面在 `realignRestoredInstances`（组合根载齐后补对齐，箱字段可变面仅此一通道）；验收走 classRestart 双 boot e2e + `boxFacts` 断言——**mock 策略 api 的单测盖不住这类装配期快照 bug**（实测教训：全绿之下 cortex 永不做梦）。
 - **阈值触发机制的测试预算**（compact 比例线 / cortex dreamAt 等）：先用 2-3 轮实测**单轮水位进量**再反推阈值参数；真模型回复可能极短（每轮 200-400 tok），按"典型对话"拍脑袋设线会让灌轮测试永远够不着线。观察口 = `boxFacts` 旁的 `api.estimatedTokens()` 同源量（DB valid 行 tokens 求和，node:sqlite 脚本外可查）。
 - 陷阱：`verbatimModuleSyntax` 必须 `import type`；`noUncheckedIndexedAccess` 取值判空；core 错误是判别联合对象（`{kind}`）非 Error（`assert.throws` 用谓词）；持久化端口是**同步**接口（node:sqlite 对齐）；`turnCount/totalCost` 引用直改不经装饰器（随状态快照收敛，可接受边界）；改 `ToolKind`/工具 shape/`AgentClass.tools` 时同步检查 `extension/tools/` 与 `src/core/tools/`；SQLite 保留字（`AS all` 直接语法错）；nvm PATH 不跨 shell 会话。
 

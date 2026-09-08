@@ -115,6 +115,7 @@
 1. **自造 mock 会精确隐藏它没见过的形状**——dashscope tool_calls 尾分片带 `id:""` 覆盖真 id → 真网关工具链整体静默失效，单测全绿掩盖至今（修复见 log）。真端点冒烟不可省；抓真 SSE 原文写回归用例是标准流程。
 2. **假阳性断言自查**：marker 别出现在 prompt 里（否则 user 行命中）；断言要指到 `role:"tool"` 行级证据。
 3. **时序与口径陷阱**：等 LLM 轮先等进 `thinking` 再等离开（固定 sleep 竞态）；compact 检查点在"下一封 user 信抵达"，测试需要第三轮做触发探针；mock `prompt_tokens` 给**固定值**会命中负差回落护栏（Δ≤0 回落估算）——用量阶梯递增让真实归位通道保持畅通。
+4. **手动计时器的时间坍缩**（kernelHarness `manualTimers` 实录教训）：`flushAll` 不看 ms 全量触发 = 同时炸掉"回信等待超时（60s）"与"0ms 发送倒计时"——凡被测链含 `waitForReply` 类长超时，先 pump microtask、久无进展才 flush（FakeGateway 链不经计时器）；harness 已修 0ms 档走真定时器（setTimeout(0)），worker 类 0 倒计时不再永滞 cooling 态。配对类通道改语义时守"**先登记等待者、后投递触发信**"（instantiate 的创建配对原子性同款纪律，纠错循环曾栽在反序上）。
 
 ## 7. 提交规范
 

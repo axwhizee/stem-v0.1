@@ -40,7 +40,7 @@
 | `ContextManagerOptions` | `export interface ContextManagerOptions {` | `src/core/context/ContextManager.ts` |
 | `ContextRegistration` | `export interface ContextRegistration {` | `src/core/context/ContextManager.ts` |
 | `ContextSettings` | `export interface ContextSettings {` | `src/core/context/strategies/types.ts` |
-| `ContextStrategyModule` — 上下文策略契约（note/role/assemble/process/actions/init） | `export interface ContextStrategyModule {` | `src/core/context/strategies/types.ts` |
+| `ContextStrategyModule` — 上下文策略契约（note/role/tools/assemble/process/actions/init） | `export interface ContextStrategyModule {` | `src/core/context/strategies/types.ts` |
 | `Courier` | `export interface Courier {` | `src/core/context/Courier.ts` |
 | `CourierOptions` | `export interface CourierOptions {` | `src/core/context/Courier.ts` |
 | `CourierRegistration` | `export interface CourierRegistration {` | `src/core/context/Courier.ts` |
@@ -60,7 +60,7 @@
 | `RepositoryState` | `export interface RepositoryState {` | `src/core/context/types.ts` |
 | `RestoredBox` | `export interface RestoredBox {` | `src/core/context/store.ts` |
 | `StoredMessage` | `export interface StoredMessage {` | `src/core/context/types.ts` |
-| `StrategyAgentSpec` | `export type StrategyAgentSpec = AgentClass`（S9 类形态统一，role/worker 与用户类同形状） | `src/core/context/strategies/types.ts` |
+| `StrategyAgentSpec` | `export type StrategyAgentSpec = AgentClass`（类形态统一：role/worker 与用户类同形状） | `src/core/context/strategies/types.ts` |
 | `StrategyApi` | `export interface StrategyApi {` | `src/core/context/strategies/types.ts` |
 | `StrategyRegistry` | `export interface StrategyRegistry {` | `src/core/context/strategies/registry.ts` |
 | `TimerFactory` — 计时端口（测试手动计时器注入点） | `export type TimerFactory = (fn: () => void, ms: number) => TimerHandle` | `src/core/context/Courier.ts` |
@@ -71,9 +71,9 @@
 | `createClassicStrategy` | `export function createClassicStrategy(): ContextStrategyModule {` | `src/core/context/strategies/classic.ts` |
 | `createNoneStrategy` | `export function createNoneStrategy(): ContextStrategyModule {` | `src/core/context/strategies/none.ts` |
 | `createCortexStrategy` | `export function createCortexStrategy(): ContextStrategyModule {` | `src/core/context/strategies/cortex/cortex.ts` |
-| `StrategyInitContext` / `StrategyInitFs` | 策略装载期契约（registerTool 窄口 + 可选 fs 写面；S8） | `src/core/context/strategies/types.ts` |
-| `CORTEX_ROLE` / `DREAM_WORKER_SPEC` | cortex 扮演面板 / 做梦 worker（AgentClass 形状，S9 统一） | `src/core/context/strategies/cortex/` |
-| `createCortexStrategy` | `export function createCortexStrategy(): ContextStrategyModule {` | `src/core/context/strategies/cortex/cortex.ts` |
+| `StrategyInitContext` / `StrategyInitFs` | 策略装载期契约（registerTool 窄口 + 可选 fs 写面） | `src/core/context/strategies/types.ts` |
+| `CORTEX_ROLE` / `DREAMER_SPEC` | cortex 扮演面板 / dreamer 出生档案（AgentClass 形状，策略硬编码） | `src/core/context/strategies/cortex/` |
+| `StrategySpawnOpts` | `export interface StrategySpawnOpts {`（spawn 回信校验/纠错循环参数：validate/maxCorrections） | `src/core/context/strategies/types.ts` |
 | `estimateTokens` | `export function estimateTokens(message: ChatMessage): number {` | `src/core/context/Repository.ts` |
 | `legalize` | `export function legalize(messages: readonly ChatMessage[]): ChatMessage[] {` | `src/core/context/legalize.ts` |
 | `messageSeqOf` | `export function messageSeqOf(id: string): number {` | `src/core/context/store.ts` |
@@ -191,7 +191,7 @@
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
-| `AccessBindEntry` | `export interface AccessBindEntry {` | `src/core/lineage/AccessLedger.ts` |
+| `AccessBindEntry` | `export interface AccessBindEntry {`（steps 元素 = ConvergenceStep {list, mode?}——raise 步为策略声明清单） | `src/core/lineage/AccessLedger.ts` |
 | `AccessBindMode` | `export type AccessBindMode = 'inherit' \| 'grant'` | `src/core/lineage/AccessLedger.ts` |
 | `AccessLedger` | `export interface AccessLedger {` | `src/core/lineage/AccessLedger.ts` |
 | `AccessProfile` | `export interface AccessProfile {` | `src/core/lineage/AccessLedger.ts` |
@@ -287,7 +287,7 @@
 | `accessRank` / `checkToolsConvergence` | 总序数值 + 清单收敛校验（类书写/实例更新共用） | `src/core/tools/access.ts` |
 | `validateArgs` | `export function validateArgs(input: unknown, schema: ToolParametersSchema): string \| undefined {` | `src/core/tools/validate.ts` |
 
-| `foldConvergenceSteps` | `export function foldConvergenceSteps(parentExplicit, caps, steps)`（收敛链单一代数：物化钳制/写入拒绝共用） | `src/core/tools/access.ts` |
+| `foldConvergenceSteps` | `export function foldConvergenceSteps(parentExplicit, caps, steps)`（收敛链单一代数：物化钳制/写入拒绝共用；steps 三元组含 mode——replace 白名单整表 / raise 只抬不封） | `src/core/tools/access.ts` |
 | `checkToolsConvergence` | `export function checkToolsConvergence(`（类书写面纯校验：violation 字符串清单） | `src/core/tools/access.ts` |
 | `ConvergenceLayer` / `ConvergenceViolation` | 层名四元（根/类/策略/实例收敛）与违例形状 | `src/core/tools/access.ts` |
 
@@ -300,7 +300,7 @@
 | `ConfigStore` / `InitFs` / `InitToolLoader` / `ClassFs` | 配置读写、目录扫描（listFiles/listDirs/readText）、动态 import、类落盘 | `shell/cli/config.createNodeConfigBundle` |
 | `ShellRunner` | bash 工具执行端口（超时/截断参数在 core 侧，进程在宿主） | `shell/cli/bash.createNodeShellRunner` |
 | `ToolCapability` | 工具统一形状 + `init?(ToolInitContext)` 生命周期；kind 三分类（internal/extension/custom） | registry.register / runInit 矩阵装载 |
-| `ContextStrategyModule` | note/role/assemble/process/actions/init 六面；注册同名覆盖内置；init 先于工具 initAll（registerTool 窄口注策略自带工具） | 策略注册表 / `.stem/context/` / extension 点名 |
+| `ContextStrategyModule` | note/role/tools/assemble/process/actions/init 七面（tools = 声明清单 raise 步）；注册同名覆盖内置；init 先于工具 initAll（registerTool 窄口注策略自带工具，出生恒 ignore） | 策略注册表 / `.stem/context/` / extension 点名 |
 | `LineageTree` | 权限与模型的唯一门面：attach/detach/replay、effectiveAccess、modelOf、nodeConfigOf、canReach（能力面无直改 setter；运行期变更 = kernel.updateAgent 写行后全树 replay，快照层保证改父不动子） | Kernel 内部（tools 经 AccessResolver 查询） |
 | `Pilot` | 根扮演接口（一切外部驱动经它）：sendMessage/instantiate(model/name 可选)/setModel/replyAccess/runContextAction/subscribe | 各 shell |
 | `EventHub`/`PilotEvent` | stream/letter/status/notice 判别联合，多订阅者（SSE 直转） | `system.pilot.subscribe` |
