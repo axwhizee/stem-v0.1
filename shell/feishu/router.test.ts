@@ -16,6 +16,9 @@ import {
   formatTree,
   splitForChat,
   resolveTarget,
+  setSessionTarget,
+  planReplay,
+  type FetchedMsg,
   type InboundMsg,
 } from './router'
 import type { FeishuConfig } from './config'
@@ -73,6 +76,83 @@ describe('身份闸门与基础路由', () => {
     const acts = handleInbound(s, msg({ chatId: 'oc_grp', chatType: 'group', text: '@_user_1 跑一下测试', messageId: 'g3' }))
     assert.equal(stripMentions('@_user_1 跑一下测试'), '跑一下测试')
     assert.equal((acts[0] as { text: string }).text, '跑一下测试')
+  })
+})
+
+describe('显式会话模型（CLI 式目标制）', () => {
+  test('config.sessions 装载进内存镜像并抢占优先级（p2p 与群一视同仁）', () => {
+    const s = createRouterState(cfg({ sessions: { oc_p2p: 'kid7', oc_grp: 'kid8' } }))
+    s.secretaryId = 'sec1'
+    assert.equal(resolveTarget(s, msg()), 'kid7', '显式会话 > 秘书')
+    assert.equal(resolveTarget(s, msg({ chatId: 'oc_grp', chatType: 'group', messageId: 'g1' })), 'kid8', '群显式 > 绑定/拒服')
+    assert.equal(resolveTarget(s, msg({ chatId: 'oc_g9', chatType: 'group', messageId: 'g2' })), '', '群未绑无目标 = 空')
+  })
+
+  test('/new /use /agents 派发为 command；/exit 本地解绑并触发回写钩子', () => {
+    const events: Array<[string, string | null]> = []
+    const s = createRouterState(cfg({ sessions: { oc_p2p: 'kid7' } }), { onSession: (c, t) => { events.push([c, t]) } })
+    s.ownerChatId = 'oc_p2p'
+    assert.deepEqual(handleInbound(s, msg({ text: '/new organizer 整理周报' })), [{ kind: 'command', chatId: 'oc_p2p', name: 'new', args: ['organizer', '整理周报'] }])
+    assert.deepEqual(handleInbound(s, msg({ text: '/use kid#0-1', messageId: 'm2' })), [{ kind: 'command', chatId: 'oc_p2p', name: 'use', args: ['kid#0-1'] }])
+    assert.deepEqual(handleInbound(s, msg({ text: '/agents', messageId: 'm3' })), [{ kind: 'command', chatId: 'oc_p2p', name: 'agents', args: [] }])
+    const exits = handleInbound(s, msg({ text: '/exit', messageId: 'm4' }))
+    assert.equal(exits[0]!.kind, 'reply')
+    assert.deepEqual(events, [['oc_p2p', null]], 'exit 触发解绑回写')
+    assert.equal(s.chatTargets.has('oc_p2p'), false)
+  })
+
+  test('秘书关闭（可选项退役）后未绑定单聊 = 指令指引，不再盲投', () => {
+    const s = createRouterState({ ...cfg(), secretaryClass: '' })
+    s.secretaryId = ''
+    const acts = handleInbound(s, msg())
+    assert.equal(acts[0]!.kind, 'reply')
+    assert.match((acts[0] as { text: string }).text, /\/use/)
+    assert.equal(resolveTarget(s, msg({ messageId: 'x', text: '/help' })), '', '无目标可解析')
+  })
+
+  test('setSessionTarget 双写（镜像 + 钩子）；ownerChat/seen 钩子随入站触发', () => {
+    const seen: Array<[string, number]> = []
+    let owner: string | undefined
+    const s = createRouterState(cfg(), { onSession: (c, t) => { owner = `${c}=${t ?? '∅'}` }, onOwnerChat: (c) => { owner = undefined; void c }, onSeen: (c, at) => { seen.push([c, at]) } })
+    setSessionTarget(s, 'oc_p2p', 'kid3')
+    assert.equal(s.chatTargets.get('oc_p2p'), 'kid3')
+    assert.equal(owner, 'oc_p2p=kid3')
+    handleInbound(s, msg({ chatId: 'oc_q9', chatType: 'group', messageId: 'z1', text: '/agents' }))
+    assert.equal(seen.length, 1)
+    const g = createRouterState(cfg(), { onOwnerChat: (c) => { owner = c } })
+    handleInbound(g, msg())
+    assert.equal(owner, 'oc_p2p', 'p2p 首话记录主人会话')
+  })
+})
+
+describe('断线补偿（planReplay）', () => {
+  const f = (patch: Partial<FetchedMsg> = {}): FetchedMsg => ({
+    messageId: 'fm1', chatId: 'oc_p2p', openId: 'ou_owner', senderType: 'person', text: '离线期间的话', createTimeMs: 100, ...patch,
+  })
+
+  test('过滤机器人/非主人/已见；乱序入参按时间升序重放', () => {
+    const s = state()
+    s.seen.add('fm2')
+    const acts = planReplay(s, [
+      f({ messageId: 'fm3', createTimeMs: 300 }),
+      f({ messageId: 'fm2', createTimeMs: 200 }),
+      f({ messageId: 'fm1', createTimeMs: 100 }),
+      f({ messageId: 'fm4', senderType: 'app', createTimeMs: 400 }),
+      f({ messageId: 'fm5', openId: 'ou_thief', createTimeMs: 500 }),
+    ])
+    assert.deepEqual(acts.map((a) => a.messageId), ['fm1', 'fm3'], '升序 + 已见/机器人/外人全滤')
+    assert.equal(acts[0]!.chatType, 'p2p')
+  })
+
+  test('补偿重放走 handleInbound 全律（去重/闸门/会话目标）', () => {
+    const s = state({ sessions: { oc_p2p: 'kid7' } })
+    const replay = planReplay(s, [f()])
+    assert.equal(replay.length, 1)
+    const acts = handleInbound(s, replay[0]!)
+    assert.deepEqual(acts, [{ kind: 'deliver', chatId: 'oc_p2p', to: 'kid7', text: '离线期间的话' }])
+    const again = planReplay(s, [f()])
+    assert.equal(again.length, 0, '已见消息不再进重放计划')
+    assert.equal(handleInbound(s, { messageId: 'fm1', chatId: 'oc_p2p', chatType: 'p2p', openId: 'ou_owner', text: '离线期间的话' }).length, 0, '强行重放也被 LRU 吞')
   })
 })
 

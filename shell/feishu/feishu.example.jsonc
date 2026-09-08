@@ -8,12 +8,21 @@
   // 主人 open_id 白名单（只有名单内身份获得服务；权限本体仍由族谱树定义）
   "ownerOpenIds": [],
 
-  // 单聊默认接待员类（内置 assistant 起步；可换自建类如 "secretary"）
-  "secretaryClass": "assistant",
+  // 秘书中转（可选项）：单聊未绑定会话的兜底接待员类；置 "" = 关闭，
+  // 一切对话都要显式 /new 或 /use 绑定目标（CLI 式会话模型，缺省推荐）。
+  "secretaryClass": "",
 
-  // 会话绑定：chat_id → 该会话对话的 agent 实例 id
+  // 静态会话绑定：chat_id → 该会话对话的 agent 实例 id
   // 群 = 子 agent 的移动窗口：{"oc_xxxx群id": "tester9"}
   "chatBindings": {},
+
+  // ———— 以下为 shell 自管状态（/new /use /exit 回写，手编亦可） ————
+  // 显式会话目标：chat_id → 当前目标 agent id
+  "sessions": {},
+  // 主人单聊会话 id（上线/离线通知与补偿投递面；首条 p2p 来话自动记录）
+  "ownerChatId": "",
+  // 各会话最近处理时刻（毫秒；断线补偿的增量起点）
+  "lastSeenAt": {},
 
   // 审批卡额外投递的群（主人单聊恒收；群里也可配仅特定人可见卡后续增强）
   "approvalChatIds": [],

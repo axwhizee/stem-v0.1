@@ -71,13 +71,14 @@ stem core（根 user#0 生态：接待员、organizer、cortex-pet……全部�
 stem 的第一性事实：**根（user#0）是面板**——它不组装、不跑 LLM 轮（AGENTS.md 设计原则 1）。所以"在飞书跟船长说话"的真实机制是：
 
 ```
-你的消息 ──pilot（以根身份）──▶ 接待员实例（缺省 assistant 类，族谱挂根）
-                                        │ 真 LLM 轮 + 工具（bash/读写/bus_*/…按族谱权限）
-              接待员的回信落进根信箱 ◀──┘
+你的消息 ──pilot（以根身份）──▶ 本会话当前目标 agent（/new /use 选定；秘书/绑定表兜底）
+                                        │ 真 LLM 轮 + 工具（bash/读写/…按族谱权限）
+              目标的回信落进根信箱 ◀──┘
 你的聊天窗口 ◀──读 aloud：root letter 事件反查 StoredMessage.from 后转发──
 ```
 
-- **接待员（secretary）**：启动时在你的空间里找 `classRef == secretaryClass` 且父为根的活跃实例，没有就创建（带一段启动信人设）。跨重启复用同一实例——记忆连续。
+- **显式会话（CLI 式，本 shell 的缺省模型）**：每个 chat 有"当前目标"，`/new <类> [任务]` 创建并绑定、`/use <name|id>` 切换（吃三形态寻址）、`/exit` 解绑、`/agents` 看选人面板。目标表**回写 `.stem/feishu.jsonc`**（`sessions` 键，jsonc 定点编辑保你的注释）——重启后每个会话继续对着原 agent 说话，记忆连续。
+- **接待员（secretary）降级为可选项**：`secretaryClass` 配了才有兜底（找 `classRef == secretaryClass` 且父为根的活跃实例，没有就创建）；置 `""` = 关闭秘书中转，未绑定会话只收到指令指引——"跟谁说话"永远是显式的。
 - **读 aloud 忠于信件原文**：回信带 `<sender id="…">` 发件人戳（邮局打戳是信件真相的一部分，仓库/审计面与出口同源）。单主人自用场景这是特性不是噪音；若将来 shell 面向多用户产品化，出口美化（剥戳/换名片格式）归表现层决策，勿动审计链。
 - **权限的本体在族谱树，不在聊天渠道**：open_id 白名单只是**渠道闸门**（谁能跟这个 shell 说话）；说的每句话能触发什么工具，永远由 agent 在族谱中的位置 + 类/实例配置收敛出的生效权限决定（AGENTS.md 原则 3）。白名单外的人：零服务、零泄漏。
 
@@ -85,7 +86,12 @@ stem 的第一性事实：**根（user#0）是面板**——它不组装、不�
 
 | 你做什么 | shell 做什么 | 走哪条链路 |
 |---|---|---|
-| 单聊发普通消息 | 以根身份投给接待员，回信读 aloud | `pilot.sendMessage` → 回信 letter |
+| 单聊发普通消息 | 以根身份投给**本会话当前目标**，回信读 aloud | `pilot.sendMessage` → 回信 letter |
+| 发 `/new <类> [任务]` | 创建实例并设为本会话目标（回写配置） | `pilot.instantiate` |
+| 发 `/use <name\|id>` | 切换本会话目标（name / name#id / 唯一前缀 / 精确 id 都认；歧义回候选） | `kernel.resolveAgent` |
+| 发 `/agents` / `/exit` | 选人面板 / 解绑本会话目标 | `pilot.listAgents` / 会话表 |
+| shell 重启 / 断线重连 | 向主人会话发"上线"；按 `lastSeenAt` 增量拉取各会话历史**补偿重放**（真人∧白名单∧未见，时间升序） | `im.v1.message.list` → `planReplay` |
+| shell 收到 SIGTERM/SIGINT | 优雅发"离线"再退场 | — |
 | 发 `/tree` | 族谱树卡（缩进 + 状态徽标 🟢idle 🔵thinking 🟡holding ⚪interrupted） | `pilot.listAgents` |
 | 发 `/status [agent]` | 实例详情 + **生效接线反射**（策略/组装/custom/倒计时，`boxFacts`） | `pilot.inspect` + `contextManager.boxFacts` |
 | 发 `/logs [agent] [n]` | 该 agent 最近 n 条运行账（状态/审批/工具/做梦…） | `kernel.logger.query` |
@@ -104,7 +110,7 @@ stem 的第一性事实：**根（user#0）是面板**——它不组装、不�
    ```
 2. **飞书给 bot 发任意消息** → 白名单为空时它会回你 `open_id`（认领指引）。
 3. 把 `open_id` 填进 `.stem/feishu.jsonc` 的 `ownerOpenIds`，重启 → 正式开通。
-4. 冒烟三连：发"你好"（接待员真回复）→ `/tree`（族谱卡）→ 让接待员"把一句话写进 notes.txt"（`write` 是 ask 门，弹审批卡，三键各试一次）。
+4. 冒烟三连：`/new assistant 你是试飞员`（现场建目标并绑定）→ `/tree`（族谱卡）→ 让它"把一句话写进 notes.txt"（`write` 是 ask 门，弹审批卡，三键各试一次）。重启 shell 再看：上线通知 + 会话目标还在（`sessions` 回写生效）。
 
 ### 2.4 配置参考（`.stem/feishu.jsonc`）
 
@@ -113,8 +119,11 @@ shell 层自治理文件（**不进 core StemConfig**——平台配置不入 co
 | 键 | 缺省 | 含义 |
 |---|---|---|
 | `ownerOpenIds` | `[]` | 主人白名单；空 = 回认领指引不服务 |
-| `secretaryClass` | `"assistant"` | 单聊默认接待员类（可换自建类，`.stem/agent/` 放一个即生效） |
-| `chatBindings` | `{}` | `chat_id → agent 实例 id`：未绑定的群拒服，绑定后群 = 该 agent 窗口 |
+| `secretaryClass` | `""` | 秘书兜底（**可选项**）：单聊未绑定会话的接待员类；`""` = 关闭中转，一切对话须显式 `/new` `/use` |
+| `chatBindings` | `{}` | `chat_id → agent 实例 id` 静态绑定（群 = 该 agent 窗口）；优先级低于 `/use` 显式会话 |
+| `sessions` | `{}` | **shell 自管**：chat_id → 当前目标（/new /use /exit 回写，jsonc 定点编辑保注释） |
+| `ownerChatId` | `""` | **shell 自管**：主人单聊最近值（上线/离线通知与补偿投递面） |
+| `lastSeenAt` | `{}` | **shell 自管**：各会话最近处理时刻（断线补偿增量起点） |
 | `approvalChatIds` | `[]` | 审批卡额外投递的群（管理群收卡、单聊裁决） |
 | `watchThrottleMs` | `2000` | watch 推送节流窗（并条防撞 5 QPS） |
 
@@ -140,21 +149,24 @@ WSClient 内置断线重连，systemd 兜进程级自愈。**一空间一进程*
 ## 三、实现原理（三文件分工与不变量）
 
 ```
-router.ts   纯逻辑决策面（零 SDK、零 IO，16 例全单测）
+router.ts   纯逻辑决策面（零 SDK、零 IO，全单测）
             入站 InboundMsg → OutAction[]（deliver/reply/approvalCard/command）
-            内含：白名单闸门 / 认领指引 / chat→agent 路由 / 命令解析 /
+            内含：白名单闸门 / 认领指引 / 会话目标优先级（显式>绑定>秘书）/ 命令解析 /
+                  会话表与 setSessionTarget（钩子回写）/ planReplay 补偿重放计划 /
                   <access_request> XML 解析 / 卡片 value 判别 /
                   message_id LRU 去重（平台事件有重试，必须幂等）/
                   watch 订阅集 / 长文分箱 / formatTree 渲染
 feishu.ts   SDK 协议翻译（@larksuiteoapi 具名导入；msg_type 双形兼容；
-            REST 发送三式 sendText/sendCard/updateCard）——全仓库唯一认识飞书 SDK 的文件
+            REST sendText/sendCard/updateCard + listMessages 增量拉取）——
+            全仓库唯一认识飞书 SDK 的文件
 main.ts     接线：env 校验 → bootStem（复用 cli 的 platform，含网关/SQLite/bash 注入）
-            → 接待员解析/创建 → onMessage→router→execute；pilot.subscribe→读 aloud/watch；
-            卡片回调 → pilot.replyAccess → 卡留档
-config.ts   .stem/feishu.jsonc 装载（裸 JSONC + 顶层键白名单 fail-fast）
+            → 秘书（可选）/会话表装载 → onMessage→router→execute；pilot.subscribe→读 aloud/watch；
+            卡片回调 → pilot.replyAccess → 卡留档；start 后上线通知+compensate；SIGTERM 优雅离线
+config.ts   .stem/feishu.jsonc 装载 + **定点回写**（裸 JSONC 白名单 fail-fast；
+            jsonc-parser modify/applyEdits 只动目标键保用户注释——edits 必须整批应用）
 cards.ts    卡片 JSON 构造（审批卡三键 / 裁决留档态 / 信息卡）
 ```
 
 对 core 的态度：**零改动、零特权**。本 shell 用到的全部是 pilot/kernel 既有门面（`sendMessage/instantiate/inspect/listAgents/replyAccess/interrupt/subscribe` + `boxFacts` + `logger.query`），与 CLI/WebUI 完全同权——它只是第四个"扮演根的外部大脑接口"（AGENTS.md 原则 4：shell 只做平台适配 + UI）。
 
-**已知边界与预留**（都有明确的平台机制支撑，未做纯属范围裁剪）：流式打字机回复（cardkit streaming，10/s 下节流即可）；断线期间消息补偿（重连后 `im.v1.message.list` 拉历史去重——平台事件重投窗口约 90s，长时间离线会丢触发）；图片入站 → 多模态；语音入站 → 自备 ASR；免 @ 群环境感知（敏感权限，可开）；单聊自定义菜单按钮（`application:bot.menu:write`）；多用户化（出口美化、每用户会话隔离——当前架构默认单主人）。
+**已知边界与预留**（都有明确的平台机制支撑，未做纯属范围裁剪）：流式打字机回复（cardkit streaming，10/s 下节流即可）；图片入站 → 多模态；语音入站 → 自备 ASR；免 @ 群环境感知（敏感权限，可开）；单聊自定义菜单按钮（`application:bot.menu:write`）；多用户化（出口美化、每用户会话隔离——当前架构默认单主人）。断线消息补偿已落地（启动拉取重放；补偿窗口受平台历史可查范围约束）。

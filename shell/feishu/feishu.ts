@@ -8,7 +8,7 @@
 // ============================================================
 
 import { Client, EventDispatcher, WSClient, LoggerLevel } from '@larksuiteoapi/node-sdk'
-import { splitForChat, type InboundMsg } from './router'
+import { splitForChat, type FetchedMsg, type InboundMsg } from './router'
 
 export interface CardActionEvent {
   readonly value: unknown
@@ -25,6 +25,8 @@ export interface FeishuPlatform {
   readonly onCardAction: (handler: (ev: CardActionEvent) => void) => void
   /** 建立长连接（内部自动重连；resolve 仅代表启动成功，就绪看日志）。 */
   readonly start: () => Promise<void>
+  /** 拉取会话历史（断线补偿；升序、自 afterMs 起、上限 limit 条）。 */
+  readonly listMessages: (chatId: string, afterMs: number, limit: number) => Promise<FetchedMsg[]>
 }
 
 export function createFeishuPlatform(appId: string, appSecret: string): FeishuPlatform {
@@ -108,6 +110,47 @@ export function createFeishuPlatform(appId: string, appSecret: string): FeishuPl
     },
     async start() {
       await ws.start({ eventDispatcher: dispatcher })
+    },
+    async listMessages(chatId, afterMs, limit) {
+      const out: FetchedMsg[] = []
+      let pageToken = ''
+      for (let page = 0; page < Math.ceil(limit / 50) && out.length < limit; page++) {
+        const resp = await client.im.v1.message.list({
+          params: {
+            container_id_type: 'chat',
+            container_id: chatId,
+            sort_type: 'ByCreateTimeAsc',
+            ...(afterMs > 0 ? { start_time: String(afterMs) } : {}),
+            page_size: 50,
+            ...(pageToken !== '' ? { page_token: pageToken } : {}),
+          },
+        })
+        const data = (resp as { data?: { items?: unknown[]; has_more?: boolean; page_token?: string } })?.data
+        for (const raw of data?.items ?? []) {
+          const m = (raw ?? {}) as Record<string, unknown>
+          const sender = (m.sender ?? {}) as Record<string, unknown>
+          const body = (m.body ?? {}) as Record<string, unknown>
+          let text = ''
+          if (m.msg_type === 'text' && typeof body.content === 'string') {
+            try {
+              text = String((JSON.parse(body.content) as { text?: string }).text ?? '')
+            } catch {
+              text = ''
+            }
+          }
+          out.push({
+            messageId: String(m.message_id ?? ''),
+            chatId: String(m.chat_id ?? chatId),
+            openId: String(sender.open_id ?? sender.user_id ?? ''),
+            senderType: String(sender.sender_type ?? ''),
+            text,
+            createTimeMs: Number(m.create_time ?? '0') || 0,
+          })
+        }
+        if (data?.has_more !== true || data.page_token === undefined) break
+        pageToken = data.page_token
+      }
+      return out
     },
   }
 }

@@ -158,8 +158,8 @@ npm run shell               # CLI shell：**cwd 即空间**（opencode-style；�
 npm run shell -- test/space-demo   # 指定目录（仓库演示空间）
 ALIBABA_API_KEY=<key> npm run shell   # 真实网关（密钥只走 env：config providers.<p>.key_env 声明变量名）
 npm run web                 # WebUIShell（OLED 主题，127.0.0.1:4321；同样支持 `npm run web -- <目录>`）
-npm run feishu -- [目录]     # 飞书 shell：长连接远程助理（免公网；FEISHU_APP_ID/SECRET 走 env，
-                            #   .stem/feishu.jsonc 配置，样例见 shell/feishu/feishu.example.jsonc）
+npm run feishu -- [目录]     # 飞书 shell：长连接远程助理（免公网；显式会话 /new /use +
+                            #   上下线通知与断线补偿；配置样例见 shell/feishu/feishu.example.jsonc）
 npm run build               # 与 typecheck 相同（tsc --noEmit）
 ```
 

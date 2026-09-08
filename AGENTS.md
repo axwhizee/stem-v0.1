@@ -31,7 +31,8 @@ npm run shell               # CLI shell：cwd 即空间（opencode-style；`-- <
 ALIBABA_API_KEY=<key> npm run shell   # 真实网关（密钥只走 env：config providers.<p>.key_env 声明变量名）
 npm run web                 # WebUIShell（http://localhost:4321；空间定位同上，`-- <path>`/STEM_PROJECT_ROOT）
 npm run feishu -- [path]    # 飞书 shell（长连接远程宿主，免公网；FEISHU_APP_ID/SECRET 走 env，
-                            #   .stem/feishu.jsonc 自治理配置；单聊默认接待员 + 审批卡远程裁决）
+                            #   .stem/feishu.jsonc 自治理配置；显式会话 /new /use /exit +
+                            #   上下线通知与断线补偿 + 审批卡远程裁决）
 npm run dashboard -- [path] # 空间仪表盘（http://localhost:4421；法医/管理员 shell：DB 只读直查 +
                             #   标本装配资源清单 + 清理；--allow-write 才解锁写操作，可与 webui 并开）
 npm run build               # 与 typecheck 相同（tsc --noEmit）
