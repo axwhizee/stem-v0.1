@@ -195,10 +195,12 @@ function listModels(system: StemSystem): { refs: string[]; openEnded: string[] }
   return { refs, openEnded }
 }
 
-async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId: string; messages: unknown[] }> {
+async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId: string; contextWindow: number; messages: unknown[] }> {
   const state = await system.kernel.contextManager.getState(agentId)
   return {
     agentId,
+    // 模型窗口上限（context.window）——WebUI 底部占用进度条分母。
+    contextWindow: system.config.context?.window ?? 128000,
     messages: state.messages.map((m) => ({
       id: m.id,
       role: m.message.role,

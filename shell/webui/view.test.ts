@@ -9,7 +9,7 @@
 
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
-import type { TreeRow } from './view.js'
+import type { LiveBucket, LiveBuckets, LiveTool, TreeRow } from './view.js'
 
 type NodeRow = Extract<TreeRow, { type: 'node' }>
 const isNode = (r: TreeRow): r is NodeRow => r.type === 'node'
@@ -18,8 +18,15 @@ import {
   ACT_GLYPH,
   ROOT_ID,
   STATUS_GLYPH,
+  applyStreamEvent,
+  clearBucket,
   computeTreeRows,
+  contextRatio,
+  createLiveBuckets,
   deriveActions,
+  mdToHtml,
+  ratioTone,
+  reasoningView,
   routeLetters,
   statusGlyph,
   statusTone,
@@ -178,5 +185,131 @@ describe('deriveActions（能力数据驱动，无 agent 特判）', () => {
     const a = deriveActions({ id: 'x', parentId: ROOT_ID })
     assert.equal(a.send, 'active')
     assert.equal(a.terminate, 'ready')
+  })
+})
+
+// ---------- 5. 流式 live 桶 reducer ----------
+
+describe('applyStreamEvent（delta live-only）', () => {
+  const bk = (b: LiveBuckets, id: string): LiveBucket => {
+    const v = b[id]
+    assert.ok(v !== undefined, `bucket ${id} 应在`)
+    return v
+  }
+  const tl = (b: LiveBuckets, id: string): LiveTool[] => bk(b, id).tools
+  test('text/reasoning delta 按 agent 分桶累积；其余事件穿越无副作用', () => {
+    const b = createLiveBuckets()
+    applyStreamEvent(b, { type: 'stream', agentId: 'a1', event: { type: 'text-delta', text: '你好' } })
+    applyStreamEvent(b, { type: 'stream', agentId: 'a1', event: { type: 'text-delta', text: '世界' } })
+    applyStreamEvent(b, { type: 'stream', agentId: 'a2', event: { type: 'reasoning-delta', text: '想想' } })
+    applyStreamEvent(b, { type: 'letter', agentId: 'a1' })
+    applyStreamEvent(b, { type: 'status', agentId: 'a1', to: 'thinking' })
+    applyStreamEvent(b, null)
+    applyStreamEvent(b, undefined)
+    assert.equal(bk(b, 'a1').text, '你好世界')
+    assert.equal(bk(b, 'a1').reasoning, '')
+    assert.equal(bk(b, 'a2').reasoning, '想想')
+  })
+  test('tool 相位：called 开卡 → success 收口带时刻；error 同理；孤儿 success 也上账', () => {
+    const b = createLiveBuckets()
+    applyStreamEvent(b, { type: 'tool', agentId: 'a1', tool: 'bash', phase: 'called', at: 1000 })
+    applyStreamEvent(b, { type: 'tool', agentId: 'a1', tool: 'bash', phase: 'success', at: 3500 })
+    applyStreamEvent(b, { type: 'tool', agentId: 'a1', tool: 'web_search', phase: 'error', at: 9000 })
+    const t = tl(b, 'a1')
+    assert.equal(t.length, 2)
+    assert.deepEqual([t[0]?.name, t[0]?.phase, t[0]?.at, t[0]?.doneAt], ['bash', 'success', 1000, 3500])
+    assert.deepEqual([t[1]?.name, t[1]?.phase, t[1]?.at, t[1]?.doneAt], ['web_search', 'error', 9000, 9000])
+  })
+  test('同名并行 FIFO 后进先收口（队尾先匹配）', () => {
+    const b = createLiveBuckets()
+    applyStreamEvent(b, { type: 'tool', agentId: 'a', tool: 'bash', phase: 'called', at: 1 })
+    applyStreamEvent(b, { type: 'tool', agentId: 'a', tool: 'bash', phase: 'called', at: 2 })
+    applyStreamEvent(b, { type: 'tool', agentId: 'a', tool: 'bash', phase: 'success', at: 3 })
+    assert.equal(tl(b, 'a')[1]?.phase, 'success')
+    assert.equal(tl(b, 'a')[0]?.phase, 'called')
+  })
+  test('clearBucket 快照收口；未知 id 清除无操作', () => {
+    const b = createLiveBuckets()
+    applyStreamEvent(b, { type: 'stream', agentId: 'a1', event: { type: 'text-delta', text: 'x' } })
+    clearBucket(b, 'a1')
+    clearBucket(b, 'ghost')
+    assert.equal(b['a1'], undefined)
+  })
+})
+
+// ---------- 6. 思维链折叠 ----------
+
+describe('reasoningView（running 追最新行 / 结束定格首行）', () => {
+  test('空与纯空白 → null', () => {
+    assert.equal(reasoningView('', true), null)
+    assert.equal(reasoningView('  \n ', false), null)
+  })
+  test('running：摘要 = 最后一个非空行', () => {
+    const v = reasoningView('第一行\n第二行\n最新半句', true)!
+    assert.equal(v.summary, '最新半句')
+    assert.equal(v.running, true)
+    assert.equal(v.body, '第一行\n第二行\n最新半句')
+  })
+  test('完成：摘要定格首行', () => {
+    const v = reasoningView('第一行\n第二行', false)!
+    assert.equal(v.summary, '第一行')
+    assert.equal(v.running, false)
+  })
+})
+
+// ---------- 7. 上下文占用 ----------
+
+describe('contextRatio + ratioTone', () => {
+  test('valid=false 归档行不计；封顶 1', () => {
+    assert.equal(contextRatio([{ tokens: 1000 }, { tokens: 500, valid: false }], 2000), 0.5)
+    assert.equal(contextRatio([{ tokens: 99999 }], 2000), 1)
+  })
+  test('窗口缺省兜底 128000；三色带边界 <0.2 ok / <0.4 warn / 其余 danger', () => {
+    assert.equal(contextRatio([{ tokens: 12800 }], undefined), 0.1)
+    assert.equal(ratioTone(0.19), 'ok')
+    assert.equal(ratioTone(0.2), 'warn')
+    assert.equal(ratioTone(0.39), 'warn')
+    assert.equal(ratioTone(0.4), 'danger')
+    assert.equal(ratioTone(1), 'danger')
+  })
+})
+
+// ---------- 8. 极简 markdown ----------
+
+describe('mdToHtml（零依赖子集）', () => {
+  test('XSS 构造安全：HTML 全转义、危险协议链接不物化', () => {
+    const h = mdToHtml('<img src=x onerror=alert(1)> [点](javascript:alert(1))')
+    assert.ok(!h.includes('<img'))
+    assert.ok(h.includes('&lt;img'))
+    assert.ok(!/<a[^>]*href=[^>]*javascript:/i.test(h)) // 危险协议不物化为 href（文本残留无害）
+    assert.ok(!/<a\s/.test(h))
+  })
+  test('围栏代码块：语言标忽略、内部不解析 markdown、未闭合容错（流式）', () => {
+    const h = mdToHtml('```ts\nconst a = "**不是粗体**"\n```')
+    assert.ok(h.includes('<pre><code>const a = &quot;**不是粗体**&quot;</code></pre>'))
+    assert.ok(!h.includes('<b>'))
+    const unclosed = mdToHtml('先看看\n```python\nprint(1)')
+    assert.ok(unclosed.includes('<pre><code>print(1)')) // 未闭合 = 到文末，流式不闪裸星号
+  })
+  test('行内码 + 粗斜体 + 链接（协议白名单）', () => {
+    assert.ok(mdToHtml('用 `npm test` 跑').includes('<code>npm test</code>'))
+    assert.ok(mdToHtml('**粗** 与 ***混***').includes('<b>粗</b>'))
+    assert.ok(mdToHtml('**粗** 与 ***混***').includes('<b><i>混</i></b>'))
+    assert.ok(mdToHtml('[stem](https://example.com)').includes('<a href="https://example.com" target="_blank" rel="noopener">stem</a>'))
+    assert.equal(mdToHtml('a *b* 与 *c*'), '<p>a <i>b</i> 与 *c*</p>') // 单星保守只换行内第一处（防乘法噪音）
+  })
+  test('结构件：标题/列表/引用/hr/表格', () => {
+    assert.ok(mdToHtml('## 标题').includes('<h2>标题</h2>'))
+    assert.ok(mdToHtml('- 一\n- 二').includes('<ul><li>一</li><li>二</li></ul>'.replace(/><li>/g, '>\n<li>')) || mdToHtml('- 一\n- 二').includes('<li>二</li>'))
+    assert.ok(mdToHtml('1. 一\n2. 二').includes('<ol>'))
+    assert.ok(mdToHtml('> 引用').includes('<blockquote>引用</blockquote>'))
+    assert.ok(mdToHtml('---').includes('<hr/>'))
+    const t = mdToHtml('| a | b |\n|---|---|\n| 1 | 2 |')
+    assert.ok(t.includes('<th>a</th>') && t.includes('<td>1</td>') && !t.includes('---'))
+  })
+  test('段落：空行分块、单换行 <br/>', () => {
+    const h = mdToHtml('第一行\n第二行\n\n新段')
+    assert.ok(h.includes('第一行<br/>第二行'))
+    assert.equal((h.match(/<p>/g) ?? []).length, 2)
   })
 })

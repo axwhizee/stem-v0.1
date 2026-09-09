@@ -26,3 +26,5 @@ id = 出生路径全托管：根 `0`、子 `<父id>-<序号>`（纯推导：代�
 秘书中转降级为可选项（secretaryClass 缺省改 ''，配了才有兜底；'' = 未绑定会话回指令指引不盲投）；会话模型 = 每 chat 一个当前目标：`/new <类> [任务]`（pilot.instantiate + 绑定）、`/use <name|id>`（直吃 resolveAgent 三形态，歧义回候选清单）、`/exit` 解绑、`/agents` 选人面板；目标解析优先级 = 显式会话 > chatBindings 静态绑定 > 秘书。**会话态回写 `.stem/feishu.jsonc`**（sessions/ownerChatId/lastSeenAt 三键，jsonc modify+applyEdits 定点编辑保用户注释——edits 必须整批应用，逐条应用 offset 错位实测碎文件教训入 config.test）。上下线：start 就绪向主人发"上线"、SIGTERM/SIGINT 优雅发"离线"（5s 强制兜底）；断线补偿 = 启动后按 lastSeenAt 逐会话 `im.v1.message.list` 增量拉取（listMessages 分页上限 100）→ `planReplay` 纯函数（真人∧owner∧未见、时间升序）→ handleInbound 全律重放（LRU 最终闸）。/status /logs /stop /watch 参数同吃三形态寻址。审计：router 25 例（会话优先级/命令派发/exit 钩子/秘书关闭指引/补偿过滤排序/重放幂等）+ config 回写往返（注释保真/键删除/缺档起步）。门槛：typecheck 0 + 404/404 + 离线双档 29/9。文档：feishu README 四节重写、example 补自管键、architecture feishu 节实况化 + **窗口声明终删（全卷自此纯实况）**；s11-plan 卷随本批退役删除（沿革归本条与 cortex/身份/工具模型三前条）。
 
 ## 2026-09-09 · cot-watch 一：工具执行相位上实时监督流（PilotEvent 四元→五元）
+
+## 2026-09-09 · cot-watch 二：WebUI 流式思维链 + 工具活动实时监督（live 层）

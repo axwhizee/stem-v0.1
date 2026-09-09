@@ -75,8 +75,8 @@
   #header .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
   #timeline { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
 
-  /* 消息 = 扁平左边框制（第一视角：me 右 / agent·them 左） */
-  .msg { max-width: 82%; padding: 8px 12px; white-space: pre-wrap; word-break: break-word; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
+  /* 消息 = 扁平左边框制（第一视角：me 右 / agent·them 左）；正文经 markdown 渲染 */
+  .msg { max-width: 82%; padding: 8px 12px; word-break: break-word; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
   .msg.me { align-self: flex-end; border-left: none; border-right: 2px solid var(--border-strong); }
   .msg.agent { align-self: flex-start; border-left: 2px solid var(--border-strong); }
   .msg.them { align-self: flex-start; border-left: 2px solid var(--muted); }
@@ -109,6 +109,47 @@
 
   #conn { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
   #conn.on { background: var(--accent); box-shadow: 0 0 6px var(--accent-dim); }
+
+  /* —— markdown 正文（流式与历史共用；.msg 弃 pre-wrap，块距由 md 结构接管） —— */
+  .msg .md p { margin: 0 0 6px; } .msg .md > :last-child { margin-bottom: 0; }
+  .msg .md h1, .msg .md h2, .msg .md h3, .msg .md h4, .msg .md h5, .msg .md h6 { margin: 6px 0 4px; font-size: 1.02em; color: var(--accent); }
+  .msg .md pre { background: #0a0d10; border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; overflow-x: auto; font-size: 12px; margin: 4px 0; }
+  .msg .md code { background: #0f1317; border-radius: 3px; padding: 0 4px; font-size: 12px; font-family: ui-monospace, monospace; }
+  .msg .md pre code { background: none; border: none; padding: 0; }
+  .msg .md ul, .msg .md ol { margin: 4px 0 6px 18px; } .msg .md li { margin: 1px 0; }
+  .msg .md blockquote { border-left: 2px solid var(--muted); color: var(--muted); padding-left: 8px; margin: 4px 0; }
+  .msg .md table { border-collapse: collapse; margin: 4px 0; font-size: 12px; }
+  .msg .md th, .msg .md td { border: 1px solid var(--border); padding: 2px 8px; } .msg .md th { background: #0a0d10; }
+  .msg .md a { color: var(--accent); } .msg .md hr { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
+  .msg.tool, .msg.meta { white-space: pre-wrap; } /* 非 markdown 通道保原样 */
+
+  /* —— 流式 live 层（主列尾 + 监督抽屉共用件） —— */
+  #liveHost { display: flex; flex-direction: column; gap: 8px; }
+  details.reason { align-self: flex-start; max-width: 82%; border: 1px dashed var(--border); border-radius: 4px; color: var(--muted); font-size: 12px; font-style: italic; padding: 4px 10px; }
+  details.reason summary { cursor: pointer; outline: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; }
+  details.reason.running summary::after { content: " ▍"; animation: blink 1s step-end infinite; }
+  details.reason .rbody { margin-top: 6px; white-space: pre-wrap; word-break: break-word; }
+  .chip { align-self: flex-start; font-size: 11px; font-family: ui-monospace, monospace; color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 1px 10px; }
+  .chip.called { color: var(--accent); box-shadow: 0 0 6px var(--accent-dim); }
+  .chip.success { color: var(--accent); }
+  .chip.error { color: var(--alert); border-color: var(--alert); }
+
+  /* —— 上下文占用进度条（铺对话栏底沿，纯提示） —— */
+  #ctxBar { height: 3px; background: #08090b; border-top: 1px solid var(--border); flex: 0 0 auto; }
+  #ctxFill { height: 100%; width: 0; background: var(--accent); transition: width .35s ease; }
+  #ctxFill.warn { background: #e8c34a; } #ctxFill.danger { background: var(--alert); }
+
+  /* —— 监督抽屉（watch 任意 agent 的 live 流） —— */
+  #drawer { position: fixed; right: 16px; top: 56px; bottom: 16px; width: 360px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; display: flex; flex-direction: column; z-index: 9; padding: 10px 12px; gap: 8px; overflow: hidden; box-shadow: 0 0 24px rgba(0,0,0,.6); }
+  #drawer[hidden] { display: none; }
+  #drawerHead { display: flex; align-items: center; gap: 8px; font-size: 12px; font-family: ui-monospace, monospace; color: var(--accent); }
+  #drawerHead .sp { flex: 1; }
+  #drawerBody { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  #drawerBody .msg, #drawerBody details.reason { max-width: 100%; }
+  .watchbtn { visibility: hidden; flex: 0 0 auto; color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; cursor: pointer; }
+  .tnode:hover .watchbtn, .watchbtn.on { visibility: visible; }
+  .watchbtn.on { color: var(--accent); border-color: var(--accent); }
+  .watchbtn:hover { color: var(--accent); }
 </style>
 </head>
 <body>
@@ -143,7 +184,12 @@
     <textarea id="input" placeholder="选择一位后代开始对话…" disabled></textarea>
     <button id="sendBtn" disabled>送</button>
   </div>
+  <div id="ctxBar" title="上下文窗口占用"><div id="ctxFill"></div></div>
 </main>
+<div id="drawer" hidden>
+  <div id="drawerHead"><span id="drawerTitle">督</span><span class="sp"></span><span class="ico" id="drawerClose" title="关闭监督抽屉">閉</span></div>
+  <div id="drawerBody"></div>
+</div>
 <div id="permission">
   <div class="title">审 · 工具访问确认</div>
   <div class="body" id="permBody"></div>
@@ -154,14 +200,19 @@
   </div>
 </div>
 <script type="module">
-import { ACT_GLYPH, ROOT_ID, computeTreeRows, deriveActions, routeLetters, statusGlyph, statusTone, truncate } from '/view.js'
+import { ACT_GLYPH, ROOT_ID, applyStreamEvent, clearBucket, computeTreeRows, contextRatio, createLiveBuckets, deriveActions, mdToHtml, ratioTone, reasoningView, routeLetters, statusGlyph, statusTone, truncate } from '/view.js'
 
 const $ = (id) => document.getElementById(id)
 const timeline = $('timeline')
 let currentAgentId = ''
 let agentsCache = []
-let liveBubble = null
 let pendingAccess = null
+// —— 流式 live 层状态（delta live-only：轮末 letter→loadContext 快照收口后清桶） ——
+const liveBuckets = createLiveBuckets()
+let watchAgentId = '' // 监督抽屉目标（'' = 关）
+let liveHost = null
+let ctxWindow = 128000
+let paintQueued = false
 
 // ---------- SVG 泳道族谱（行 = id · 最近 user_prompt · 状态字） ----------
 
@@ -207,10 +258,19 @@ async function loadAgents() {
     const glyph = row.isRoot ? ACT_GLYPH.me : statusGlyph(a.status)
     const label = row.isRoot ? `${a.id} · 根` : a.id
     const lp = a.lastPrompt ? truncate(a.lastPrompt, 30) : `&lt;${a.classRef ?? ''}&gt;`
-    el.innerHTML = lanesSvg(row) + `<span class="id">${esc(label)}</span><span class="lp">${esc(decodeEntities(lp))}</span><span class="st tone-${tone}">${glyph}</span>`
+    el.innerHTML = lanesSvg(row) + `<span class="id">${esc(label)}</span><span class="lp">${esc(decodeEntities(lp))}</span><span class="st tone-${tone}">${glyph}</span>` +
+      (row.isRoot ? '' : `<span class="watchbtn" data-id="${esc(a.id)}" title="监督此 agent（思维链/工具/状态实时流）">督</span>`)
     el.onclick = () => selectAgent(a.id)
+    if (!row.isRoot) {
+      el.querySelector('.watchbtn').addEventListener('click', (e) => {
+        e.stopPropagation()
+        if (watchAgentId === a.id) closeDrawer()
+        else openDrawer(a.id)
+      })
+    }
     tree.appendChild(el)
   }
+  refreshWatchBtns()
 }
 
 const decodeEntities = (s) => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>')
@@ -219,7 +279,7 @@ const decodeEntities = (s) => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '
 
 function renderTimeline(items) {
   timeline.innerHTML = ''
-  liveBubble = null
+  liveHost = null // 历史整建：live 尾层随 next paint 重建
   for (const it of items) {
     if (it.kind === 'ask') continue // 来信 access_request → 「审」面板，不占正文流
     if (it.kind === 'meta') { timeline.appendChild(msgEl('meta', it.icon + '  ' + it.text)); continue }
@@ -245,14 +305,128 @@ function msgEl(cls, text, who) {
   const el = document.createElement('div')
   el.className = 'msg ' + cls
   if (who) el.innerHTML = `<div class="who">${esc(who)}</div>`
-  el.appendChild(document.createTextNode(text))
+  if (cls === 'tool' || cls === 'meta') {
+    el.appendChild(document.createTextNode(text)) // 非 markdown 通道（mono/中缝条）保原样
+  } else {
+    const d = document.createElement('div')
+    d.className = 'md'
+    d.innerHTML = mdToHtml(text)
+    el.appendChild(d)
+  }
   return el
 }
 
 async function loadContext(id) {
   const data = await fetch('/api/agents/' + encodeURIComponent(id) + '/context').then((r) => r.json())
+  ctxWindow = Number(data.contextWindow) > 0 ? Number(data.contextWindow) : 128000
   renderTimeline(routeLetters(data.messages || [], id))
+  paintCtxBar(contextRatio(data.messages, ctxWindow))
+  schedulePaint()
 }
+
+// ---------- 上下文占用进度条（铺底提示，三色带） ----------
+
+function paintCtxBar(ratio) {
+  const fill = $('ctxFill')
+  fill.style.width = Math.round(ratio * 100) + '%'
+  fill.className = ratioTone(ratio)
+  $('ctxBar').title = `上下文占用 ${(ratio * 100).toFixed(1)}% / ${ctxWindow.toLocaleString()} tokens`
+}
+
+// ---------- 流式 live 层渲染（rAF 合帧节流；主列尾与抽屉共用 builder） ----------
+
+function liveDom(bucket, id) {
+  const frag = document.createDocumentFragment()
+  const rv = reasoningView(bucket.reasoning, bucket.text === '') // 正文未起 = 还在想
+  if (rv !== null) {
+    const d = document.createElement('details')
+    d.className = 'reason' + (rv.running ? ' running' : '')
+    if (!rv.running) d.open = false
+    const s = document.createElement('summary')
+    s.textContent = '思 · ' + rv.summary
+    d.appendChild(s)
+    const b = document.createElement('div')
+    b.className = 'rbody'
+    b.innerHTML = mdToHtml(rv.body)
+    d.appendChild(b)
+    frag.appendChild(d)
+  }
+  for (const t of bucket.tools) {
+    const chip = document.createElement('div')
+    const dur = t.doneAt > 0 && t.doneAt >= t.at ? ' · ' + ((t.doneAt - t.at) / 1000).toFixed(1) + 's' : ''
+    chip.className = 'chip ' + t.phase
+    chip.textContent = `${ACT_GLYPH.tool} ${t.name} ${t.phase === 'called' ? '执行' : t.phase === 'success' ? '完成' : '失败'}${dur}`
+    frag.appendChild(chip)
+  }
+  if (bucket.text !== '') {
+    const b = document.createElement('div')
+    b.className = 'msg agent streaming'
+    if (bucket.reasoning === '') { const who = document.createElement('div'); who.className = 'who'; who.textContent = bucketLabel(id); b.appendChild(who) }
+    const d = document.createElement('div')
+    d.className = 'md'
+    d.innerHTML = mdToHtml(bucket.text)
+    b.appendChild(d)
+    frag.appendChild(b)
+  }
+  return frag
+}
+
+const bucketLabel = (id) => { const a = agentsCache.find((x) => x.id === id); return a && a.name ? a.name : id }
+
+function nearBottom() { return timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 160 }
+
+function renderLive() {
+  const b = currentAgentId !== '' ? liveBuckets[currentAgentId] : undefined
+  if (b !== undefined) {
+    if (liveHost === null || !liveHost.isConnected) {
+      liveHost = document.createElement('div')
+      liveHost.id = 'liveHost'
+      timeline.appendChild(liveHost)
+    }
+    const stick = nearBottom()
+    liveHost.replaceChildren(liveDom(b, currentAgentId))
+    if (stick) timeline.scrollTop = timeline.scrollHeight
+  } else if (liveHost !== null) {
+    liveHost.remove()
+    liveHost = null
+  }
+  if (watchAgentId !== '') {
+    const wb = liveBuckets[watchAgentId]
+    if (wb !== undefined) {
+      const body = $('drawerBody')
+      const stick = body.scrollHeight - body.scrollTop - body.clientHeight < 160
+      body.replaceChildren(liveDom(wb, watchAgentId))
+      if (stick) body.scrollTop = body.scrollHeight
+    }
+  }
+}
+
+function schedulePaint() {
+  if (paintQueued) return
+  paintQueued = true
+  requestAnimationFrame(() => { paintQueued = false; renderLive() })
+}
+
+// ---------- 监督抽屉（族谱行「督」钮 → 任意 agent live 流） ----------
+
+function openDrawer(id) {
+  watchAgentId = id
+  $('drawer').hidden = false
+  $('drawerTitle').textContent = '督 · ' + bucketLabel(id)
+  schedulePaint()
+  refreshWatchBtns()
+}
+function closeDrawer() {
+  if (watchAgentId !== '') clearBucket(liveBuckets, watchAgentId)
+  watchAgentId = ''
+  $('drawer').hidden = true
+  $('drawerBody').innerHTML = ''
+  refreshWatchBtns()
+}
+function refreshWatchBtns() {
+  for (const el of document.querySelectorAll('.watchbtn')) el.classList.toggle('on', el.dataset.id === watchAgentId)
+}
+$('drawerClose').onclick = closeDrawer
 
 // ---------- 事件流 ----------
 
@@ -264,21 +438,25 @@ function openStream() {
 }
 
 function handleEvent(ev) {
-  if (ev.type === 'stream') {
-    if (ev.agentId === currentAgentId && ev.event.type === 'text-delta') {
-      if (!liveBubble) { liveBubble = msgEl('agent streaming', '', currentAgentId); timeline.appendChild(liveBubble) }
-      liveBubble.appendChild(document.createTextNode(ev.event.text))
-      timeline.scrollTop = timeline.scrollHeight
-    }
+  applyStreamEvent(liveBuckets, ev) // delta 与 tool 相进桶；其余事件类型 reducer 无副作用穿越
+  if (ev.type === 'stream' || ev.type === 'tool') {
+    if (ev.agentId === currentAgentId || ev.agentId === watchAgentId) schedulePaint()
     return
   }
   if (ev.type === 'letter') {
     const content = (ev.letters && ev.letters[0] && typeof ev.letters[0].content === 'string') ? ev.letters[0].content : ''
     if (content.startsWith('<access_request')) { showPermission(content); return }
-    if (ev.agentId === currentAgentId) { liveBubble = null; loadContext(currentAgentId) }
+    if (ev.agentId === currentAgentId) {
+      // 轮末快照收口：历史重建后清 live 桶（delta 不补间隙，快照自愈）。
+      void loadContext(currentAgentId).then(() => clearBucket(liveBuckets, currentAgentId))
+    }
     return
   }
-  if (ev.type === 'status') loadAgents()
+  if (ev.type === 'status') {
+    void loadAgents()
+    if (ev.to === 'thinking') clearBucket(liveBuckets, ev.agentId) // 新轮开画布：上轮 live 残相清掉
+    if ((ev.to === 'holding' || ev.to === 'idle') && (ev.agentId === currentAgentId || ev.agentId === watchAgentId)) schedulePaint()
+  }
 }
 
 // ---------- 访问确认（ask 消息化 → 审面板） ----------
@@ -361,7 +539,6 @@ function applyActions(agent) {
 
 async function selectAgent(id) {
   currentAgentId = id
-  liveBubble = null
   const agents = await fetch('/api/agents').then((r) => r.json())
   agentsCache = agents
   const a = agents.find((x) => x.id === id)

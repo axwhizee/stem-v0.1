@@ -81,3 +81,50 @@ export interface ActionStates {
   model: ActionState
 }
 export declare function deriveActions(agent: { id?: string; parentId?: string | null } | null | undefined): ActionStates
+
+// ---------- 流式 live 桶（SSE PilotEvent JSON 形就地消费） ----------
+
+export interface LiveTool {
+  name: string
+  phase: 'called' | 'success' | 'error'
+  at: number
+  doneAt: number
+}
+export interface LiveBucket {
+  text: string
+  reasoning: string
+  tools: LiveTool[]
+  startedAt: number
+  lastAt: number
+}
+export type LiveBuckets = Record<string, LiveBucket>
+
+/** SSE PilotEvent 的最小结构面（reducer 只认这四型字段）。 */
+export interface StreamEventLike {
+  type?: string
+  agentId?: string
+  event?: { type?: string; text?: string }
+  tool?: string
+  phase?: string
+  at?: number
+  letters?: unknown
+  from?: string
+  to?: string
+  message?: string
+}
+
+export declare function createLiveBuckets(): LiveBuckets
+export declare function applyStreamEvent(buckets: LiveBuckets, ev: StreamEventLike | null | undefined): LiveBuckets
+export declare function clearBucket(buckets: LiveBuckets, agentId: string): void
+
+export interface ReasoningView {
+  summary: string
+  body: string
+  running: boolean
+}
+export declare function reasoningView(text: string, running: boolean): ReasoningView | null
+
+export declare function contextRatio(messages: Array<{ tokens?: number; valid?: boolean }> | undefined, window: number | undefined): number
+export declare function ratioTone(ratio: number): 'ok' | 'warn' | 'danger'
+
+export declare function mdToHtml(raw: unknown): string

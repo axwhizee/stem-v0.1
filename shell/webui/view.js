@@ -2,13 +2,17 @@
 // shell/webui/view.js —— WebUI 视图纯函数核心（S6 批 2，R8/R9）
 //
 // 零 DOM（浏览器经 <script type="module"> import；node:test 直测）。
-// 承载四组纯逻辑：
+// 承载八组纯逻辑：
 //   1. 汉字字形表（R8：禁 emoji/几何字符，状态/动作全汉字）+ 三态语义；
 //   2. 信箱归位 routeLetters（R9 第一视角：根非对话窗口，来信按
 //      <sender> 反查归位各 agent 窗）；
 //   3. git 风族谱行序 computeTreeRows（DFS + 泳道 + 溢出折叠）；
 //   4. 按钮可用性 deriveActions（能力数据驱动，非 agent 特判——
-//      根不可销毁等事实全部来自族谱位置，seed #5 就此消除）。
+//      根不可销毁等事实全部来自族谱位置，seed #5 就此消除）；
+//   5. 流式 live 桶 reducer applyStreamEvent（delta live-only，快照收口）；
+//   6. 思维链折叠 reasoningView（running 追最新行 / 结束定格首行）；
+//   7. 上下文占用 contextRatio + ratioTone（底部进度条数据层）；
+//   8. 零依赖 markdown 子集渲染 mdToHtml（先抽码后转义 = XSS 构造安全）。
 // ============================================================
 
 /** 本空间根（pilot 扮演身份的约定 id）。 */
@@ -210,4 +214,230 @@ export function deriveActions(agent) {
     terminate: isRoot ? 'off' : 'ready', // 根无祖先 → 销毁权不可达（kernel 同律，UI 只是如实呈现）
     model: 'ready', // 三环自由：任何节点均可设显式层（家学本体仍只经 config 改）
   }
+}
+
+// ---------- 5. 流式 live 层（delta = live-only，快照收口不补间隙——三源共识铁律） ----------
+
+/** live 桶容器（agentId → {text, reasoning, tools, startedAt, lastAt}）。 */
+export function createLiveBuckets() {
+  return Object.create(null)
+}
+
+function ensureBucket(buckets, agentId) {
+  let b = buckets[agentId]
+  if (b === undefined) {
+    b = buckets[agentId] = { text: '', reasoning: '', tools: [], startedAt: 0, lastAt: 0 }
+  }
+  return b
+}
+
+/**
+ * PilotEvent（SSE JSON 形）→ live 桶就地更新（消费面窄：stream 的 text/reasoning
+ * delta + tool 相位；其余事件类型恒穿越无副作用）。收口纪律：轮末快照
+ * （letter → loadContext 重建历史）后由调用方 clearBucket——delta 掉了不补，
+ * 快照自愈。tool PilotEvent 无 callId → 同名后进先匹配（并行同名=队尾先收口，
+ * 已知简化；args 刻意不上广播，chip 只显名字/相位/耗时）。
+ */
+export function applyStreamEvent(buckets, ev) {
+  if (ev === null || typeof ev !== 'object') return buckets
+  const now = Date.now()
+  if (ev.type === 'stream') {
+    const e = ev.event ?? {}
+    if (e.type === 'text-delta' || e.type === 'reasoning-delta') {
+      const b = ensureBucket(buckets, String(ev.agentId))
+      if (b.startedAt === 0) b.startedAt = now
+      if (e.type === 'text-delta') b.text += String(e.text ?? '')
+      else b.reasoning += String(e.text ?? '')
+      b.lastAt = now
+    }
+    return buckets
+  }
+  if (ev.type === 'tool') {
+    const b = ensureBucket(buckets, String(ev.agentId))
+    const name = String(ev.tool ?? '?')
+    const at = Number(ev.at) > 0 ? Number(ev.at) : now
+    if (ev.phase === 'called') {
+      b.tools.push({ name, phase: 'called', at, doneAt: 0 })
+    } else {
+      let matched = false
+      for (let i = b.tools.length - 1; i >= 0; i--) {
+        const t = b.tools[i]
+        if (t.name === name && t.phase === 'called') {
+          t.phase = ev.phase === 'error' ? 'error' : 'success'
+          t.doneAt = at
+          matched = true
+          break
+        }
+      }
+      if (!matched) b.tools.push({ name, phase: ev.phase === 'error' ? 'error' : 'success', at, doneAt: at }) // 断线迟到收口：孤儿 success/error 也上账
+    }
+    b.lastAt = now
+    return buckets
+  }
+  return buckets
+}
+
+export function clearBucket(buckets, agentId) {
+  delete buckets[agentId]
+}
+
+// ---------- 6. 思维链折叠视图（dsh 式：running 追最新行，结束定格首行） ----------
+
+/**
+ * 思维链文本 → 折叠呈现数据。running（还在流）：摘要 = 最新一行（跟随滚动语义）；
+ * 完成：摘要 = 首行（可点开展开全文 body）。空文本 → null（不渲染）。
+ */
+export function reasoningView(text, running) {
+  const s = String(text ?? '')
+  if (s.trim() === '') return null
+  const lines = s.split('\n').filter((l) => l.trim() !== '')
+  if (lines.length === 0) return null
+  return {
+    summary: running ? lines[lines.length - 1] : lines[0],
+    body: s,
+    running: Boolean(running),
+  }
+}
+
+// ---------- 7. 上下文占用（对话栏底部进度条数据层） ----------
+
+/** 生效行 token 合计 ÷ 模型窗口上限（valid=false 的 compact 归档行不计）。 */
+export function contextRatio(messages, window) {
+  const cap = Number(window) > 0 ? Number(window) : 128000
+  let sum = 0
+  for (const m of messages ?? []) {
+    if (m.valid === false) continue
+    sum += Number(m.tokens) || 0
+  }
+  return Math.min(sum / cap, 1)
+}
+
+/** 三色带：<20% ok（绿）/ 20~40% warn（黄）/ >40% danger（红）。 */
+export function ratioTone(ratio) {
+  return ratio < 0.2 ? 'ok' : ratio < 0.4 ? 'warn' : 'danger'
+}
+
+// ---------- 8. 极简 markdown 渲染（零依赖；先抽码后转义再结构 = XSS 构造安全） ----------
+
+const escapeHtml = (s) =>
+  String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+/** 行内强调/链接（输入已 HTML 转义；占位符 \u0000I<idx>\u0000 为纯字母数字不受影响）。 */
+function inlineMd(s) {
+  return s
+    .replace(/\*\*\*([^*]+)\*\*\*/g, '<b><i>$1</i></b>')
+    .replace(/\*\*([^*]+)\*\*/g, '<b>$1</b>')
+    .replace(/(^|[\s(（])\*([^*\n]+)\*(?=$|[\s).,!?;:、」』])/, '$1<i>$2</i>') // 单星斜体首处（防乘法噪音，保守只换第一处）
+    .replace(/(^|[\s(（])_([^_\n]+)_(?=$|[\s).,!?;:、」』])/g, '$1<i>$2</i>')
+    .replace(/\[([^\]]+)\]\((https?:[^)\s]+|\/[^)\s]*)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+}
+
+/**
+ * markdown 子集 → HTML（流式容错：未闭合 ``` 视为到文末代码块）。
+ * 支持：围栏代码块 / 行内码 / 标题 / 引用 / 无序·有序列表 / 表格（含分隔行）/
+ * hr / 粗斜体 / 链接 / 段落（单换行 <br/>）。
+ */
+export function mdToHtml(raw) {
+  const src = String(raw ?? '')
+  if (src.trim() === '') return ''
+  // 1) 抽围栏代码块与行内码为占位符（内容不进转义流水线，还原时各自 escape）。
+  const fences = []
+  const texts = []
+  let text = src
+    .replace(/```([\s\S]*?)(?:```|$)/g, (_m, code) => {
+      fences.push(code.replace(/^[^\n]*\n/, '').replace(/\n$/, '')) // 首行语言标忽略
+      return `\u0000B${fences.length - 1}\u0000`
+    })
+    .replace(/`([^`\n]+)`/g, (_m, c) => {
+      texts.push(c)
+      return `\u0000I${texts.length - 1}\u0000`
+    })
+  const lines = escapeHtml(text).split('\n')
+  const out = []
+  let para = []
+  let list = null
+  const flushPara = () => {
+    if (para.length > 0) {
+      out.push('<p>' + para.map(inlineMd).join('<br/>') + '</p>')
+      para = []
+    }
+  }
+  const flushList = () => {
+    if (list !== null) {
+      out.push(`</${list}>`)
+      list = null
+    }
+  }
+  const fenceOnly = (line) => /^\u0000B(\d+)\u0000$/.exec(line.trim())
+  const restoreFence = (m, i) => `<pre><code>${escapeHtml(fences[Number(i)])}</code></pre>`
+  for (let li = 0; li < lines.length; li++) {
+    const line = lines[li]
+    const f = fenceOnly(line)
+    if (f !== null) {
+      flushPara()
+      flushList()
+      out.push(restoreFence('', f[1]))
+      continue
+    }
+    const h = /^(#{1,6})\s+(.*)$/.exec(line)
+    if (h !== null) {
+      flushPara()
+      flushList()
+      out.push(`<h${String(h[1].length)}>${inlineMd(h[2])}</h${String(h[1].length)}>`)
+      continue
+    }
+    if (/^(-{3,}|\*{3,}|_{3,})\s*$/.test(line.trim())) {
+      flushPara()
+      flushList()
+      out.push('<hr/>')
+      continue
+    }
+    const q = /^&gt;\s?(.*)$/.exec(line)
+    if (q !== null) {
+      flushPara()
+      flushList()
+      out.push(`<blockquote>${inlineMd(q[1])}</blockquote>`)
+      continue
+    }
+    // 表格：| 开头行 + 下一行为分隔行（---|---）触发。
+    if (/^\s*\|.*\|\s*$/.test(line) && /^\s*\|[\s:|-]+\|\s*$/.test(lines[li + 1] ?? '')) {
+      flushPara()
+      flushList()
+      const cells = (row) => row.trim().replace(/^\||\|$/g, '').split('|').map((c) => inlineMd(c.trim()))
+      const rows = [cells(line)]
+      li += 1
+      while (li + 1 < lines.length && /^\s*\|.*\|\s*$/.test(lines[li + 1])) rows.push(cells(lines[++li]))
+      out.push(
+        '<table><thead><tr>' + rows[0].map((c) => `<th>${c}</th>`).join('') + '</tr></thead><tbody>' +
+          rows.slice(1).map((r) => '<tr>' + r.map((c) => `<td>${c}</td>`).join('') + '</tr>').join('') +
+          '</tbody></table>',
+      )
+      continue
+    }
+    const ul = /^\s*[-*]\s+(.*)$/.exec(line)
+    const ol = /^\s*\d+[.)]\s+(.*)$/.exec(line)
+    if (ul !== null || ol !== null) {
+      flushPara()
+      const want = ul !== null ? 'ul' : 'ol'
+      if (list !== want) {
+        flushList()
+        out.push(`<${want}>`)
+        list = want
+      }
+      out.push(`<li>${inlineMd(ul !== null ? ul[1] : ol[1])}</li>`)
+      continue
+    }
+    if (line.trim() === '') {
+      flushPara()
+      flushList()
+      continue
+    }
+    para.push(line)
+  }
+  flushPara()
+  flushList()
+  let html = out.join('\n')
+  html = html.replace(/\u0000B(\d+)\u0000/g, restoreFence) // 行内漏网的围栏占位（如围栏后同行文字）降级为代码块
+  html = html.replace(/\u0000I(\d+)\u0000/g, (_m, i) => `<code>${escapeHtml(texts[Number(i)])}</code>`)
+  return html
 }
