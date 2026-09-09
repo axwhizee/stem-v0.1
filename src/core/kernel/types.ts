@@ -156,6 +156,9 @@ export interface AgentInstance {
   status: AgentStatus
   turnCount: number
   totalCost: number
+  /** **终身累计 token**（每轮 usage in+out 累加；不受 compact 压缩影响——
+   *  与 ctxTokens（当前上下文占用）两本账。旧行缺字段 = restore 归零）。 */
+  totalTokens: number
   /** 实例化时必填的 user prompt（作为首封信投递，符合 openai messages 规范）。 */
   readonly userPrompt: string
   /** 实例化时传入的工具清单补充（对模板表的收敛，可临时收紧；运行时仅用于组装）。 */

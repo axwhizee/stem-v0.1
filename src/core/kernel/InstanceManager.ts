@@ -74,9 +74,10 @@ export interface InstanceManager {
   /** 同步快照（供 LineageTree 扫描 children/descendants；墓碑不在场）。 */
   readonly listAllSync: () => readonly AgentInstance[]
   readonly updateStatus: (agentId: AgentID, status: AgentStatus) => Promise<void>
-  /** 轮末账目（turnCount/totalCost 的唯一累加通道——经装饰器即写穿落行，
-   *  杜绝「引用直改不落库」的记账滞后；Runtime 每轮收尾调用一次）。 */
-  readonly recordTurnEnd: (agentId: AgentID, stats: { readonly turns: number; readonly cost: number }) => Promise<void>
+  /** 轮末账目（turnCount/totalCost/totalTokens 的唯一累加通道——经装饰器即写穿落行，
+   *  杜绝「引用直改不落库」的记账滞后；Runtime 每轮收尾调用一次。tokens = 该轮
+   *  usage in+out，累计终身量、与 compact 归档无关）。 */
+  readonly recordTurnEnd: (agentId: AgentID, stats: { readonly turns: number; readonly cost: number; readonly tokens: number }) => Promise<void>
   /**
    * 运行期实例参数更新（agent config 统一通道的行写半段）：只写提及字段
    * （name / toolOverride / model 显式层），写穿装饰器负责落行——族谱重算由
@@ -159,6 +160,7 @@ export class DefaultInstanceManager implements InstanceManager {
       status: 'idle',
       turnCount: 0,
       totalCost: 0,
+      totalTokens: 0,
       userPrompt: opts.userPrompt,
       ...(opts.tools !== undefined ? { toolOverride: opts.tools } : {}),
       ...(opts.model !== undefined ? { model: opts.model } : {}),
@@ -220,10 +222,11 @@ export class DefaultInstanceManager implements InstanceManager {
     instance.status = status
   }
 
-  async recordTurnEnd(agentId: AgentID, stats: { readonly turns: number; readonly cost: number }): Promise<void> {
+  async recordTurnEnd(agentId: AgentID, stats: { readonly turns: number; readonly cost: number; readonly tokens: number }): Promise<void> {
     const instance = await this.get(agentId)
     instance.turnCount += stats.turns
     instance.totalCost += stats.cost
+    instance.totalTokens = (instance.totalTokens ?? 0) + stats.tokens
   }
 
   async update(agentId: AgentID, patch: Partial<AgentInstancePatch>): Promise<void> {
@@ -263,7 +266,7 @@ export class DefaultInstanceManager implements InstanceManager {
     this.reserveIdentity(instance)
     const status: AgentStatus =
       instance.status === 'thinking' || instance.status === 'holding' ? 'interrupted' : instance.status
-    this.agents.set(instance.id, { ...instance, status })
+    this.agents.set(instance.id, { ...instance, status, totalTokens: instance.totalTokens ?? 0 })
   }
 
   resolve(ref: string): ResolveResult {

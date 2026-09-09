@@ -53,8 +53,10 @@ async function main(): Promise<void> {
       const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)
       const path = url.pathname
 
-      // —— 静态页（index + 视图纯函数模块） ——
+      // —— 静态页（index + 样式 + 应用脚本 + 视图纯函数模块；三件套分文件） ——
       if (req.method === 'GET' && path === '/') return sendStatic(res, 'index.html', 'text/html; charset=utf-8')
+      if (req.method === 'GET' && path === '/style.css') return sendStatic(res, 'style.css', 'text/css; charset=utf-8')
+      if (req.method === 'GET' && path === '/app.js') return sendStatic(res, 'app.js', 'text/javascript; charset=utf-8')
       if (req.method === 'GET' && path === '/view.js') return sendStatic(res, 'view.js', 'text/javascript; charset=utf-8')
       // —— 健康检查（docker HEALTHCHECK / 反探活） ——
       if (req.method === 'GET' && path === '/api/health') {
@@ -194,6 +196,7 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
       status: a.status,
       turnCount: a.turnCount,
       totalCost: a.totalCost,
+      totalTokens: a.totalTokens ?? 0, // 终身累计（不受 compact 影响）——信息条/详情卡数据源
       ...(facts !== undefined ? { strategy: facts.strategy, sendCountdownMs: facts.sendCountdownMs } : {}),
       ctxTokens,
       ...(lastActive > 0 ? { lastActive } : {}),

@@ -334,17 +334,18 @@
 | 方法 路径 | 语义 |
 |---|---|
 | GET `/api/health` | 探针（ok/gateway/agents）——docker HEALTHCHECK |
-| GET `/api/events` | SSE（PilotEvent 流：stream/letter/status/notice） |
-| GET `/api/agents` | 第一视角行集（id/status/turnCount/model+modelOrigin/lastPrompt） |
+| GET `/api/events` | SSE（PilotEvent 五元流：stream/letter/status/tool/notice） |
+| GET `/api/agents` | 第一视角行集（id/name/status/turnCount/totalTokens/strategy/ctxTokens/lastActive/model+modelOrigin/lastPrompt） |
 | GET `/api/templates` / `/api/models` | 类清单 / 模型候选（providers 白名单展开） |
-| GET `/api/agents/:id/context` | 行级语料（role/tag/tokens/turn/valid——**无 at 字段**） |
-| POST `/api/send` `{agentId,text}` | 扮演根送信（agentId 缺省 = 根） |
+| GET `/api/agents/:id/context` | 行级语料（role/tag/tokens/**at**/turn/valid + `contextWindow` 占用分母） |
+| POST `/api/send` `{to,text}` | 扮演根送信 |
 | POST `/api/instantiate` `{className,userPrompt,model?,name?}` | 建实例（model=显式层出生；name=出生称呼） |
 | POST `/api/terminate` `{agentId,recursive?}` / `/api/interrupt` `{agentId}` | 销毁（canReach）/ 当前轮中断 |
 | POST `/api/set_model` `{agentId,model}` | 模型热切换（不级联子女） |
+| POST `/api/update` `{agentId,name?}` | 实例参数写口（改名；kernel.updateAgent 宿主信任通道，by 缺省） |
 | POST `/api/access` `{requestId,reply,message?}` | ask 答复（once/always/reject） |
 | POST `/api/context_action` `{agentId,action,...}` | 上下文策略动作面（compact 等） |
-| GET `/`、`/view.js`、静态 | 单页 UI（OLED）/ 双端共用纯函数核心 |
+| GET `/`、`/style.css`、`/app.js`、`/view.js` | 单页 UI 三件套（html/css/js 分文件）+ 双端共用纯函数核心 |
 
 ### 5.2 Dashboard（:4421，法医/管理员面）
 

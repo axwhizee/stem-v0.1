@@ -62,7 +62,7 @@ describe('出生路径 id（B1）', () => {
     const spaceId = makeAgentSpaceID('s')
     manager.restore({
       id: makeAgentID('0-7'), classRef: cls.name, parentId: ROOT_ID, name: 'worker-8',
-      spaceId, status: 'terminated', turnCount: 0, totalCost: 0, userPrompt: '',
+      spaceId, status: 'terminated', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '',
     })
     const next = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi', spaceId })
     assert.equal(next.id, '0-8', '墓碑 0-7 占位在先')

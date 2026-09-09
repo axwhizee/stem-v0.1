@@ -28,7 +28,7 @@
 ┌───────────────────────────────────────────────────────────────────────┐
 │ Layer 3  shell/（交互层，最外）—— 平台适配 + UI                       │
 │   cli/（bootStem + TOOL_SETS + bash runner + storage + CLI）          │
-│   webui/（HTTP + SSE，OLED 无边框主题；流式思维链+监督抽屉；/api/health） │
+│   webui/（HTTP + SSE；三件套分文件；流式思维链/监督抽屉/占用条；/api/health） │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                     │
 │   init/（createStemSystem 组合根）· kernel/（Kernel/Runtime/builtin/agents │

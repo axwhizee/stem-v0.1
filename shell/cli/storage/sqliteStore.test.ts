@@ -151,7 +151,7 @@ async function seedOld(file: string, version: number): Promise<void> {
     'bso2',
     JSON.stringify({
       id: 'bso2', classRef: 'user', parentId: null, displayName: '0',
-      spaceId: 'space-1', status: 'idle', turnCount: 0, totalCost: 0, userPrompt: '',
+      spaceId: 'space-1', status: 'idle', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '',
     }),
   )
   db.prepare('INSERT INTO spaces VALUES (?, ?)').run('space-1', JSON.stringify({ id: 'space-1', project: '/old' }))

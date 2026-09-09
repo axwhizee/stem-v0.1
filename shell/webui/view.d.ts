@@ -119,8 +119,8 @@ export declare function clearBucket(buckets: LiveBuckets, agentId: string): void
 
 export interface ReasoningView {
   summary: string
-  body: string
-  running: boolean
+  /** 去掉摘要行的正文（折叠头与展开内容零重复）。 */
+  rest: string
 }
 export declare function reasoningView(text: string, running: boolean): ReasoningView | null
 
@@ -146,6 +146,7 @@ export interface InfoRow {
   v: string
 }
 export declare function infoRows(agent: AgentRow | null | undefined, now?: number): InfoRow[]
+export declare function composerMeta(agent: AgentRow | null | undefined): InfoRow[]
 
 export declare function relativeTime(ts: number, now?: number): string
 

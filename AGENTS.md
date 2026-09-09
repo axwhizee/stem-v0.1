@@ -73,7 +73,7 @@ docs/                      # 实况卷 architecture.md（机制详情以此为�
 ## 核心概念速查（详情 = architecture.md 对应节）
 
 - **AgentClass**：name 即 id；tools 四态 Record（键即白名单，未设=继承/{}=封闭）；contextStrategy 实例化时固化；panel=模块扮演（不组装不跑轮）；custom 自由位。→ arch §2/4.6
-- **AgentInstance**：id = 出生路径（根 `0`，子 `<父id>-<序号>`，序号永不回收，terminate 落墓碑）；name 全局唯一称呼（缺省派生 `类名-N`，agent_update.name 可改）；parentId = 创建者 = 族谱父；model/modelSnapshot 随实例行持久；状态机 idle→thinking→holding，interrupted 可恢复。呈现面统一 `name#id`，写面三形态寻址（name / name#id / 唯一 id 前缀）。→ arch 2.1/4.3
+- **AgentInstance**：id = 出生路径（根 `0`，子 `<父id>-<序号>`，序号永不回收，terminate 落墓碑）；name 全局唯一称呼（缺省派生 `类名-N`，agent_update.name 可改）；parentId = 创建者 = 族谱父；model/modelSnapshot 随实例行持久；轮账三件 turnCount/totalCost/totalTokens（终身累计 token，不受 compact 影响）走 recordTurnEnd 唯一通道；状态机 idle→thinking→holding，interrupted 可恢复。呈现面统一 `name#id`，写面三形态寻址（name / name#id / 唯一 id 前缀）。→ arch 2.1/4.3
 - **族谱树**：实例层派生事实唯一面（拓扑实时推导 + 权限/模型注册期物化 + canReach 可见域）；纯派生不入库。→ arch 4.4
 - **邮局**：仓库→管理员（打戳/策略 process/组装/legalize/waitForReply 配对）→快递员（倒计时送信**只发不组装**）；通信 = kernel.sendMessage，无总线。→ arch §3
 - **上下文策略**：契约 `ContextStrategyModule`（note/role/tools/assemble/process/actions/init；tools = 收敛链 raise 声明清单），触发 = user_prompt 信抵达、终点 = 唤醒快递员；classic = 直出 + compact（markInvalid 归档可逆）；cortex = 三层外挂记忆（LTM/笔记/STM，仓库记忆组 + `.stem/mem/` 单向镜像）+ 阈值做梦二段事务（dreamer 回信交付 `<cortex_dream>` 报告、schema 校验纠错循环住 spawn，轮替即归档）；`.stem/context/*.ts` 用户可覆盖。→ arch 2.2b

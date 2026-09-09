@@ -50,11 +50,12 @@ describe('PersistedInstanceManager write-through', () => {
     const created = await manager.instantiate({
       className: cls.name, parentId: null, userPrompt: '', spaceId: makeAgentSpaceID('s'),
     })
-    await manager.recordTurnEnd(created.id, { turns: 1, cost: 0.25 })
-    await manager.recordTurnEnd(created.id, { turns: 1, cost: 0.5 })
+    await manager.recordTurnEnd(created.id, { turns: 1, cost: 0.25, tokens: 100 })
+    await manager.recordTurnEnd(created.id, { turns: 1, cost: 0.5, tokens: 250 })
     const row = rowOf(store, ROOT_ID)
     assert.equal(row?.turnCount, 2, '行快照应含两轮累加')
     assert.equal(row?.totalCost, 0.75)
+    assert.equal(row?.totalTokens, 350, '终身累计 token 与 cost 同通道累加')
   })
 
   test('terminate recursive：级联子体一并落墓碑行（地址与称呼占用是持久事实）', async () => {
@@ -111,15 +112,15 @@ describe('PersistedInstanceManager 恢复', () => {
     const s = makeAgentSpaceID('s')
     store.upsert({
       id: ROOT_ID, classRef: cls.name, parentId: null, name: 'worker-1',
-      spaceId: s, status: 'idle', turnCount: 1, totalCost: 0, userPrompt: '',
+      spaceId: s, status: 'idle', turnCount: 1, totalCost: 0, totalTokens: 0, userPrompt: '',
     })
     store.upsert({
       id: makeAgentID('0-1'), classRef: cls.name, parentId: ROOT_ID, name: 'worker-2',
-      spaceId: s, status: 'thinking', turnCount: 3, totalCost: 0.5, userPrompt: 'hi',
+      spaceId: s, status: 'thinking', turnCount: 3, totalCost: 0.5, totalTokens: 0, userPrompt: 'hi',
     })
     store.upsert({
       id: makeAgentID('0-7'), classRef: cls.name, parentId: ROOT_ID, name: 'worker-8',
-      spaceId: s, status: 'terminated', turnCount: 1, totalCost: 0, userPrompt: 'hi',
+      spaceId: s, status: 'terminated', turnCount: 1, totalCost: 0, totalTokens: 0, userPrompt: 'hi',
     })
 
     const { manager } = makePersisted(store)
@@ -137,7 +138,7 @@ describe('PersistedInstanceManager 恢复', () => {
     await manager.instantiate({ className: cls.name, parentId: null, userPrompt: 'first', spaceId: makeAgentSpaceID('s') })
     manager.restore({
       id: makeAgentID(ROOT_ID), classRef: cls.name, parentId: null, name: 'ghost',
-      spaceId: makeAgentSpaceID('s'), status: 'idle', turnCount: 9, totalCost: 0, userPrompt: 'second',
+      spaceId: makeAgentSpaceID('s'), status: 'idle', turnCount: 9, totalCost: 0, totalTokens: 0, userPrompt: 'second',
     })
     assert.equal((await manager.get(ROOT_ID)).userPrompt, 'first')
   })
@@ -147,11 +148,11 @@ describe('PersistedInstanceManager 恢复', () => {
     const s = makeAgentSpaceID('s')
     store.upsert({
       id: makeAgentID('0-1'), classRef: cls.name, parentId: null, name: 'twin',
-      spaceId: s, status: 'idle', turnCount: 0, totalCost: 0, userPrompt: '',
+      spaceId: s, status: 'idle', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '',
     })
     store.upsert({
       id: makeAgentID('0-2'), classRef: cls.name, parentId: null, name: 'twin',
-      spaceId: s, status: 'idle', turnCount: 0, totalCost: 0, userPrompt: '',
+      spaceId: s, status: 'idle', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '',
     })
     const { manager } = makePersisted(store)
     assert.throws(

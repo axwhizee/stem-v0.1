@@ -79,7 +79,7 @@ export class PersistedInstanceManager implements InstanceManager {
     this.snap(agentId)
   }
 
-  async recordTurnEnd(agentId: AgentID, stats: { readonly turns: number; readonly cost: number }): Promise<void> {
+  async recordTurnEnd(agentId: AgentID, stats: { readonly turns: number; readonly cost: number; readonly tokens: number }): Promise<void> {
     await this.inner.recordTurnEnd(agentId, stats)
     this.snap(agentId)
   }

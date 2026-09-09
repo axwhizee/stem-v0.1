@@ -25,6 +25,7 @@ import {
   createLiveBuckets,
   deriveActions,
   idOrder,
+  composerMeta,
   infoRows,
   mdToHtml,
   menuItems,
@@ -249,16 +250,18 @@ describe('reasoningView（running 追最新行 / 结束定格首行）', () => {
     assert.equal(reasoningView('', true), null)
     assert.equal(reasoningView('  \n ', false), null)
   })
-  test('running：摘要 = 最后一个非空行', () => {
+  test('running：摘要 = 最后一个非空行，rest 去重（零重复纪律）', () => {
     const v = reasoningView('第一行\n第二行\n最新半句', true)!
     assert.equal(v.summary, '最新半句')
-    assert.equal(v.running, true)
-    assert.equal(v.body, '第一行\n第二行\n最新半句')
+    assert.equal(v.rest, '第一行\n第二行')
   })
-  test('完成：摘要定格首行', () => {
+  test('完成：摘要定格首行，rest = 其余正文', () => {
     const v = reasoningView('第一行\n第二行', false)!
     assert.equal(v.summary, '第一行')
-    assert.equal(v.running, false)
+    assert.equal(v.rest, '第二行')
+    const one = reasoningView('只有一行', false)!
+    assert.equal(one.summary, '只有一行')
+    assert.equal(one.rest, '') // 单行思维链：展开无重复内容
   })
 })
 
@@ -375,7 +378,17 @@ describe('infoRows', () => {
     assert.equal(rows.find((r) => r.k === '全名')?.v, 'helper#0-1')
     assert.equal(rows.find((r) => r.k === '策略')?.v, '—')
     assert.equal(rows.find((r) => r.k === '模型')?.v, 'p/m（类基因）')
+    assert.ok(!rows.some((r) => r.k === '累计费')) // 终身 token 替代费用口径
+    assert.equal(rows.find((r) => r.k === '累计')?.v, '0 tokens')
     assert.equal(infoRows(null).length, 0)
+  })
+  test('composerMeta：六项横排（全名/模型/策略/轮次/上下文/累计）', () => {
+    const rows = composerMeta({ id: '0-1', name: 'h', parentId: '0', strategy: 'classic', turnCount: 3, ctxTokens: 1200, totalTokens: 8900, model: 'p/m' })
+    assert.deepEqual(rows.map((r) => r.k), ['agent', '模型', '策略', '轮次', '上下文', '累计'])
+    assert.equal(rows[0]?.v, 'h#0-1')
+    assert.equal(rows[4]?.v, '1,200')
+    assert.equal(rows[5]?.v, '8,900')
+    assert.deepEqual(composerMeta(null), [])
   })
 })
 

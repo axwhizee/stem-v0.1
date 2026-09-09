@@ -333,11 +333,27 @@ export function infoRows(agent, now = Date.now()) {
     { k: '状态', v: `${statusGlyph(agent.status)} ${String(agent.status ?? '')}` },
     { k: '轮数', v: String(agent.turnCount ?? 0) },
     { k: '上下文', v: `${Number(agent.ctxTokens ?? 0).toLocaleString()} tokens` },
-    { k: '累计费', v: Number(agent.totalCost ?? 0).toFixed(4) },
+    { k: '累计', v: `${Number(agent.totalTokens ?? 0).toLocaleString()} tokens` },
     { k: '最近活跃', v: Number(agent.lastActive) > 0 ? relativeTime(Number(agent.lastActive), now) : '—' },
   ]
   if (agent.model) rows.push({ k: '模型', v: `${String(agent.model)}（${ORIGIN_LABELS[agent.modelOrigin] ?? String(agent.modelOrigin ?? '')}）` })
   return rows
+}
+
+/**
+ * composer 信息条（批 3 布局：header 消失后，当前 agent 关键事实一行横排）。
+ * 六项：全名 / 模型 / 策略 / 轮次 / 当前上下文 token / 累计 token。
+ */
+export function composerMeta(agent) {
+  if (agent === null || agent === undefined) return []
+  return [
+    { k: 'agent', v: `${agent.name ?? agent.id}#${agent.id}` },
+    { k: '模型', v: String(agent.model ?? '继承链') },
+    { k: '策略', v: String(agent.strategy ?? '—') },
+    { k: '轮次', v: String(agent.turnCount ?? 0) },
+    { k: '上下文', v: `${Number(agent.ctxTokens ?? 0).toLocaleString()}` },
+    { k: '累计', v: `${Number(agent.totalTokens ?? 0).toLocaleString()}` },
+  ]
 }
 
 const ORIGIN_LABELS = { explicit: '显式', class: '类基因', inherited: '父继承', home: '家学' }
@@ -378,18 +394,25 @@ export function turnStats(messages) {
 
 /**
  * 思维链文本 → 折叠呈现数据。running（还在流）：摘要 = 最新一行（跟随滚动语义）；
- * 完成：摘要 = 首行（可点开展开全文 body）。空文本 → null（不渲染）。
+ * 完成：摘要 = 首行（可点开展开全文 rest）。**rest 恒为去掉摘要行的正文**——
+ * 折叠头与展开内容零重复（首版 body 含摘要行导致展开重影，修正）。空 → null。
  */
 export function reasoningView(text, running) {
   const s = String(text ?? '')
   if (s.trim() === '') return null
-  const lines = s.split('\n').filter((l) => l.trim() !== '')
-  if (lines.length === 0) return null
-  return {
-    summary: running ? lines[lines.length - 1] : lines[0],
-    body: s,
-    running: Boolean(running),
+  const lines = s.split('\n')
+  const nonEmpty = lines.filter((l) => l.trim() !== '')
+  if (nonEmpty.length === 0) return null
+  if (running) {
+    const last = nonEmpty[nonEmpty.length - 1]
+    // 去掉末尾最后一段非空行（含其前导空白行）= rest。
+    const cut = s.lastIndexOf(String(last))
+    return { summary: String(last), rest: cut > 0 ? s.slice(0, cut).trimEnd() : '' }
   }
+  const first = nonEmpty[0]
+  const idx = s.indexOf(String(first))
+  const after = idx + String(first).length
+  return { summary: String(first), rest: s.slice(after).replace(/^\n+/, '') }
 }
 
 // ---------- 7. 上下文占用（对话栏底部进度条数据层） ----------
