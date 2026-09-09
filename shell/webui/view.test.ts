@@ -24,14 +24,19 @@ import {
   contextRatio,
   createLiveBuckets,
   deriveActions,
+  idOrder,
+  infoRows,
   mdToHtml,
+  menuItems,
   ratioTone,
   reasoningView,
+  relativeTime,
   routeLetters,
   statusGlyph,
   statusTone,
   stripSender,
   truncate,
+  turnStats,
 } from './view.js'
 
 /** CJK 统一表意文字基本区判定（R8 禁 emoji/几何字符的实现级验收）。 */
@@ -311,5 +316,83 @@ describe('mdToHtml（零依赖子集）', () => {
     const h = mdToHtml('第一行\n第二行\n\n新段')
     assert.ok(h.includes('第一行<br/>第二行'))
     assert.equal((h.match(/<p>/g) ?? []).length, 2)
+  })
+})
+
+// ---------- 9. 出生路径 id 自然序 ----------
+
+describe('idOrder + 族谱显式排序', () => {
+  test('逐段数值比较（字符串序的 0-10 < 0-2 陷阱被修正）', () => {
+    assert.ok(idOrder('0-2', '0-10') < 0)
+    assert.ok(idOrder('0-1-9', '0-2') < 0)
+    assert.equal(idOrder('0-3', '0-3'), 0)
+    assert.ok(idOrder('0', '0-1') < 0)
+  })
+  test('computeTreeRows：输入乱序子代仍按 id 自然序出栈', () => {
+    const rows = computeTreeRows([
+      { id: '0', parentId: null },
+      { id: '0-10', parentId: '0' },
+      { id: '0-2', parentId: '0' },
+      { id: '0-1', parentId: '0' },
+    ])
+    assert.deepEqual(rows.filter(isNode).map((r) => r.id), ['0', '0-1', '0-2', '0-10'])
+  })
+})
+
+// ---------- 10. 二级操作菜单 / 信息卡 / 相对时间 / 轮统计 ----------
+
+describe('menuItems（数据驱动，无 agent 特判）', () => {
+  test('根：对话 ready、监督 off、无中断/压缩项、毁 off', () => {
+    const keys = menuItems({ id: '0', parentId: null }).map((i) => i.key)
+    assert.ok(!keys.includes('interrupt') && !keys.includes('compact'))
+    const items = menuItems({ id: '0', parentId: null })
+    assert.equal(items.find((i) => i.key === 'watch')?.state, 'off')
+    assert.equal(items.find((i) => i.key === 'terminate')?.state, 'off')
+  })
+  test('普通 agent：对话 active（当前视角语义）、毁 ready、label 全汉字', () => {
+    const items = menuItems({ id: '0-1', parentId: '0' })
+    assert.equal(items.find((i) => i.key === 'open')?.state, 'active')
+    assert.equal(items.find((i) => i.key === 'terminate')?.state, 'ready')
+    for (const i of items) assert.ok([...i.label].every((c) => /^[\u4e00-\u9fff]$/.test(c)), i.label)
+  })
+})
+
+describe('relativeTime', () => {
+  const now = 1_000_000_000_000
+  test('档位：刚刚/秒前/分前/时前/天前；无值 = —', () => {
+    assert.equal(relativeTime(0, now), '—')
+    assert.equal(relativeTime(now - 1000, now), '刚刚')
+    assert.equal(relativeTime(now - 30_000, now), '30 秒前')
+    assert.equal(relativeTime(now - 120_000, now), '2 分前')
+    assert.equal(relativeTime(now - 7_200_000, now), '2 时前')
+    assert.equal(relativeTime(now - 172_800_000, now), '2 天前')
+  })
+})
+
+describe('infoRows', () => {
+  test('全名 = name#id；缺字段降级；模型行带来源标签', () => {
+    const rows = infoRows({ id: '0-1', name: 'helper', parentId: '0', classRef: 'assistant', status: 'idle', model: 'p/m', modelOrigin: 'class' }, Date.now())
+    assert.equal(rows.find((r) => r.k === '全名')?.v, 'helper#0-1')
+    assert.equal(rows.find((r) => r.k === '策略')?.v, '—')
+    assert.equal(rows.find((r) => r.k === '模型')?.v, 'p/m（类基因）')
+    assert.equal(infoRows(null).length, 0)
+  })
+})
+
+describe('turnStats', () => {
+  test('valid 行计数与 token 合计；最近一轮耗时 = 末 user → 末行', () => {
+    const st = turnStats([
+      { role: 'user', at: 1000, tokens: 10, turn: 1 },
+      { role: 'assistant', at: 3500, tokens: 20, turn: 1 },
+      { role: 'user', at: 5000, tokens: 5, turn: 2 },
+      { role: 'assistant', at: 6000, tokens: 15, turn: 2 },
+      { role: 'assistant', at: 99000, tokens: 1, turn: 9, valid: false },
+    ])
+    assert.equal(st.tokens, 50)
+    assert.equal(st.turns, 2)
+    assert.equal(st.durationS, 1)
+  })
+  test('空输入零值', () => {
+    assert.deepEqual(turnStats([]), { tokens: 0, turns: 0, durationS: 0, firstAt: 0, lastAt: 0 })
   })
 })

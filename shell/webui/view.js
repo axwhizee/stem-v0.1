@@ -12,7 +12,10 @@
 //   5. 流式 live 桶 reducer applyStreamEvent（delta live-only，快照收口）；
 //   6. 思维链折叠 reasoningView（running 追最新行 / 结束定格首行）；
 //   7. 上下文占用 contextRatio + ratioTone（底部进度条数据层）；
-//   8. 零依赖 markdown 子集渲染 mdToHtml（先抽码后转义 = XSS 构造安全）。
+//   8. 零依赖 markdown 子集渲染 mdToHtml（先抽码后转义 = XSS 构造安全）；
+//   9. 出生路径 id 自然序 idOrder（族谱显式排序）；
+//  10. 二级操作菜单 menuItems / 信息卡 infoRows / 相对时间 relativeTime /
+//      对话尾统计 turnStats（批 3：控件收进菜单、hover 详情、统计条——全数据驱动）。
 // ============================================================
 
 /** 本空间根（pilot 扮演身份的约定 id）。 */
@@ -133,8 +136,9 @@ export function computeTreeRows(agents, opts = {}) {
     return n
   }
   const roots = list.filter((a) => (a.parentId ?? null) === null)
-  // 约定根恒先行（其余无父行为防御性并列根）。
-  roots.sort((a, b) => (a.id === rootId ? -1 : b.id === rootId ? 1 : 0))
+  // 约定根恒先行（其余无父行为防御性并列根）；同层按出生路径 id 自然序（显式声明，
+  // 不依赖输入行序——批 3 项 3）。
+  roots.sort((a, b) => (a.id === rootId ? -1 : b.id === rootId ? 1 : idOrder(a.id, b.id)))
   const rows = []
   // 每层记录本层节点的行号，供 passThrough 后处理：有下一兄弟 B 的节点 A，
   // A.lane 竖线在 (rowA, rowB) 开区间各行的背景继续（父泳道贯穿其子树行）。
@@ -157,7 +161,7 @@ export function computeTreeRows(agents, opts = {}) {
         family,
         row: node,
       })
-      const children = byParent.get(node.id) ?? []
+      const children = (byParent.get(node.id) ?? []).slice().sort((x, y) => idOrder(x.id, y.id))
       if (children.length > 0) {
         if (depth + 1 > maxDepth) {
           rows.push({ type: 'more', kind: 'depth', count: descendantCount(node.id), depth: lane + 1, lane: lane + 1 })
@@ -279,6 +283,95 @@ export function applyStreamEvent(buckets, ev) {
 
 export function clearBucket(buckets, agentId) {
   delete buckets[agentId]
+}
+
+// ---------- 5b. 出生路径 id 自然序与族谱显式排序 ----------
+
+/** 出生路径 id（`0` / `0-2` / `0-10`）逐段数值比较（'0-10' > '0-2'，字符串序会错）。 */
+export function idOrder(a, b) {
+  const pa = String(a).split('-')
+  const pb = String(b).split('-')
+  const n = Math.max(pa.length, pb.length)
+  for (let i = 0; i < n; i++) {
+    const va = i < pa.length ? Number(pa[i]) : -1
+    const vb = i < pb.length ? Number(pb[i]) : -1
+    if (va !== vb) return va - vb
+  }
+  return 0
+}
+
+// ---------- 5c. 二级操作菜单 / 信息面板（数据驱动，无 agent 特判） ----------
+
+/**
+ * 树行「⋯」菜单项（批 3 项 4：缩/停/毁从 header 收进本菜单）。state 全由
+ * deriveActions 派生（族谱位置事实），督对根 off（面板不跑轮、无 live 流）。
+ */
+export function menuItems(agent) {
+  if (agent === null || agent === undefined) return []
+  const acts = deriveActions(agent)
+  const isRoot = (agent.parentId ?? null) === null
+  const items = [{ key: 'open', label: '对话', state: isRoot ? 'ready' : 'active' }]
+  items.push({ key: 'watch', label: '监督', state: isRoot ? 'off' : 'ready' })
+  if (!isRoot) {
+    items.push({ key: 'interrupt', label: '中断', state: acts.interrupt })
+    items.push({ key: 'compact', label: '压缩', state: acts.compact })
+  }
+  items.push({ key: 'rename', label: '改名', state: 'ready' })
+  items.push({ key: 'instanceCfg', label: '实例配置', state: 'ready' })
+  items.push({ key: 'classCfg', label: '类配置', state: 'ready' })
+  items.push({ key: 'terminate', label: '销毁', state: acts.terminate, danger: true })
+  return items
+}
+
+/** 信息卡/悬浮详情共用的字段行（全名、类、策略、token、最近活跃…）。 */
+export function infoRows(agent, now = Date.now()) {
+  if (agent === null || agent === undefined) return []
+  const rows = [
+    { k: '全名', v: `${agent.name ?? agent.id}#${agent.id}` },
+    { k: '类', v: String(agent.classRef ?? '—') },
+    { k: '策略', v: String(agent.strategy ?? '—') },
+    { k: '状态', v: `${statusGlyph(agent.status)} ${String(agent.status ?? '')}` },
+    { k: '轮数', v: String(agent.turnCount ?? 0) },
+    { k: '上下文', v: `${Number(agent.ctxTokens ?? 0).toLocaleString()} tokens` },
+    { k: '累计费', v: Number(agent.totalCost ?? 0).toFixed(4) },
+    { k: '最近活跃', v: Number(agent.lastActive) > 0 ? relativeTime(Number(agent.lastActive), now) : '—' },
+  ]
+  if (agent.model) rows.push({ k: '模型', v: `${String(agent.model)}（${ORIGIN_LABELS[agent.modelOrigin] ?? String(agent.modelOrigin ?? '')}）` })
+  return rows
+}
+
+const ORIGIN_LABELS = { explicit: '显式', class: '类基因', inherited: '父继承', home: '家学' }
+
+/** 相对时刻汉字形（禁 emoji 纪律内：纯文字）。 */
+export function relativeTime(ts, now = Date.now()) {
+  const d = Math.max(0, now - Number(ts))
+  if (Number(ts) <= 0) return '—'
+  if (d < 5000) return '刚刚'
+  if (d < 60000) return `${String(Math.floor(d / 1000))} 秒前`
+  if (d < 3600000) return `${String(Math.floor(d / 60000))} 分前`
+  if (d < 86400000) return `${String(Math.floor(d / 3600000))} 时前`
+  return `${String(Math.floor(d / 86400000))} 天前`
+}
+
+/** 对话尾部统计条原料：token 合计 / 轮数 / 最近一轮耗时（末条 user → 末行）。 */
+export function turnStats(messages) {
+  const rows = (messages ?? []).filter((m) => m.valid !== false)
+  let tokens = 0
+  let maxTurn = 0
+  let lastUserAt = 0
+  let lastAt = 0
+  let firstAt = 0
+  for (const m of rows) {
+    tokens += Number(m.tokens) || 0
+    maxTurn = Math.max(maxTurn, Number(m.turn) || 0)
+    const at = Number(m.at) || 0
+    if (at > 0) {
+      if (firstAt === 0) firstAt = at
+      lastAt = Math.max(lastAt, at)
+      if (m.role === 'user') lastUserAt = Math.max(lastUserAt, at)
+    }
+  }
+  return { tokens, turns: maxTurn, durationS: lastUserAt > 0 && lastAt > lastUserAt ? (lastAt - lastUserAt) / 1000 : 0, firstAt, lastAt }
 }
 
 // ---------- 6. 思维链折叠视图（dsh 式：running 追最新行，结束定格首行） ----------

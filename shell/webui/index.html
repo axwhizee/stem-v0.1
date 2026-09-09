@@ -5,48 +5,53 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>stem · WebUIShell</title>
 <style>
-  /* ============ OLED 主题：纯黑底 + 边框分层 + 双色语义（R8 三态视觉） ============ */
+  /* ============ OLED 主题：纯黑底 + 无边框文档流（opencode 风）+ 双色语义（R8） ============ */
   :root {
     --bg: #000000;            /* OLED 纯黑 */
-    --surface: #060708;       /* 极深面板（≈黑，靠边框分层） */
-    --border: #1c2026;        /* 主分层边框 */
-    --border-strong: #2e3540; /* 焦点/强调边框 */
+    --surface: #060708;       /* 极深面板 */
+    --border: #1c2026;        /* 主分层线（只用于分隔，不再做卡片描边） */
+    --border-strong: #2e3540;
     --text: #eef1f3;
     --muted: #6b7480;
-    --accent: #3df5c8;        /* 青绿 = 正常/运行/激活（荧光） */
+    --accent: #3df5c8;        /* 青绿 = 正常/运行/激活 */
     --accent-dim: rgba(61, 245, 200, .16);
-    --alert: #ff2ec8;         /* 品红 = 需介入（ask / interrupted / 危险操作） */
+    --alert: #ff2ec8;         /* 品红 = 需介入（ask / interrupted / 危险） */
     --alert-dim: rgba(255, 46, 200, .16);
-    --lane-w: 14px;           /* 族谱泳道列宽 */
+    --warn: #e8c34a;
+    --lane-w: 14px;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; }
-  body { background: var(--bg); color: var(--text); font: 14px/1.55 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; display: flex; }
+  body { background: var(--bg); color: var(--text); font: 14px/1.55 system-ui, "PingFang SC", "Microsoft YaHei", sans-serif; display: flex; overflow: hidden; }
   ::selection { background: var(--accent-dim); }
   button { background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 4px 12px; cursor: pointer; font-size: 12px; }
   button:hover { border-color: var(--border-strong); color: var(--accent); }
+  button[data-state="off"] { color: var(--muted); border-color: transparent; cursor: not-allowed; }
+  button[data-state="off"]:hover { color: var(--muted); border-color: transparent; }
 
-  /* 三态动作字（R8）：遮罩=不可用 / 白边框=可用 / 荧光=激活 */
+  /* 三态动作字（R8） */
   .ico { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px;
          border: 1px solid var(--border); border-radius: 4px; font-size: 12px; line-height: 1; cursor: pointer; }
   .ico[data-state="off"] { color: var(--muted); border-color: transparent; cursor: not-allowed;
-         background: repeating-linear-gradient(45deg, transparent 0 3px, #0d1013 3px 4px); } /* 遮罩斜纹 */
-  .ico[data-state="ready"] { color: var(--text); border-color: var(--border-strong); } /* 白边框 */
+         background: repeating-linear-gradient(45deg, transparent 0 3px, #0d1013 3px 4px); }
+  .ico[data-state="ready"] { color: var(--text); border-color: var(--border-strong); }
   .ico[data-state="ready"]:hover { color: var(--accent); border-color: var(--accent); }
-  .ico[data-state="active"] { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent-dim); } /* 荧光 */
+  .ico[data-state="active"] { color: var(--accent); border-color: var(--accent); box-shadow: 0 0 8px var(--accent-dim); }
   .ico.danger[data-state="ready"] { color: var(--muted); }
   .ico.danger[data-state="ready"]:hover { color: var(--alert); border-color: var(--alert); }
 
-  /* —— 左栏：族谱树侧栏 —— */
-  aside { width: 300px; min-width: 300px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; }
-  aside h1 { font-size: 14px; letter-spacing: .06em; padding: 14px 16px; border-bottom: 1px solid var(--border); font-weight: 600; }
-  aside h1 small { color: var(--muted); font-weight: normal; }
+  /* —— 左栏：族谱树 / 实例化 / 当前 agent 信息+快捷控制 —— */
+  aside { width: 320px; min-width: 320px; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; transition: width .15s; }
+  aside h1 { font-size: 14px; letter-spacing: .06em; padding: 12px 14px; border-bottom: 1px solid var(--border); font-weight: 600; display: flex; align-items: center; gap: 8px; }
+  aside h1 small { color: var(--muted); font-weight: normal; flex: 1; }
+  #sideToggle { padding: 1px 8px; font-size: 11px; color: var(--muted); }
   #tree { flex: 1; overflow-y: auto; padding: 6px 0; }
-  .tnode { position: relative; display: flex; align-items: center; gap: 6px; padding: 5px 12px 5px 8px; cursor: pointer; border-left: 2px solid transparent; }
+  .tnode { position: relative; display: flex; align-items: center; gap: 6px; padding: 5px 8px 5px 4px; cursor: pointer; border-left: 2px solid transparent; }
   .tnode:hover { background: #090b0d; }
   .tnode.active { border-left-color: var(--accent); background: #090b0d; }
   .tnode .lanes { width: calc(var(--lane-w) * 5); flex: 0 0 auto; height: 24px; }
-  .tnode .id { font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600; }
+  .tnode .id { font-family: ui-monospace, monospace; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .tnode.active .id { color: var(--accent); }
   .tnode .lp { color: var(--muted); font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; min-width: 0; }
   .tnode .st { font-size: 11px; font-family: ui-monospace, monospace; }
   .tnode .st.tone-active { color: var(--accent); }
@@ -55,62 +60,58 @@
   .tnode.rootnode .id { color: var(--muted); }
   .tnode.moren { color: var(--muted); font-size: 11px; font-family: ui-monospace, monospace; padding: 3px 12px 3px 8px; }
   .tnode.moren .lanes { height: 18px; }
+  .mbtn { visibility: hidden; flex: 0 0 auto; color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; cursor: pointer; }
+  .tnode:hover .mbtn { visibility: visible; }
+  .mbtn:hover { color: var(--accent); border-color: var(--accent); }
 
-  #createBox { padding: 12px 14px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 8px; }
+  /* 收起态：只留简化族谱（全名） */
+  body.side-mini aside { width: 150px; min-width: 150px; }
+  body.side-mini #createBox, body.side-mini #infoBox, body.side-mini .tnode .lanes,
+  body.side-mini .tnode .lp, body.side-mini .tnode .st, body.side-mini .tnode .mbtn,
+  body.side-mini aside h1 small { display: none; }
+
+  #createBox { padding: 10px 12px; border-top: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
   #createBox h3 { font-size: 11px; color: var(--muted); font-weight: 600; letter-spacing: .08em; }
-  #createBox select, #createBox input { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; font-size: 13px; }
+  #createBox select, #createBox input { background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 5px 8px; font-size: 12px; }
   #createBox select:focus, #createBox input:focus { outline: none; border-color: var(--accent); }
   #createBox button { border-color: var(--accent); color: var(--accent); }
   #createBox button:hover { background: var(--accent-dim); }
 
-  /* —— 主区 —— */
-  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-  #header { padding: 10px 20px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 10px; background: var(--surface); flex-wrap: wrap; }
-  #header .name { font-weight: 600; }
-  #header .meta { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
+  #infoBox { border-top: 1px solid var(--border); padding: 10px 12px; display: flex; flex-direction: column; gap: 7px; max-height: 46%; overflow-y: auto; }
+  #infoBox[hidden] { display: none; }
+  #infoHead { display: flex; align-items: baseline; gap: 8px; font-size: 13px; font-weight: 600; }
+  #infoHead .sp { flex: 1; }
+  #infoStatus { font-family: ui-monospace, monospace; font-size: 11px; font-weight: normal; }
+  #infoRows { display: grid; grid-template-columns: auto 1fr; gap: 1px 10px; font-size: 11px; }
+  #infoRows .k { color: var(--muted); white-space: nowrap; }
+  #infoRows .v { font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: right; }
+  #cfgTabs { display: flex; gap: 6px; }
+  #cfgTabs button { padding: 1px 10px; font-size: 11px; color: var(--muted); border-color: transparent; }
+  #cfgTabs button.on { color: var(--accent); border-color: var(--border); }
+  .cfgPane { display: flex; flex-direction: column; gap: 6px; }
+  .cfgPane[hidden] { display: none; }
+  .cfgRow { display: flex; gap: 6px; align-items: center; }
+  .cfgRow input { flex: 1; min-width: 0; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 3px 8px; font-size: 12px; }
   #modelRow { display: flex; align-items: center; gap: 6px; font-size: 12px; font-family: ui-monospace, monospace; }
-  #modelRow .origin { color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; font-size: 11px; }
-  #modelSel { background: var(--bg); color: var(--accent); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; max-width: 220px; }
-  #modelSel:focus { outline: none; border-color: var(--accent); }
+  #modelSel { background: var(--bg); color: var(--accent); border: 1px solid var(--border); border-radius: 4px; padding: 2px 6px; font-size: 12px; max-width: 200px; flex: 1; min-width: 0; }
+  #modelOrigin { color: var(--muted); border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; font-size: 11px; }
+  #classDef { max-height: 160px; overflow-y: auto; font-size: 11px; font-family: ui-monospace, monospace; color: var(--muted); white-space: pre-wrap; word-break: break-word; background: #040506; border: 1px solid var(--border); border-radius: 4px; padding: 8px; }
+  .hint { font-size: 11px; color: var(--muted); }
+
+  /* —— 主区：无边框文档流 —— */
+  main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #header { padding: 10px 22px 6px; display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+  #header .name { font-weight: 600; font-size: 15px; }
+  #header .meta { color: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
   #header .actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
-  #timeline { flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 8px; }
+  #timeline { flex: 1; overflow-y: auto; padding: 8px 22px 20px; display: flex; flex-direction: column; gap: 10px; }
 
-  /* 消息 = 扁平左边框制（第一视角：me 右 / agent·them 左）；正文经 markdown 渲染 */
-  .msg { max-width: 82%; padding: 8px 12px; word-break: break-word; border: 1px solid var(--border); border-radius: 4px; background: var(--surface); }
-  .msg.me { align-self: flex-end; border-left: none; border-right: 2px solid var(--border-strong); }
-  .msg.agent { align-self: flex-start; border-left: 2px solid var(--border-strong); }
-  .msg.them { align-self: flex-start; border-left: 2px solid var(--muted); }
-  .msg.tool { align-self: stretch; font-family: ui-monospace, monospace; font-size: 12px; color: var(--muted); border-left: 2px solid #12151a; background: #040506; }
-  .msg.meta { align-self: stretch; text-align: center; font-size: 12px; color: var(--accent); background: none; border: none; border-top: 1px dashed #12332a; border-bottom: 1px dashed #12332a; border-radius: 0; padding: 4px; }
-  .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 4px; font-family: ui-monospace, monospace; }
-  .msg.streaming { border-right-color: var(--accent); }
-  .msg.streaming::after { content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 1px; vertical-align: -2px;
-         border-right: 2px solid var(--accent); animation: blink 1s step-end infinite; } /* 流式光标 = border-right */
-  @keyframes blink { 50% { opacity: 0; } }
-
-  #empty { align-self: center; margin: auto; text-align: center; color: var(--muted); font-size: 13px; max-width: 360px; line-height: 1.8; }
-  #empty b { color: var(--accent); font-weight: 600; }
-
-  #composer { padding: 12px 20px; border-top: 1px solid var(--border); display: flex; gap: 10px; background: var(--surface); }
-  #composer textarea { flex: 1; resize: none; height: 46px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; padding: 12px; font-size: 14px; font-family: inherit; }
-  #composer textarea:focus { outline: none; border-color: var(--accent); }
-  #composer textarea:disabled { color: var(--muted); cursor: not-allowed; }
-  #sendBtn { border-color: var(--accent); color: var(--accent); padding: 4px 18px; font-size: 14px; }
-  #sendBtn:hover { background: var(--accent-dim); }
-  #sendBtn:disabled { border-color: var(--border); color: var(--muted); cursor: not-allowed; background: none; }
-
-  /* —— ask 弹窗 =「审」面板（品红，需介入语义） —— */
-  #permission { position: fixed; right: 20px; top: 20px; width: 340px; background: var(--surface); border: 1px solid var(--alert); border-radius: 6px; padding: 14px; display: none; z-index: 10; }
-  #permission .title { font-weight: 600; margin-bottom: 6px; color: var(--alert); }
-  #permission .body { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
-  #permission .row { display: flex; gap: 8px; }
-  #permission .once { border-color: var(--accent); color: var(--accent); }
-  #permission .reject { border-color: var(--alert); color: var(--alert); }
-
-  #conn { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
-  #conn.on { background: var(--accent); box-shadow: 0 0 6px var(--accent-dim); }
-
-  /* —— markdown 正文（流式与历史共用；.msg 弃 pre-wrap，块距由 md 结构接管） —— */
+  /* 消息 = 无边框文档流（opencode 风）：小标签 + 正文；me 右倾标签 */
+  .msg { position: relative; max-width: 86%; word-break: break-word; }
+  .msg.me { align-self: flex-end; }
+  .msg.agent, .msg.them { align-self: flex-start; }
+  .msg .who { font-size: 11px; color: var(--muted); margin-bottom: 2px; font-family: ui-monospace, monospace; }
+  .msg.me .who { color: var(--accent); text-align: right; }
   .msg .md p { margin: 0 0 6px; } .msg .md > :last-child { margin-bottom: 0; }
   .msg .md h1, .msg .md h2, .msg .md h3, .msg .md h4, .msg .md h5, .msg .md h6 { margin: 6px 0 4px; font-size: 1.02em; color: var(--accent); }
   .msg .md pre { background: #0a0d10; border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; overflow-x: auto; font-size: 12px; margin: 4px 0; }
@@ -121,12 +122,36 @@
   .msg .md table { border-collapse: collapse; margin: 4px 0; font-size: 12px; }
   .msg .md th, .msg .md td { border: 1px solid var(--border); padding: 2px 8px; } .msg .md th { background: #0a0d10; }
   .msg .md a { color: var(--accent); } .msg .md hr { border: none; border-top: 1px solid var(--border); margin: 6px 0; }
-  .msg.tool, .msg.meta { white-space: pre-wrap; } /* 非 markdown 通道保原样 */
+  .msg.tool { align-self: stretch; font-family: ui-monospace, monospace; font-size: 11px; color: var(--muted); white-space: pre-wrap; border-left: 2px solid #12151a; padding-left: 8px; }
+  .msg.meta { align-self: stretch; text-align: center; font-size: 11px; color: var(--accent); white-space: pre-wrap; border-top: 1px dashed #12332a; border-bottom: 1px dashed #12332a; padding: 3px; }
+  .copyBtn { position: absolute; top: 0; right: -26px; width: 22px; height: 18px; padding: 0; font-size: 10px; color: var(--muted); border-color: transparent; }
+  .msg:hover .copyBtn { border-color: var(--border); }
+  .copyBtn:hover { color: var(--accent); }
+  .msg.streaming .md { display: inline; }
+  .msg.streaming::after { content: ""; display: inline-block; width: 7px; height: 1em; margin-left: 1px; vertical-align: -2px;
+         border-right: 2px solid var(--accent); animation: blink 1s step-end infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
 
-  /* —— 流式 live 层（主列尾 + 监督抽屉共用件） —— */
-  #liveHost { display: flex; flex-direction: column; gap: 8px; }
-  details.reason { align-self: flex-start; max-width: 82%; border: 1px dashed var(--border); border-radius: 4px; color: var(--muted); font-size: 12px; font-style: italic; padding: 4px 10px; }
-  details.reason summary { cursor: pointer; outline: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 520px; }
+  #turnStats { padding: 0 22px 4px; font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+  #turnStats[hidden] { display: none; }
+
+  #empty { align-self: center; margin: auto; text-align: center; color: var(--muted); font-size: 13px; max-width: 360px; line-height: 1.8; }
+  #empty b { color: var(--accent); font-weight: 600; }
+
+  /* composer = 无边框：顶部一条分隔，附件钮左、送钮右 */
+  #composer { padding: 8px 22px 12px; border-top: 1px solid var(--border); display: flex; gap: 10px; align-items: flex-end; }
+  #attachBtn { color: var(--muted); border-color: transparent; padding: 8px 10px; font-size: 13px; }
+  #composer textarea { flex: 1; resize: none; height: 44px; background: transparent; color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: 14px; font-family: inherit; }
+  #composer textarea:focus { outline: none; border-color: var(--border-strong); }
+  #composer textarea:disabled { color: var(--muted); cursor: not-allowed; }
+  #sendBtn { border-color: var(--accent); color: var(--accent); padding: 8px 20px; font-size: 14px; border-radius: 6px; }
+  #sendBtn:hover { background: var(--accent-dim); }
+  #sendBtn:disabled { border-color: var(--border); color: var(--muted); cursor: not-allowed; background: none; }
+
+  /* —— 流式 live 层 —— */
+  #liveHost { display: flex; flex-direction: column; gap: 10px; }
+  details.reason { align-self: flex-start; max-width: 86%; border: 1px dashed var(--border); border-radius: 4px; color: var(--muted); font-size: 12px; font-style: italic; padding: 4px 10px; }
+  details.reason summary { cursor: pointer; outline: none; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 560px; }
   details.reason.running summary::after { content: " ▍"; animation: blink 1s step-end infinite; }
   details.reason .rbody { margin-top: 6px; white-space: pre-wrap; word-break: break-word; }
   .chip { align-self: flex-start; font-size: 11px; font-family: ui-monospace, monospace; color: var(--muted); border: 1px solid var(--border); border-radius: 10px; padding: 1px 10px; }
@@ -134,58 +159,87 @@
   .chip.success { color: var(--accent); }
   .chip.error { color: var(--alert); border-color: var(--alert); }
 
-  /* —— 上下文占用进度条（铺对话栏底沿，纯提示） —— */
+  /* —— 上下文占用进度条（铺底提示，三色带） —— */
   #ctxBar { height: 3px; background: #08090b; border-top: 1px solid var(--border); flex: 0 0 auto; }
   #ctxFill { height: 100%; width: 0; background: var(--accent); transition: width .35s ease; }
-  #ctxFill.warn { background: #e8c34a; } #ctxFill.danger { background: var(--alert); }
+  #ctxFill.warn { background: var(--warn); } #ctxFill.danger { background: var(--alert); }
 
-  /* —— 监督抽屉（watch 任意 agent 的 live 流） —— */
-  #drawer { position: fixed; right: 16px; top: 56px; bottom: 16px; width: 360px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; display: flex; flex-direction: column; z-index: 9; padding: 10px 12px; gap: 8px; overflow: hidden; box-shadow: 0 0 24px rgba(0,0,0,.6); }
+  /* —— 悬浮详情卡 / 二级操作菜单 / 监督抽屉 —— */
+  #hoverCard { position: fixed; z-index: 12; width: 260px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; padding: 8px 10px; font-size: 11px; pointer-events: none; box-shadow: 0 4px 18px rgba(0,0,0,.65); }
+  #hoverCard[hidden] { display: none; }
+  #hoverCard .t { font-family: ui-monospace, monospace; font-weight: 600; margin-bottom: 4px; }
+  #hoverCard .r { display: grid; grid-template-columns: auto 1fr; gap: 0 8px; color: var(--muted); }
+  #hoverCard .r b { color: var(--text); font-weight: normal; text-align: right; font-family: ui-monospace, monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #popover { position: fixed; z-index: 13; min-width: 132px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; padding: 4px; display: flex; flex-direction: column; box-shadow: 0 6px 20px rgba(0,0,0,.7); }
+  #popover[hidden] { display: none; }
+  #popover button { border: none; text-align: left; padding: 5px 10px; border-radius: 4px; font-size: 12px; }
+  #popover button:hover { background: #0d1115; }
+  #popover button.danger:hover { color: var(--alert); background: var(--alert-dim); }
+  #drawer { position: fixed; right: 16px; top: 56px; bottom: 16px; width: 380px; background: var(--surface); border: 1px solid var(--border-strong); border-radius: 6px; display: flex; flex-direction: column; z-index: 9; padding: 10px 12px; gap: 8px; overflow: hidden; box-shadow: 0 0 24px rgba(0,0,0,.6); }
   #drawer[hidden] { display: none; }
   #drawerHead { display: flex; align-items: center; gap: 8px; font-size: 12px; font-family: ui-monospace, monospace; color: var(--accent); }
   #drawerHead .sp { flex: 1; }
-  #drawerBody { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+  #drawerBody { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; }
   #drawerBody .msg, #drawerBody details.reason { max-width: 100%; }
-  .watchbtn { visibility: hidden; flex: 0 0 auto; color: var(--muted); font-size: 11px; border: 1px solid var(--border); border-radius: 3px; padding: 0 5px; cursor: pointer; }
-  .tnode:hover .watchbtn, .watchbtn.on { visibility: visible; }
-  .watchbtn.on { color: var(--accent); border-color: var(--accent); }
-  .watchbtn:hover { color: var(--accent); }
+
+  /* —— 审 面板（ask 弹窗）—— */
+  #permission { position: fixed; right: 20px; top: 20px; width: 340px; background: var(--surface); border: 1px solid var(--alert); border-radius: 6px; padding: 14px; display: none; z-index: 14; }
+  #permission .title { font-weight: 600; margin-bottom: 6px; color: var(--alert); }
+  #permission .body { color: var(--muted); font-size: 13px; margin-bottom: 12px; }
+  #permission .row { display: flex; gap: 8px; }
+  #permission .once { border-color: var(--accent); color: var(--accent); }
+  #permission .reject { border-color: var(--alert); color: var(--alert); }
+
+  #conn { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); display: inline-block; }
+  #conn.on { background: var(--accent); box-shadow: 0 0 6px var(--accent-dim); }
 </style>
 </head>
 <body>
 <aside>
-  <h1>STEM <small>· 族谱</small></h1>
+  <h1>STEM <small>· 族谱</small><span class="ico" id="sideToggle" data-state="ready" title="收起侧栏（再点展开）">隐</span></h1>
   <div id="tree"></div>
   <div id="createBox">
-    <h3>实例化后代（user0 = 根）</h3>
+    <h3>实例化后代（user#0 = 根）</h3>
     <select id="createClass"></select>
     <select id="createModel" title="出生显式模型（模型三环·环一）；缺省 = 类基因>父继承>家学"></select>
     <input id="createPrompt" placeholder="首条 user prompt…" />
     <button id="createBtn">生 · 实例化</button>
+  </div>
+  <div id="infoBox" hidden>
+    <div id="infoHead"><span id="infoName">—</span><span class="sp"></span><span id="infoStatus"></span></div>
+    <div id="infoRows"></div>
+    <div id="cfgTabs">
+      <button data-tab="instance" class="on">实例配置</button>
+      <button data-tab="class">类配置</button>
+    </div>
+    <div id="cfgInstance" class="cfgPane">
+      <div id="modelRow"><span>模型</span><select id="modelSel" title="切换运行时模型（下一轮生效，不级联子女）"></select><span class="origin" id="modelOrigin"></span></div>
+      <div class="cfgRow"><input id="renameInput" placeholder="新称呼（全局唯一）" /><button id="renameBtn">改名</button></div>
+      <div class="cfgRow"><button data-state="off" title="工具收敛清单编辑（后续强化）">工 · 工具收敛（待强化）</button></div>
+    </div>
+    <div id="cfgClass" class="cfgPane" hidden>
+      <pre id="classDef"></pre>
+      <div class="hint">类定义编辑走模型侧进化面（agent_class_update，落盘 .stem/agent/，只影响后续实例）</div>
+    </div>
   </div>
 </aside>
 <main>
   <div id="header">
     <span class="name" id="curName">族谱</span>
     <span class="meta" id="curMeta">—</span>
-    <span id="modelRow" hidden>
-      <select id="modelSel" title="切换运行时模型（下一轮生效，不级联子女）"></select>
-      <span class="origin" id="modelOrigin"></span>
-    </span>
-    <span class="actions">
-      <span class="ico" id="compactBtn" data-state="off" title="执行 classic compact（手动压缩上下文）">缩</span>
-      <span class="ico" id="stopBtn" data-state="off" title="中断当前轮（可恢复）">停</span>
-      <span class="ico danger" id="killBtn" data-state="off" title="销毁实例（级联子树）">毁</span>
-      <span id="conn" title="事件流连接"></span>
-    </span>
+    <span class="actions"><span id="conn" title="事件流连接"></span></span>
   </div>
   <div id="timeline"></div>
+  <div id="turnStats" hidden></div>
   <div id="composer">
+    <button id="attachBtn" data-state="off" title="附件（即将上线）">附</button>
     <textarea id="input" placeholder="选择一位后代开始对话…" disabled></textarea>
     <button id="sendBtn" disabled>送</button>
   </div>
   <div id="ctxBar" title="上下文窗口占用"><div id="ctxFill"></div></div>
 </main>
+<div id="hoverCard" hidden></div>
+<div id="popover" hidden></div>
 <div id="drawer" hidden>
   <div id="drawerHead"><span id="drawerTitle">督</span><span class="sp"></span><span class="ico" id="drawerClose" title="关闭监督抽屉">閉</span></div>
   <div id="drawerBody"></div>
@@ -200,12 +254,13 @@
   </div>
 </div>
 <script type="module">
-import { ACT_GLYPH, ROOT_ID, applyStreamEvent, clearBucket, computeTreeRows, contextRatio, createLiveBuckets, deriveActions, mdToHtml, ratioTone, reasoningView, routeLetters, statusGlyph, statusTone, truncate } from '/view.js'
+import { ACT_GLYPH, ROOT_ID, applyStreamEvent, clearBucket, computeTreeRows, contextRatio, createLiveBuckets, deriveActions, infoRows, mdToHtml, menuItems, ratioTone, reasoningView, relativeTime, routeLetters, statusGlyph, statusTone, truncate, turnStats } from '/view.js'
 
 const $ = (id) => document.getElementById(id)
 const timeline = $('timeline')
 let currentAgentId = ''
 let agentsCache = []
+let templatesCache = []
 let pendingAccess = null
 // —— 流式 live 层状态（delta live-only：轮末 letter→loadContext 快照收口后清桶） ——
 const liveBuckets = createLiveBuckets()
@@ -214,9 +269,8 @@ let liveHost = null
 let ctxWindow = 128000
 let paintQueued = false
 
-// ---------- SVG 泳道族谱（行 = id · 最近 user_prompt · 状态字） ----------
+// ---------- 族谱侧栏（SVG 泳道 + 悬浮详情 + 二级操作菜单） ----------
 
-/** 单行泳道 SVG：背景竖线（passThrough 祖先泳道）+ 本行 join（父泳道 → 本泳道，圆点收尾）。 */
 function lanesSvg(row) {
   const L = 14, half = 12
   const parts = []
@@ -256,26 +310,91 @@ async function loadAgents() {
     el.className = 'tnode' + (a.id === currentAgentId ? ' active' : '') + (row.isRoot ? ' rootnode' : '')
     const tone = statusTone(a.status)
     const glyph = row.isRoot ? ACT_GLYPH.me : statusGlyph(a.status)
-    const label = row.isRoot ? `${a.id} · 根` : a.id
-    const lp = a.lastPrompt ? truncate(a.lastPrompt, 30) : `&lt;${a.classRef ?? ''}&gt;`
-    el.innerHTML = lanesSvg(row) + `<span class="id">${esc(label)}</span><span class="lp">${esc(decodeEntities(lp))}</span><span class="st tone-${tone}">${glyph}</span>` +
-      (row.isRoot ? '' : `<span class="watchbtn" data-id="${esc(a.id)}" title="监督此 agent（思维链/工具/状态实时流）">督</span>`)
+    const lp = a.lastPrompt ? truncate(a.lastPrompt, 24) : `<${a.classRef ?? ''}>`
+    el.innerHTML = lanesSvg(row) + `<span class="id">${esc(String(a.name ?? a.id))}</span><span class="lp">${esc(decodeEntities(lp))}</span><span class="st tone-${tone}">${glyph}</span>` +
+      (row.isRoot ? '' : `<span class="mbtn" title="操作菜单">選</span>`)
     el.onclick = () => selectAgent(a.id)
-    if (!row.isRoot) {
-      el.querySelector('.watchbtn').addEventListener('click', (e) => {
-        e.stopPropagation()
-        if (watchAgentId === a.id) closeDrawer()
-        else openDrawer(a.id)
-      })
-    }
+    el.oncontextmenu = (e) => { e.preventDefault(); openMenu(a, e.clientX, e.clientY) }
+    const mb = el.querySelector('.mbtn')
+    if (mb !== null) mb.addEventListener('click', (e) => { e.stopPropagation(); const r = mb.getBoundingClientRect(); openMenu(a, r.left - 120, r.bottom + 2) })
+    bindHover(el, a.id)
     tree.appendChild(el)
   }
-  refreshWatchBtns()
+  const cur = agents.find((x) => x.id === currentAgentId)
+  renderInfoPanel(cur)
 }
 
 const decodeEntities = (s) => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>')
 
-// ---------- 第一视角时间线（routeLetters 归位，user0 非对话窗口） ----------
+// —— 悬浮详情卡（数据 = infoRows，与信息面板同源） ——
+let hoverTimer = 0
+let hideTimer = 0
+function bindHover(el, id) {
+  el.addEventListener('mouseenter', () => {
+    clearTimeout(hideTimer)
+    hoverTimer = setTimeout(() => {
+      const a = agentsCache.find((x) => x.id === id)
+      if (a === undefined) return
+      const r = el.getBoundingClientRect()
+      const card = $('hoverCard')
+      card.innerHTML = `<div class="t">${esc(String(a.name ?? a.id))}#${esc(a.id)}</div><div class="r">` +
+        infoRows(a).map((row) => `<span>${esc(row.k)}</span><b>${esc(row.v)}</b>`).join('') +
+        `</div><div class="r" style="margin-top:3px"><span>最近对话</span><b>${esc(a.lastPrompt ? truncate(a.lastPrompt, 28) : '—')}</b></div>`
+      card.hidden = false
+      const w = 260
+      card.style.left = Math.min(r.right + 6, innerWidth - w - 8) + 'px'
+      card.style.top = Math.min(r.top, innerHeight - card.offsetHeight - 8) + 'px'
+    }, 400)
+  })
+  el.addEventListener('mouseleave', () => {
+    clearTimeout(hoverTimer)
+    hideTimer = setTimeout(() => { $('hoverCard').hidden = true }, 150)
+  })
+  el.addEventListener('mousedown', () => clearTimeout(hoverTimer))
+}
+
+// —— 二级操作菜单（缩/停/毁/改名/配置全收进此单；树行右击或「選」钮） ——
+function openMenu(agent, x, y) {
+  const m = $('popover')
+  m.innerHTML = ''
+  for (const it of menuItems(agent)) {
+    const b = document.createElement('button')
+    b.textContent = it.label
+    b.dataset.state = it.state
+    if (it.danger === true) b.className = 'danger'
+    if (it.state !== 'off') b.onclick = () => { closeMenu(); void runMenuAction(it.key, agent) }
+    m.appendChild(b)
+  }
+  m.hidden = false
+  m.style.left = Math.min(x, innerWidth - m.offsetWidth - 8) + 'px'
+  m.style.top = Math.min(y, innerHeight - m.offsetHeight - 8) + 'px'
+}
+function closeMenu() { $('popover').hidden = true }
+document.addEventListener('click', (e) => { const m = $('popover'); if (!m.hidden && !m.contains(e.target)) closeMenu() })
+
+async function runMenuAction(key, agent) {
+  switch (key) {
+    case 'open': await selectAgent(agent.id); break
+    case 'watch': (watchAgentId === agent.id ? closeDrawer : openDrawer)(agent.id); break
+    case 'interrupt': await fetch('/api/interrupt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: agent.id }) }); break
+    case 'compact':
+      await fetch('/api/context_action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: agent.id, action: 'compact' }) })
+      if (agent.id === currentAgentId) await loadContext(agent.id)
+      break
+    case 'rename': {
+      const name = prompt(`为 ${agent.id} 取新称呼（全局唯一）：`, agent.name ?? '')
+      if (name === null || name.trim() === '') break
+      const r = await fetch('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: agent.id, name: name.trim() }) }).then((x) => x.json())
+      if (r.error !== undefined) alert(String(r.error))
+      break
+    }
+    case 'instanceCfg': await selectAgent(agent.id); switchCfgTab('instance'); break
+    case 'classCfg': await selectAgent(agent.id); switchCfgTab('class'); break
+    case 'terminate': await terminateAgent(agent); break
+  }
+}
+
+// ---------- 第一视角时间线（routeLetters 归位，user#0 非对话窗口） ----------
 
 function renderTimeline(items) {
   timeline.innerHTML = ''
@@ -294,7 +413,7 @@ function emptyHint() {
   const el = document.createElement('div')
   el.id = 'empty'
   if (agentsCache.filter((a) => a.parentId !== null).length === 0) {
-    el.innerHTML = '族谱仅根 <b>user0</b>。<br/>于左下「<b>生</b>」实例化第一位后代，它将成为你的子节点、开启协作。'
+    el.innerHTML = '族谱仅根 <b>user#0</b>。<br/>于左下「<b>生</b>」实例化第一位后代，它将成为你的子节点、开启协作。'
   } else {
     el.innerHTML = '从左侧<b>族谱树</b>选择一位后代开始对话。'
   }
@@ -306,12 +425,16 @@ function msgEl(cls, text, who) {
   el.className = 'msg ' + cls
   if (who) el.innerHTML = `<div class="who">${esc(who)}</div>`
   if (cls === 'tool' || cls === 'meta') {
-    el.appendChild(document.createTextNode(text)) // 非 markdown 通道（mono/中缝条）保原样
+    el.appendChild(document.createTextNode(text)) // 非 markdown 通道保原样
   } else {
     const d = document.createElement('div')
     d.className = 'md'
     d.innerHTML = mdToHtml(text)
     el.appendChild(d)
+    const cp = document.createElement('button') // 项 7：消息复制
+    cp.className = 'copyBtn'; cp.textContent = '複'; cp.title = '复制原文'
+    cp.onclick = () => { void navigator.clipboard?.writeText(text); cp.textContent = '複' }
+    el.appendChild(cp)
   }
   return el
 }
@@ -321,6 +444,12 @@ async function loadContext(id) {
   ctxWindow = Number(data.contextWindow) > 0 ? Number(data.contextWindow) : 128000
   renderTimeline(routeLetters(data.messages || [], id))
   paintCtxBar(contextRatio(data.messages, ctxWindow))
+  const st = turnStats(data.messages)
+  const ts = $('turnStats')
+  ts.hidden = st.turns === 0
+  ts.textContent = st.turns > 0
+    ? `全 ${String(st.turns)} 轮 · ${st.tokens.toLocaleString()} tokens · 上下文 ${Math.round(contextRatio(data.messages, ctxWindow) * 100)}%${st.durationS > 0 ? ` · 最近一轮耗时 ${st.durationS.toFixed(1)}s` : ''}`
+    : ''
   schedulePaint()
 }
 
@@ -333,6 +462,43 @@ function paintCtxBar(ratio) {
   $('ctxBar').title = `上下文占用 ${(ratio * 100).toFixed(1)}% / ${ctxWindow.toLocaleString()} tokens`
 }
 
+// ---------- 信息面板（左栏底：基础信息 + 实例/类配置二级页签） ----------
+
+function renderInfoPanel(agent) {
+  const box = $('infoBox')
+  if (agent === undefined || agent === null) { box.hidden = true; return }
+  box.hidden = false
+  $('infoName').textContent = `${String(agent.name ?? agent.id)}#${agent.id}`
+  const tone = statusTone(agent.status)
+  const is = $('infoStatus')
+  is.textContent = `${statusGlyph(agent.status)} ${String(agent.status ?? '')}`
+  is.className = 'tone-' + tone
+  $('infoRows').innerHTML = infoRows(agent).map((r) => `<span class="k">${esc(r.k)}</span><span class="v" title="${esc(r.v)}">${esc(r.v)}</span>`).join('')
+  $('renameInput').placeholder = `当前「${String(agent.name ?? agent.id)}」→ 新称呼`
+  renderModelRow(agent)
+  renderClassDef(agent)
+}
+
+function renderClassDef(agent) {
+  const t = templatesCache.find((x) => x.name === agent.classRef)
+  const el = $('classDef')
+  if (t === undefined) { el.textContent = `（类 ${String(agent.classRef ?? '—')} 定义不在本次装载清单）`; return }
+  const tools = t.tools === undefined ? '（完整继承父档案）' : Object.entries(t.tools).map(([k, v]) => `${k}=${v}`).join(' ') || '（空表 = 本地封闭）'
+  el.textContent =
+`类 ${t.name}
+描述：${t.description ?? '—'}
+策略：${t.contextStrategy ?? '继承'}
+工具：${tools}
+提示词：${(t.systemPrompt ?? '—').slice(0, 240)}${(t.systemPrompt ?? '').length > 240 ? '…' : ''}`
+}
+
+function switchCfgTab(tab) {
+  for (const b of $('cfgTabs').querySelectorAll('button')) b.classList.toggle('on', b.dataset.tab === tab)
+  $('cfgInstance').hidden = tab !== 'instance'
+  $('cfgClass').hidden = tab !== 'class'
+}
+for (const b of $('cfgTabs').querySelectorAll('button')) b.onclick = () => switchCfgTab(b.dataset.tab)
+
 // ---------- 流式 live 层渲染（rAF 合帧节流；主列尾与抽屉共用 builder） ----------
 
 function liveDom(bucket, id) {
@@ -341,7 +507,6 @@ function liveDom(bucket, id) {
   if (rv !== null) {
     const d = document.createElement('details')
     d.className = 'reason' + (rv.running ? ' running' : '')
-    if (!rv.running) d.open = false
     const s = document.createElement('summary')
     s.textContent = '思 · ' + rv.summary
     d.appendChild(s)
@@ -407,26 +572,40 @@ function schedulePaint() {
   requestAnimationFrame(() => { paintQueued = false; renderLive() })
 }
 
-// ---------- 监督抽屉（族谱行「督」钮 → 任意 agent live 流） ----------
+// ---------- 监督抽屉（订阅任意 agent live 流） ----------
 
 function openDrawer(id) {
   watchAgentId = id
   $('drawer').hidden = false
   $('drawerTitle').textContent = '督 · ' + bucketLabel(id)
   schedulePaint()
-  refreshWatchBtns()
 }
 function closeDrawer() {
   if (watchAgentId !== '') clearBucket(liveBuckets, watchAgentId)
   watchAgentId = ''
   $('drawer').hidden = true
   $('drawerBody').innerHTML = ''
-  refreshWatchBtns()
-}
-function refreshWatchBtns() {
-  for (const el of document.querySelectorAll('.watchbtn')) el.classList.toggle('on', el.dataset.id === watchAgentId)
 }
 $('drawerClose').onclick = closeDrawer
+
+// ---------- 访问确认（ask 消息化 → 审面板） ----------
+
+function showPermission(content) {
+  const m = content.match(/<access_request id="([^"]+)" accessKey="([^"]+)" agentId="([^"]+)">/)
+  if (m === null) return
+  pendingAccess = { requestId: m[1], accessKey: m[2], agentId: m[3] }
+  $('permBody').textContent = `agent ${m[3]} 申请使用工具「${m[2]}」（授权者：族谱根 user#0 = 你）`
+  $('permission').style.display = 'block'
+}
+async function replyAccess(reply) {
+  if (pendingAccess === null) return
+  await fetch('/api/access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId: pendingAccess.requestId, reply }) })
+  pendingAccess = null
+  $('permission').style.display = 'none'
+}
+$('permOnce').onclick = () => replyAccess('once')
+$('permAlways').onclick = () => replyAccess('always')
+$('permReject').onclick = () => replyAccess('reject')
 
 // ---------- 事件流 ----------
 
@@ -459,26 +638,7 @@ function handleEvent(ev) {
   }
 }
 
-// ---------- 访问确认（ask 消息化 → 审面板） ----------
-
-function showPermission(content) {
-  const m = content.match(/<access_request id="([^"]+)" accessKey="([^"]+)" agentId="([^"]+)">/)
-  if (!m) return
-  pendingAccess = { requestId: m[1], accessKey: m[2], agentId: m[3] }
-  $('permBody').textContent = `agent ${m[3]} 申请使用工具「${m[2]}」（授权者：族谱根 user0 = 你）`
-  $('permission').style.display = 'block'
-}
-async function replyAccess(reply) {
-  if (!pendingAccess) return
-  await fetch('/api/access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId: pendingAccess.requestId, reply }) })
-  pendingAccess = null
-  $('permission').style.display = 'none'
-}
-$('permOnce').onclick = () => replyAccess('once')
-$('permAlways').onclick = () => replyAccess('always')
-$('permReject').onclick = () => replyAccess('reject')
-
-// ---------- 头部（模型行 + origin 徽标 + 三态动作） ----------
+// ---------- 模型与动作 ----------
 
 const ORIGIN_LABEL = { explicit: '显式', class: '类基因', inherited: '父继承', home: '家学' }
 let modelRefs = []
@@ -486,13 +646,10 @@ let modelRefs = []
 async function loadModels() {
   const data = await fetch('/api/models').then((r) => r.json())
   modelRefs = data.refs ?? []
-  // 实例化面板的出生模型选择（环一入口）：候选 = 注册表白名单；空值 = 继承链
   const cm = $('createModel')
-  if (cm) {
-    cm.innerHTML = ''
-    cm.add(new Option('模型：继承链（类基因>父继承>家学）', ''))
-    for (const ref of modelRefs) cm.add(new Option('出生显式 · ' + ref, ref))
-  }
+  cm.innerHTML = ''
+  cm.add(new Option('模型：继承链（类基因>父继承>家学）', ''))
+  for (const ref of modelRefs) cm.add(new Option('出生显式 · ' + ref, ref))
 }
 
 function renderModelRow(agent) {
@@ -502,12 +659,7 @@ function renderModelRow(agent) {
   $('modelRow').hidden = false
   const cur = agent.model
   const refs = modelRefs.includes(cur) ? modelRefs : [cur, ...modelRefs]
-  for (const ref of refs) {
-    const opt = document.createElement('option')
-    opt.value = ref
-    opt.textContent = ref
-    sel.appendChild(opt)
-  }
+  for (const ref of refs) sel.appendChild(new Option(ref, ref))
   sel.value = cur
   $('modelOrigin').textContent = ORIGIN_LABEL[agent.modelOrigin] ?? agent.modelOrigin ?? ''
 }
@@ -515,45 +667,71 @@ function renderModelRow(agent) {
 $('modelSel').onchange = async () => {
   if (!currentAgentId) return
   const ref = $('modelSel').value
-  const slash = ref.indexOf('/')
-  if (slash <= 0) return
-  await fetch('/api/set_model', { method: 'POST', headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ agentId: currentAgentId, model: ref }) })
+  await fetch('/api/set_model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId, model: ref }) })
   await loadAgents()
-  const a = agentsCache.find((x) => x.id === currentAgentId)
-  renderModelRow(a)
+}
+
+$('renameBtn').onclick = async () => {
+  const name = $('renameInput').value.trim()
+  if (name === '' || !currentAgentId) return
+  const r = await fetch('/api/update', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId, name }) }).then((x) => x.json())
+  if (r.error !== undefined) { alert(String(r.error)); return }
+  $('renameInput').value = ''
 }
 
 function applyActions(agent) {
   const s = deriveActions(agent)
-  $('stopBtn').dataset.state = s.interrupt === 'off' ? 'off' : 'ready'
-  $('compactBtn').dataset.state = s.compact === 'off' ? 'off' : 'ready'
-  $('killBtn').dataset.state = s.terminate === 'off' ? 'off' : 'ready'
   const canSend = s.send !== 'off'
   $('sendBtn').disabled = !canSend
   $('input').disabled = !canSend
-  $('input').placeholder = canSend ? `向 ${agent?.id ?? ''} 发消息（Enter 发送，Shift+Enter 换行）` : '选择一位后代开始对话…'
+  $('input').placeholder = canSend ? `向 ${agent?.name ?? agent?.id ?? ''} 发消息（Enter 发送，Shift+Enter 换行）` : '选择一位后代开始对话…'
 }
 
-// ---------- 动作 ----------
+async function terminateAgent(agent) {
+  const id = agent.id
+  if (!confirm(`销毁 ${id}？（级联销毁其子树；消息语料保留于仓库）`)) return
+  await fetch('/api/terminate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: id, recursive: true }) })
+  if (id === currentAgentId) {
+    currentAgentId = ''
+    $('curName').textContent = '族谱'; $('curMeta').textContent = '—'; $('turnStats').hidden = true
+    applyActions(null); renderInfoPanel(null)
+    timeline.innerHTML = ''; timeline.appendChild(emptyHint())
+  }
+  if (id === watchAgentId) closeDrawer()
+  await loadAgents()
+}
+
+// ---------- 侧栏收起 / 展开 ----------
+
+$('sideToggle').onclick = () => {
+  const mini = document.body.classList.toggle('side-mini')
+  $('sideToggle').textContent = mini ? '展' : '隐'
+  $('sideToggle').title = mini ? '展开侧栏' : '收起侧栏（简化族谱）'
+}
+
+// ---------- 会话动作 ----------
 
 async function selectAgent(id) {
   currentAgentId = id
   const agents = await fetch('/api/agents').then((r) => r.json())
   agentsCache = agents
   const a = agents.find((x) => x.id === id)
-  $('curName').textContent = a ? a.name : id
-  $('curMeta').textContent = a ? `${a.id} · <${a.classRef}> · ${statusGlyph(a.status)} ${a.status}${a.parentId ? ' · 父 ' + a.parentId : ' · 根'}` : '—'
-  renderModelRow(a)
+  $('curName').textContent = a ? String(a.name ?? a.id) : id
+  $('curMeta').textContent = a ? `${a.id} · <${a.classRef ?? ''}>${a.parentId ? ' · 父 ' + a.parentId : ' · 根'}` : '—'
   applyActions(a)
+  renderInfoPanel(a)
   await loadAgents()
-  if (a && a.parentId === null) renderTimeline(routeLetters(await fetch('/api/agents/' + encodeURIComponent(id) + '/context').then((r) => r.json()).then((d) => d.messages || []), id))
-  else await loadContext(id)
+  if (a && a.parentId === null) {
+    const data = await fetch('/api/agents/' + encodeURIComponent(id) + '/context').then((r) => r.json())
+    renderTimeline(routeLetters(data.messages || [], id))
+  } else {
+    await loadContext(id)
+  }
 }
 
 async function send() {
   const text = $('input').value.trim()
-  if (!text || !currentAgentId) return
+  if (text === '' || !currentAgentId) return
   $('input').value = ''
   await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: currentAgentId, text }) })
 }
@@ -566,40 +744,23 @@ async function createAgent() {
   if (model) body.model = model
   const r = await fetch('/api/instantiate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   const data = await r.json()
-  if (data.agentId) { $('createPrompt').value = ''; selectAgent(data.agentId) }
+  if (data.agentId) { $('createPrompt').value = ''; void selectAgent(data.agentId) }
 }
 
 async function loadTemplates() {
   const templates = await fetch('/api/templates').then((r) => r.json())
+  templatesCache = templates
   const sel = $('createClass')
   sel.innerHTML = ''
   for (const t of templates) {
     if (t.panel) continue // 面板类（user/策略 role）不可实例化对话
-    const opt = document.createElement('option')
-    opt.value = t.name
-    opt.textContent = t.name
-    sel.appendChild(opt)
+    sel.appendChild(new Option(t.name, t.name))
   }
 }
 
 $('sendBtn').onclick = send
 $('input').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() } })
 $('createBtn').onclick = createAgent
-$('stopBtn').onclick = async () => { if ($('stopBtn').dataset.state === 'off' || !currentAgentId) return; await fetch('/api/interrupt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId }) }) }
-$('compactBtn').onclick = async () => {
-  if ($('compactBtn').dataset.state === 'off' || !currentAgentId) return
-  await fetch('/api/context_action', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId, action: 'compact' }) })
-  await loadContext(currentAgentId)
-}
-$('killBtn').onclick = async () => {
-  if ($('killBtn').dataset.state === 'off' || !currentAgentId) return
-  if (!confirm(`销毁 ${currentAgentId}？（级联销毁其子树；消息语料保留于仓库）`)) return
-  await fetch('/api/terminate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId, recursive: true }) })
-  currentAgentId = ''
-  $('curName').textContent = '族谱'; $('curMeta').textContent = '—'; $('modelRow').hidden = true; applyActions(null)
-  await loadAgents()
-  timeline.innerHTML = ''; timeline.appendChild(emptyHint())
-}
 
 function esc(s) { return String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])) }
 

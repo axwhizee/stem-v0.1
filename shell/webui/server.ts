@@ -107,6 +107,13 @@ async function main(): Promise<void> {
           await system.pilot.setModel(String(body.agentId ?? '0'), model)
           return sendJson(res, { ok: true })
         }
+        if (path === '/api/update') {
+          // 实例参数写口（批 3 改名等；by 缺省 = 宿主信任通道，同 pilot 语义）。
+          const agentId = String(body.agentId)
+          const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim() : undefined
+          await system.kernel.updateAgent({ agentId, ...(name !== undefined ? { name } : {}) })
+          return sendJson(res, { ok: true })
+        }
         if (path === '/api/access') {
           await system.pilot.replyAccess({
             requestId: String(body.requestId),
@@ -167,9 +174,18 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
   return agents.map((a) => {
     const binding = system.kernel.lineage.modelOf(a.id as string)
     // S6 批 2：侧栏行摘要 = 最近一条 user 信剥 <sender>（view.js truncate 渲染）。
-    const lastUser = [...system.kernel.repository.list(a.id)].reverse().find((m) => m.message.role === 'user')
+    const rows = [...system.kernel.repository.list(a.id)]
+    const lastUser = rows.reverse().find((m) => m.message.role === 'user')
     const rawContent = typeof lastUser?.message.content === 'string' ? lastUser.message.content : ''
     const sender = /^<sender id="([^"]+)"(?: at="[^"]*")?>/.exec(rawContent)?.[1] ?? ''
+    // 批 3 观察面扩充：hover 详情卡 / 左栏信息面板数据（策略、上下文占用、最近活跃）。
+    const facts = system.kernel.contextManager.boxFacts(a.id)
+    let ctxTokens = 0
+    let lastActive = 0
+    for (const m of rows) {
+      if (m.valid) ctxTokens += m.tokens
+      if (m.at > lastActive) lastActive = m.at
+    }
     return {
       id: a.id,
       name: a.name,
@@ -177,6 +193,10 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
       parentId: a.parentId,
       status: a.status,
       turnCount: a.turnCount,
+      totalCost: a.totalCost,
+      ...(facts !== undefined ? { strategy: facts.strategy, sendCountdownMs: facts.sendCountdownMs } : {}),
+      ctxTokens,
+      ...(lastActive > 0 ? { lastActive } : {}),
       // S6：生效模型 + 解析命中层（header 模型行/origin 徽标数据源）。
       ...(binding !== undefined ? { model: `${binding.ref.provider}/${binding.ref.id}`, modelOrigin: binding.origin } : {}),
       ...(rawContent !== '' ? { lastPrompt: rawContent.replace(/^<sender id="[^"]+">/, '').replace(/<\/sender>$/, ''), lastPromptFrom: sender } : {}),
@@ -210,6 +230,7 @@ async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId
       // 工具轨迹透传（审计证据面：assistant 行发起过哪些调用必须可见）。
       ...(((m.message as { toolCalls?: unknown }).toolCalls) !== undefined ? { toolCalls: (m.message as { toolCalls?: unknown }).toolCalls } : {}),
       tokens: m.tokens,
+      at: m.at,
       turn: m.turn,
       indexInTurn: m.indexInTurn,
       valid: m.valid,

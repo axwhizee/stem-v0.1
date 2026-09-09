@@ -128,3 +128,32 @@ export declare function contextRatio(messages: Array<{ tokens?: number; valid?: 
 export declare function ratioTone(ratio: number): 'ok' | 'warn' | 'danger'
 
 export declare function mdToHtml(raw: unknown): string
+
+// ---------- 批 3：族谱排序 / 二级菜单 / 信息卡 / 统计 ----------
+
+export declare function idOrder(a: string, b: string): number
+
+export interface MenuItem {
+  key: string
+  label: string
+  state: ActionState
+  danger?: boolean
+}
+export declare function menuItems(agent: AgentRow | null | undefined): MenuItem[]
+
+export interface InfoRow {
+  k: string
+  v: string
+}
+export declare function infoRows(agent: AgentRow | null | undefined, now?: number): InfoRow[]
+
+export declare function relativeTime(ts: number, now?: number): string
+
+export interface TurnStats {
+  tokens: number
+  turns: number
+  durationS: number
+  firstAt: number
+  lastAt: number
+}
+export declare function turnStats(messages: Array<{ valid?: boolean; tokens?: number; turn?: number; at?: number; role?: string }> | undefined): TurnStats
