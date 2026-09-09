@@ -28,7 +28,7 @@
 ┌───────────────────────────────────────────────────────────────────────┐
 │ Layer 3  shell/（交互层，最外）—— 平台适配 + UI                       │
 │   cli/（bootStem + TOOL_SETS + bash runner + storage + CLI）          │
-│   webui/（HTTP + SSE，OLED 主题，/api/health）                        │
+│   webui/（HTTP + SSE，OLED 无边框主题；流式思维链+监督抽屉；/api/health） │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                     │
 │   init/（createStemSystem 组合根）· kernel/（Kernel/Runtime/builtin/agents │
@@ -157,7 +157,7 @@ npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑
 npm run shell               # CLI shell：**cwd 即空间**（opencode-style；无 key 也可起，用到才硬错）
 npm run shell -- test/space-demo   # 指定目录（仓库演示空间）
 ALIBABA_API_KEY=<key> npm run shell   # 真实网关（密钥只走 env：config providers.<p>.key_env 声明变量名）
-npm run web                 # WebUIShell（OLED 主题，127.0.0.1:4321；同样支持 `npm run web -- <目录>`）
+npm run web                 # WebUIShell（OLED 无边框主题：流式思维链/工具监督抽屉/占用条；127.0.0.1:4321；`npm run web -- <目录>`）
 npm run feishu -- [目录]     # 飞书 shell：长连接远程助理（免公网；显式会话 /new /use +
                             #   上下线通知与断线补偿；配置样例见 shell/feishu/feishu.example.jsonc）
 npm run build               # 与 typecheck 相同（tsc --noEmit）
