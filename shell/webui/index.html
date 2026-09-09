@@ -12,14 +12,15 @@
   <div id="tree"></div>
   <div id="createBox">
     <h3>实例化后代（user#0 = 根）</h3>
-    <select id="createClass"></select>
-    <select id="createModel" title="出生显式模型（模型三环·环一）；缺省 = 类基因>父继承>家学"></select>
-    <input id="createPrompt" placeholder="首条 user prompt…" />
+    <div class="qrow"><label>类</label><select id="createClass" title="出生类（工具/策略基因随类）"></select></div>
+    <div class="qrow"><label>模型</label><select id="createModel" title="出生显式模型（模型三环·环一）；缺省 = 类基因>父继承>家学"></select></div>
+    <div class="qrow"><label>称呼</label><input id="createName" placeholder="缺省派生 类名-N（全局唯一）" /></div>
+    <div class="qrow"><label>提词</label><input id="createPrompt" placeholder="首条 user prompt…" /></div>
     <button id="createBtn">生 · 实例化</button>
   </div>
   <div id="quickBox" hidden>
     <h3>快捷设置 · <span id="quickName">—</span></h3>
-    <div class="qrow"><label>模型</label><select id="modelSel" title="切换运行时模型（下一轮生效，不级联子女）"></select><span id="modelOrigin"></span></div>
+    <div class="qrow"><label>模型</label><select id="modelSel" title="切换运行时模型（下一轮生效，不级联子女）"></select><span id="modelOrigin" class="origin"></span></div>
     <div class="qrow"><label>思考程度</label><select id="effortSel" disabled title="模型侧推理预算控制（即将上线）"><option>即将上线</option></select></div>
   </div>
 </aside>
@@ -47,13 +48,19 @@
       <button data-tab="class">类配置</button>
     </div>
     <div id="stInstance" class="stPane">
+      <div class="row"><label>模型</label><select id="stModel" title="运行时换模型（下一轮生效，不级联子女）"></select><span id="stModelOrigin" class="origin"></span></div>
+      <div class="row"><label>思考程度</label><select disabled title="模型侧推理预算控制（即将上线）"><option>即将上线</option></select></div>
       <div class="row"><input id="renameInput" placeholder="新称呼（全局唯一）" /><button id="renameBtn">改名</button></div>
       <div class="row"><button data-state="off" title="工具收敛清单编辑（后续强化）">工 · 工具收敛（待强化）</button></div>
-      <div class="hint">模型环与出生设置见左栏快捷区/实例化面板；此书面向该实例的运行期参数。</div>
+      <div class="hint">此页签写**实例行**参数（运行期）；出生设置见左栏实例化面板。</div>
     </div>
     <div id="stClass" class="stPane" hidden>
-      <pre id="classDef"></pre>
-      <div class="hint">类定义编辑走模型侧进化面（agent_class_update，落盘 .stem/agent/，只影响后续实例）</div>
+      <div class="row"><label>类</label><select id="stClassSel"></select></div>
+      <div class="row"><input id="stClassDesc" placeholder="类描述（description）" /></div>
+      <textarea id="stClassPrompt" rows="8" placeholder="系统提示词（systemPrompt）…"></textarea>
+      <div class="row"><label>策略</label><select id="stClassStrategy"><option value="">继承</option><option value="classic">classic</option><option value="none">none</option><option value="cortex">cortex</option></select><span id="stClassTools" class="hint"></span></div>
+      <div class="row"><button id="classSaveBtn">存 · 更新类定义</button><span id="classHint" class="hint"></span></div>
+      <div class="hint">类更新走宿主进化面（同名合并落盘 .stem/agent/，**只影响后续实例**）；面板/user 类不可编辑。</div>
     </div>
   </div>
 </div>

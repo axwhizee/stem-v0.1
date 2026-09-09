@@ -46,7 +46,7 @@ export interface ContextSettings {
 }
 
 export const DEFAULT_CONTEXT_SETTINGS: ContextSettings = {
-  window: 128_000,
+  window: 1_000_000,
   compact: { enabled: true, threshold: 0.8, keepRecentTurns: 3, replyTimeoutMs: 60_000 },
 }
 

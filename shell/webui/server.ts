@@ -11,6 +11,8 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { bootStem } from '../cli/platform'
+import { makeAgentClassID } from '../../src/core/kernel'
+import type { AgentClass } from '../../src/core/kernel'
 import type { PilotEvent } from '../../src/core/events'
 import type { StemSystem } from '../../src/core/init'
 
@@ -91,6 +93,8 @@ async function main(): Promise<void> {
             if (model === undefined) return sendJson(res, { error: 'model 必须是 "提供商/模型" 格式' }, 400)
             opts.model = model
           }
+          // 出生称呼（缺省 = 确定性派生 类名-N；撞全局名被拒——pilot 执法）。
+          if (typeof body.name === 'string' && body.name.trim() !== '') opts.name = body.name.trim()
           const agentId = await system.pilot.instantiate(opts, PROJECT_ROOT)
           return sendJson(res, { ok: true, agentId })
         }
@@ -115,6 +119,20 @@ async function main(): Promise<void> {
           const name = typeof body.name === 'string' && body.name.trim() !== '' ? body.name.trim() : undefined
           await system.kernel.updateAgent({ agentId, ...(name !== undefined ? { name } : {}) })
           return sendJson(res, { ok: true })
+        }
+        if (path === '/api/class_update') {
+          // 类定义进化面（设置面板类页签）：同名合并 + 落盘（只影响后续实例）；
+          // panel/user 红线由 serialize 拒写、未知类由 templates.get 抛——统一 400。
+          const clsName = String(body.name)
+          const patch: Partial<AgentClass> = {
+            ...(typeof body.description === 'string' ? { description: body.description } : {}),
+            ...(typeof body.systemPrompt === 'string' ? { systemPrompt: body.systemPrompt } : {}),
+            ...(body.contextStrategy === 'classic' || body.contextStrategy === 'none' || body.contextStrategy === 'cortex'
+              ? { contextStrategy: String(body.contextStrategy) }
+              : {}),
+          }
+          const r = await system.kernel.updateAgentClass(makeAgentClassID(clsName), patch, { persist: true })
+          return sendJson(res, { ok: true, persisted: r.persisted })
         }
         if (path === '/api/access') {
           await system.pilot.replyAccess({
@@ -223,7 +241,7 @@ async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId
   return {
     agentId,
     // 模型窗口上限（context.window）——WebUI 底部占用进度条分母。
-    contextWindow: system.config.context?.window ?? 128000,
+    contextWindow: system.config.context?.window ?? 1000000,
     messages: state.messages.map((m) => ({
       id: m.id,
       role: m.message.role,
@@ -232,6 +250,8 @@ async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId
       ...(m.tag !== undefined ? { tag: m.tag } : {}),
       // 工具轨迹透传（审计证据面：assistant 行发起过哪些调用必须可见）。
       ...(((m.message as { toolCalls?: unknown }).toolCalls) !== undefined ? { toolCalls: (m.message as { toolCalls?: unknown }).toolCalls } : {}),
+      // 工具行归属戳（assistant.toolCalls.id → 本行 toolCallId 关联，前端据此还原工具名）。
+      ...(((m.message as { toolCallId?: string }).toolCallId) !== undefined ? { toolCallId: (m.message as { toolCallId?: string }).toolCallId } : {}),
       tokens: m.tokens,
       at: m.at,
       turn: m.turn,
@@ -244,7 +264,9 @@ async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId
 function sendStatic(res: ServerResponse, file: string, contentType: string): void {
   readFile(new URL('./' + file, import.meta.url))
     .then((buf) => {
-      res.writeHead(200, { 'Content-Type': contentType })
+      // no-cache：每次携带协商——升级后浏览器不会拿启发式缓存的新旧混拼 JS
+      // （2026-09 现场：view.js/app.js 混版导致思维链字段错位空流与历史不刷新）。
+      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' })
       res.end(buf)
     })
     .catch(() => {

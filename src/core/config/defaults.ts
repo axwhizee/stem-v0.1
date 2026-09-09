@@ -63,7 +63,7 @@ export const DEFAULT_CONFIG_TEXT = `{
   },
   "autoApprove": false,
   // 上下文策略（classic compact 参数面；summarizeModel 缺省 = 摘要 worker 继承宿主模型）。
-  "context": { "window": 128000, "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 } },
+  "context": { "window": 1000000, "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 } },
   // bash 工具（缺省内置：120s 超时 / 50k 截断 / 项目根目录）。
   // "bash": { "defaultTimeoutMs": 120000, "maxOutputChars": 50000 },
   // 资源点名（装载与出生一句话说完）：tools = {名: 权限词}——名字在

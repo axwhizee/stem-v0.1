@@ -74,31 +74,51 @@ export function truncate(text, max = 30) {
  * - access_request 来信不进时间线（归"审"面板），出 {kind:'ask'} 供计数；
  * - system 不上线；invalid（compact 归档）跳过；tag=summary 出中缝元条。
  */
-export function routeLetters(messages, currentId, rootId = ROOT_ID) {
+export function routeLetters(messages, currentId, rootId = ROOT_ID, nameOf) {
   const atRoot = currentId === rootId
   const items = []
+  // 预扫：assistant.toolCalls[].id → 工具名（工具结果行据此还原首行工具名）。
+  const toolNameById = new Map()
+  for (const m of messages ?? []) {
+    const tcs = m?.toolCalls ?? []
+    for (const tc of tcs) {
+      if (tc !== undefined && tc.id !== undefined && tc.name !== undefined) toolNameById.set(String(tc.id), String(tc.name))
+    }
+  }
   for (const m of messages ?? []) {
     if (!m.valid) continue
     if (m.tag === 'summary') { items.push({ kind: 'meta', icon: ACT_GLYPH.summary, text: '上下文摘要（compact 归档，原文保留可审计）' }); continue }
     const role = m.role
     if (role === 'system') continue
-    if (role === 'tool') { items.push({ kind: 'tool', icon: ACT_GLYPH.tool, text: String(m.content ?? '') }); continue }
+    if (role === 'tool') {
+      // 工具结果行：who = 当前 agent 全名（来源）；toolName = 关联的调用名
+      //（assistant.toolCalls.id 映射）——首行显工具名，展开看具体内容（用户裁决）。
+      const who = nameOf && nameOf(currentId) ? `${String(nameOf(currentId))}#${currentId}` : currentId
+      const toolName = toolNameById.get(m?.toolCallId !== undefined ? String(m.toolCallId) : '')
+      items.push({ kind: 'tool', icon: ACT_GLYPH.tool, who, toolName, text: String(m.content ?? '') })
+      continue
+    }
     if (role === 'user') {
       const { sender, text } = stripSender(m.content)
       if (text.trimStart().startsWith('<access_request')) { items.push({ kind: 'ask', icon: ACT_GLYPH.review, text }); continue }
       if (atRoot) {
-        // 根箱的 user 信 = 后代回信（左）；无 sender 的历史遗留也按来信。
+        // 根窗（呈现面=你）：人类发言（assistant 行）在右；后代回信（user 行）一律在左——标准聊天惯例。
         items.push({ kind: 'msg', side: 'them', who: sender ? `来自 ${sender}` : '来信', text })
       } else {
-        // 戳面 = name#id 全名（B4）：裸 id 或 id 尾段命中根都算己方来信。
-        const mine = sender === '' || sender === rootId || sender.endsWith('#' + rootId)
-        items.push({ kind: 'msg', side: mine ? 'me' : 'them', who: mine ? ACT_GLYPH.me : `来自 ${sender}`, text })
+        // agent 窗（呈现面=该 agent）：**它自己的回复在左，收到的一切消息（根/其它 agent）在右**——
+        // 右侧统一对齐（含邮局合并投递的多封），who 仍区分来源（我=根，来自 xxx=它人）。
+        const fromRoot = sender === '' || sender === rootId || sender.endsWith('#' + rootId)
+        const who = fromRoot ? ACT_GLYPH.me : `来自 ${sender}`
+        items.push({ kind: 'msg', side: 'me', who, text })
       }
       continue
     }
     if (role === 'assistant') {
-      // 根窗：assistant = 人类（经 pilot）发言 = "我"；agent 窗：它自己的回复。
-      items.push({ kind: 'msg', side: atRoot ? 'me' : 'agent', who: atRoot ? ACT_GLYPH.me : currentId, text: String(m.content ?? '') })
+      // 纯 tool-call 轮（正文为空）跳过——无源文本仅漂浮名字误导；工具意图
+      // 由紧随的工具结果行承接（who 已标）。有正文的正常渲染全名标签。
+      if (String(m.content ?? '').trim() === '') continue
+      const who = atRoot ? ACT_GLYPH.me : nameOf && nameOf(currentId) ? `${String(nameOf(currentId))}#${currentId}` : currentId
+      items.push({ kind: 'msg', side: atRoot ? 'me' : 'agent', who, text: String(m.content ?? '') })
     }
   }
   return items
@@ -393,33 +413,39 @@ export function turnStats(messages) {
 // ---------- 6. 思维链折叠视图（dsh 式：running 追最新行，结束定格首行） ----------
 
 /**
- * 思维链文本 → 折叠呈现数据。running（还在流）：摘要 = 最新一行（跟随滚动语义）；
- * 完成：摘要 = 首行（可点开展开全文 rest）。**rest 恒为去掉摘要行的正文**——
- * 折叠头与展开内容零重复（首版 body 含摘要行导致展开重影，修正）。空 → null。
+ * 思维链文本 → 折叠呈现数据。**full = 原文自然序（流式全文）**，展开态只显
+ * full；summary 仅折叠态头部（running = 最新一行，完成 = 首行）——两态零重复。
+ * 空 → null 不渲染。
  */
 export function reasoningView(text, running) {
   const s = String(text ?? '')
   if (s.trim() === '') return null
-  const lines = s.split('\n')
-  const nonEmpty = lines.filter((l) => l.trim() !== '')
+  const nonEmpty = s.split('\n').filter((l) => l.trim() !== '')
   if (nonEmpty.length === 0) return null
-  if (running) {
-    const last = nonEmpty[nonEmpty.length - 1]
-    // 去掉末尾最后一段非空行（含其前导空白行）= rest。
-    const cut = s.lastIndexOf(String(last))
-    return { summary: String(last), rest: cut > 0 ? s.slice(0, cut).trimEnd() : '' }
+  return {
+    summary: running ? String(nonEmpty[nonEmpty.length - 1]) : String(nonEmpty[0]),
+    full: s,
   }
-  const first = nonEmpty[0]
-  const idx = s.indexOf(String(first))
-  const after = idx + String(first).length
-  return { summary: String(first), rest: s.slice(after).replace(/^\n+/, '') }
 }
 
-// ---------- 7. 上下文占用（对话栏底部进度条数据层） ----------
+// ---------- 7. 上下文占用（进度条）与工具行折叠 ----------
+
+/**
+ * 工具结果行 → 折叠呈现数据（**默认折叠**，与思维链默认展开相反——用户裁决）：
+ * head = 首行截断摘要 + 规模提示；expanded 态由渲染层给全文。空 → null。
+ */
+export function toolFold(text, max = 72) {
+  const s = String(text ?? '')
+  if (s.trim() === '') return null
+  const first = s.split('\n', 1)[0] ?? ''
+  const lines = s.split('\n').length
+  const meta = `${String(s.length).toLocaleString()} 字 · ${String(lines)} 行`
+  return { head: truncate(first, max), meta, full: s }
+}
 
 /** 生效行 token 合计 ÷ 模型窗口上限（valid=false 的 compact 归档行不计）。 */
 export function contextRatio(messages, window) {
-  const cap = Number(window) > 0 ? Number(window) : 128000
+  const cap = Number(window) > 0 ? Number(window) : 1000000
   let sum = 0
   for (const m of messages ?? []) {
     if (m.valid === false) continue

@@ -24,6 +24,11 @@ export interface ContextMessage {
   tag?: string
   from?: string
   valid?: boolean
+  toolCalls?: Array<{ name?: string; id?: string }>
+  toolCallId?: string
+  tokens?: number
+  turn?: number
+  at?: number
 }
 
 export interface TimelineItem {
@@ -32,8 +37,10 @@ export interface TimelineItem {
   who?: string
   text: string
   icon?: string
+  /** 工具调用名（assistant.toolCalls.id 关联还原；无则 undefined）。 */
+  toolName?: string
 }
-export declare function routeLetters(messages: ContextMessage[] | undefined, currentId: string, rootId?: string): TimelineItem[]
+export declare function routeLetters(messages: ContextMessage[] | undefined, currentId: string, rootId?: string, nameOf?: (id: string) => string | undefined): TimelineItem[]
 
 export interface AgentRow {
   id: string
@@ -118,9 +125,10 @@ export declare function applyStreamEvent(buckets: LiveBuckets, ev: StreamEventLi
 export declare function clearBucket(buckets: LiveBuckets, agentId: string): void
 
 export interface ReasoningView {
+  /** 折叠态头行（running = 最新一行 / 完成 = 首行）。 */
   summary: string
-  /** 去掉摘要行的正文（折叠头与展开内容零重复）。 */
-  rest: string
+  /** 原文自然序全文（展开态唯一内容——与 summary 两态切换，零重复）。 */
+  full: string
 }
 export declare function reasoningView(text: string, running: boolean): ReasoningView | null
 
@@ -128,6 +136,13 @@ export declare function contextRatio(messages: Array<{ tokens?: number; valid?: 
 export declare function ratioTone(ratio: number): 'ok' | 'warn' | 'danger'
 
 export declare function mdToHtml(raw: unknown): string
+
+export interface ToolFold {
+  head: string
+  meta: string
+  full: string
+}
+export declare function toolFold(text: unknown, max?: number): ToolFold | null
 
 // ---------- 批 3：族谱排序 / 二级菜单 / 信息卡 / 统计 ----------
 

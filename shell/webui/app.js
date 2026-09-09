@@ -11,7 +11,7 @@
 // （summary 与 rest 零重复）；rAF 合帧节流。全部纯逻辑住 view.js（可测）。
 // ============================================================
 
-import { ACT_GLYPH, ROOT_ID, applyStreamEvent, clearBucket, composerMeta, computeTreeRows, contextRatio, createLiveBuckets, deriveActions, infoRows, mdToHtml, menuItems, ratioTone, reasoningView, relativeTime, routeLetters, statusGlyph, statusTone, truncate, turnStats } from './view.js'
+import { ACT_GLYPH, ROOT_ID, applyStreamEvent, clearBucket, composerMeta, computeTreeRows, contextRatio, createLiveBuckets, deriveActions, infoRows, mdToHtml, menuItems, ratioTone, reasoningView, relativeTime, routeLetters, statusGlyph, statusTone, toolFold, truncate, turnStats } from './view.js'
 
 const $ = (id) => document.getElementById(id)
 const timeline = $('timeline')
@@ -23,7 +23,7 @@ let pendingAccess = null
 const liveBuckets = createLiveBuckets()
 let watchAgentId = '' // 监督抽屉目标（'' = 关）
 let liveHost = null
-let ctxWindow = 128000
+let ctxWindow = 1000000
 let ctxRatio = 0
 let paintQueued = false
 
@@ -50,8 +50,8 @@ function lanesSvg(row) {
   return `<svg class="lanes" viewBox="0 0 ${5 * L} 24" aria-hidden="true">${parts.join('')}</svg>`
 }
 
-async function loadAgents() {
-  const agents = await fetch('/api/agents').then((r) => r.json())
+async function loadAgents(prefetched) {
+  const agents = prefetched ?? await fetch('/api/agents').then((r) => r.json())
   agentsCache = agents
   const tree = $('tree')
   tree.innerHTML = ''
@@ -85,6 +85,8 @@ async function loadAgents() {
 
 const decodeEntities = (s) => String(s).replace(/&lt;/g, '<').replace(/&gt;/g, '>')
 const currentAgent = () => agentsCache.find((x) => x.id === currentAgentId) ?? null
+// 呈现面统一 name#id：routeLetters 的发送者标签由它把裸 id 转全名（B4）。
+const nameOf = (id) => { const a = agentsCache.find((x) => x.id === id); return a !== undefined && a.name !== undefined ? a.name : undefined }
 
 // —— composer 信息条（header 废除后 agent 事实的家）：六项元信息 + 右端状态/连接 ——
 function renderComposerMeta() {
@@ -92,9 +94,12 @@ function renderComposerMeta() {
   $('cMeta').innerHTML = a === null ? '<span class="item"><span class="k">族谱全景 · 选择一位后代开始对话</span></span>'
     : composerMeta(a).map((r, i) => `<span class="item${i === 0 ? ' head' : ''}" title="${esc(r.k)}"><span class="k">${esc(r.k)}</span><span class="v">${esc(r.v)}</span></span>`).join('')
   const cr = $('cRight')
-  if (a === null) { cr.textContent = ''; cr.className = '' }
+  // 注意：重建 cRight 会销毁静态 #conn——读写一律 null-safe（?.），且把连接态
+  // 随重建传递（旧版在此 throw TypeError 截断 selectAgent 后续渲染，事故修复）。
+  const connOn = $('conn')?.classList.contains('on') === true
+  if (a === null) { cr.innerHTML = `<span id="conn" class="${connOn ? 'on' : ''}" title="事件流连接"></span>`; cr.className = '' }
   else {
-    cr.innerHTML = `<span id="agentSt">${esc(statusGlyph(a.status))} ${esc(String(a.status ?? ''))}</span><span id="conn" class="${$('conn').classList.contains('on') ? 'on' : ''}" title="事件流连接"></span>`
+    cr.innerHTML = `<span id="agentSt">${esc(statusGlyph(a.status))} ${esc(String(a.status ?? ''))}</span><span id="conn" class="${connOn ? 'on' : ''}" title="事件流连接"></span>`
     cr.className = 'tone-' + statusTone(a.status)
   }
 }
@@ -121,22 +126,31 @@ async function loadModels() {
 }
 
 function renderModelRow(agent) {
-  const sel = $('modelSel')
-  sel.innerHTML = ''
-  if (!agent || !agent.model) { sel.disabled = true; $('modelOrigin').textContent = '继承链'; return }
-  sel.disabled = false
-  const cur = agent.model
-  const refs = modelRefs.includes(cur) ? modelRefs : [cur, ...modelRefs]
-  for (const ref of refs) sel.appendChild(new Option(ref, ref))
-  sel.value = cur
-  $('modelOrigin').textContent = ORIGIN_LABEL[agent.modelOrigin] ?? agent.modelOrigin ?? ''
+  const cur = agent === null || agent === undefined ? '' : String(agent.model ?? '')
+  const origin = agent !== null && agent !== undefined ? ORIGIN_LABEL[agent.modelOrigin] ?? agent.modelOrigin ?? '' : ''
+  for (const [sel, badge, inheritLabel] of [[$('modelSel'), $('modelOrigin'), '继承链'], [$('stModel'), $('stModelOrigin'), '继承链']]) {
+    sel.innerHTML = ''
+    if (cur === '') {
+      sel.disabled = true
+      sel.appendChild(new Option('（走继承链）', ''))
+      badge.textContent = inheritLabel
+      continue
+    }
+    sel.disabled = false
+    const refs = modelRefs.includes(cur) ? modelRefs : [cur, ...modelRefs]
+    for (const ref of refs) sel.appendChild(new Option(ref, ref))
+    sel.value = cur
+    badge.textContent = String(origin)
+  }
 }
 
-$('modelSel').onchange = async () => {
-  if (!currentAgentId) return
-  await fetch('/api/set_model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId, model: $('modelSel').value }) })
+async function setModel(ref) {
+  if (!currentAgentId || ref === '') return
+  await fetch('/api/set_model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agentId: currentAgentId, model: ref }) })
   await loadAgents()
 }
+$('modelSel').onchange = () => void setModel($('modelSel').value)
+$('stModel').onchange = () => void setModel($('stModel').value)
 
 // —— 悬浮详情卡（infoRows 与数据源同源） ——
 let hoverTimer = 0
@@ -199,14 +213,17 @@ async function runMenuAction(key, agent) {
   }
 }
 
-// —— 设置面板（模态双页签；左栏不再挤占空间） ——
+// —— 设置面板（模态双页签：实例参数 + 类定义进化面） ——
 let settingsAgent = null
 function openSettings(agent, tab = 'instance') {
   settingsAgent = agent
   $('settingsMask').hidden = false
   $('stAgent').textContent = `${String(agent.name ?? agent.id)}#${agent.id}`
   $('renameInput').placeholder = `当前「${String(agent.name ?? agent.id)}」→ 新称呼`
-  renderClassDef(agent)
+  $('renameInput').value = ''
+  $('classHint').textContent = ''
+  renderModelRow(currentAgent() ?? agent)
+  fillClassForm(agent.classRef ?? '')
   switchCfgTab(tab)
 }
 function closeSettings() { settingsAgent = null; $('settingsMask').hidden = true }
@@ -215,17 +232,36 @@ $('settingsMask').addEventListener('click', (e) => { if (e.target === $('setting
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { closeSettings(); closeMenu() } })
 $('settingsBtn').onclick = () => openSettings(currentAgent() ?? agentsCache.find((x) => x.id === ROOT_ID) ?? { id: ROOT_ID, name: 'user' })
 
-function renderClassDef(agent) {
-  const t = templatesCache.find((x) => x.name === agent.classRef)
-  const el = $('classDef')
-  if (t === undefined) { el.textContent = `（类 ${String(agent.classRef ?? '—')} 定义不在本次装载清单）`; return }
-  const tools = t.tools === undefined ? '（完整继承父档案）' : Object.entries(t.tools).map(([k, v]) => `${k}=${v}`).join(' ') || '（空表 = 本地封闭）'
-  el.textContent =
-`类 ${t.name}
-描述：${t.description ?? '—'}
-策略：${t.contextStrategy ?? '继承'}
-工具：${tools}
-提示词：${(t.systemPrompt ?? '—').slice(0, 400)}${(t.systemPrompt ?? '').length > 400 ? '…' : ''}`
+// 类页签：下拉 = 装载类全集（panel 只读）；字段回填自 templatesCache 现值。
+function fillClassForm(classRef) {
+  const sel = $('stClassSel')
+  sel.innerHTML = ''
+  for (const t of templatesCache) sel.appendChild(new Option(t.panel ? `${t.name}（面板·只读）` : t.name, t.name))
+  if (templatesCache.some((t) => t.name === classRef)) sel.value = String(classRef)
+  prefillClass()
+}
+function prefillClass() {
+  const t = templatesCache.find((x) => x.name === $('stClassSel').value)
+  const locked = t === undefined || t.panel === true
+  $('stClassDesc').value = t?.description ?? ''
+  $('stClassPrompt').value = t?.systemPrompt ?? ''
+  $('stClassStrategy').value = t?.contextStrategy ?? ''
+  $('stClassTools').textContent = t === undefined ? '' : t.tools === undefined ? '工具：继承父档案' : `工具：${Object.entries(t.tools).map(([k, v]) => `${k}=${v}`).join(' ') || '本地封闭'}`
+  for (const el of [$('stClassDesc'), $('stClassPrompt'), $('stClassStrategy'), $('classSaveBtn')]) el.disabled = locked
+  $('classHint').textContent = t !== undefined && t.panel ? '面板类不可编辑（user/策略 role 红线）' : ''
+}
+$('stClassSel').onchange = prefillClass
+$('classSaveBtn').onclick = async () => {
+  const name = $('stClassSel').value
+  if (name === '') return
+  const r = await fetch('/api/class_update', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, description: $('stClassDesc').value, systemPrompt: $('stClassPrompt').value, contextStrategy: $('stClassStrategy').value }),
+  }).then((x) => x.json())
+  if (r.error !== undefined) { $('classHint').textContent = String(r.error); return }
+  $('classHint').textContent = r.persisted ? '已合并落盘（只影响后续实例）' : '已合并（内存，无落盘通道）'
+  await loadTemplates()
 }
 
 function switchCfgTab(tab) {
@@ -252,11 +288,33 @@ function renderTimeline(items) {
   for (const it of items) {
     if (it.kind === 'ask') continue // 来信 access_request → 「审」面板，不占正文流
     if (it.kind === 'meta') { timeline.appendChild(msgEl('meta', it.icon + '  ' + it.text)); continue }
-    if (it.kind === 'tool') { timeline.appendChild(msgEl('tool', it.icon + '  ' + it.text)); continue }
+    if (it.kind === 'tool') { timeline.appendChild(toolLineEl(it.text, it.who, it.toolName)); continue } // 工具结果 = 默认折叠件
     timeline.appendChild(msgEl(it.side, it.text, it.who))
   }
   if (items.length === 0) timeline.appendChild(emptyHint())
   timeline.scrollTop = timeline.scrollHeight
+}
+
+/** 工具结果行折叠件：默认收起一行头 = **工具名**（首行）+ 来源 + 规模；展开看全文。 */
+function toolLineEl(text, who, toolName) {
+  const el = document.createElement('div')
+  const tf = toolFold(text)
+  el.className = 'toolmsg shut'
+  el.title = '点击展开/收起工具输出'
+  const head = document.createElement('div')
+  head.className = 'thead'
+  // 首行格式：`工`（主色图标）+ 工具名（普通色，关联还原；无则回退结果首行）
+  // + 末尾字数/行数统计。**不显示调用者**——工具行显然属于当前窗 agent，省略噪音。
+  const nameText = toolName ?? (tf === null ? '' : tf.head)
+  const meta = tf === null ? '' : tf.meta
+  head.innerHTML = `<b class="ticon">${ACT_GLYPH.tool}</b><span class="tname">${esc(nameText)}</span> <span class="tcnt">${esc(meta)}</span>`
+  const body = document.createElement('div')
+  body.className = 'tbody'
+  body.textContent = tf === null ? text : tf.full
+  el.appendChild(head)
+  el.appendChild(body)
+  el.onclick = () => el.classList.toggle('shut')
+  return el
 }
 
 function emptyHint() {
@@ -293,8 +351,8 @@ async function loadContext(id) {
   if (id !== currentAgentId) return // 快速连点防御：迟到响应不覆盖新选窗口
   const data = await fetch('/api/agents/' + encodeURIComponent(id) + '/context').then((r) => r.json())
   if (id !== currentAgentId) return
-  ctxWindow = Number(data.contextWindow) > 0 ? Number(data.contextWindow) : 128000
-  renderTimeline(routeLetters(data.messages || [], id))
+  ctxWindow = Number(data.contextWindow) > 0 ? Number(data.contextWindow) : 1000000
+  renderTimeline(routeLetters(data.messages || [], id, ROOT_ID, nameOf))
   ctxRatio = contextRatio(data.messages, ctxWindow)
   paintCtxBar(ctxRatio)
   const st = turnStats(data.messages)
@@ -317,18 +375,25 @@ function paintCtxBar(ratio) {
 
 function liveDom(bucket, id) {
   const frag = document.createDocumentFragment()
-  const rv = reasoningView(bucket.reasoning, bucket.text === '') // 正文未起 = 还在想
+  const running = bucket.text === '' // 正文未起 = 还在想
+  const rv = reasoningView(bucket.reasoning, running)
   if (rv !== null) {
-    const d = document.createElement('details')
-    d.className = 'reason' + (bucket.text === '' ? ' running' : '')
-    const s = document.createElement('summary')
-    s.textContent = rv.summary
-    d.appendChild(s)
-    if (rv.rest !== '') { // 展开 = 去掉摘要行的正文：与折叠头零重复
-      const b = document.createElement('div')
-      b.className = 'rbody'
-      b.innerHTML = mdToHtml(rv.rest)
-      d.appendChild(b)
+    // 自定义折叠件（弃 native details）：**默认展开流全文**、点击任意处收起/
+    // 展开、收起态只留头行——两态零重复；shut 态记在 bucket 上跨帧存活。
+    const d = document.createElement('div')
+    const shut = bucket.rShut === true
+    d.className = 'reason' + (shut ? ' shut' : '') + (running ? ' running' : '')
+    const head = document.createElement('div')
+    head.className = 'rsum'
+    head.textContent = rv.summary
+    const full = document.createElement('div')
+    full.className = 'rfull'
+    full.innerHTML = mdToHtml(rv.full)
+    d.appendChild(head)
+    d.appendChild(full)
+    d.onclick = () => {
+      bucket.rShut = !(bucket.rShut === true)
+      d.classList.toggle('shut')
     }
     frag.appendChild(d)
   }
@@ -358,6 +423,7 @@ const bucketLabel = (id) => { const a = agentsCache.find((x) => x.id === id); re
 function nearBottom() { return timeline.scrollHeight - timeline.scrollTop - timeline.clientHeight < 160 }
 
 function renderLive() {
+  updateSendState() // 桶出现/收口即时反映到送钮（busy 灰条 / 空闲恢复）
   const b = currentAgentId !== '' ? liveBuckets[currentAgentId] : undefined
   if (b !== undefined) {
     if (liveHost === null || !liveHost.isConnected) {
@@ -428,7 +494,18 @@ $('permReject').onclick = () => replyAccess('reject')
 
 function openStream() {
   const es = new EventSource('/api/events')
-  es.onopen = () => { $('conn')?.classList.add('on') }
+  es.onopen = () => {
+    $('conn')?.classList.add('on')
+    // 快照追平：事件流无回放（SSE 断线/服务端重启窗口会丢 status/letter）——
+    // 凡连接建立/重连成功，live 桶与忙态一律作废、以仓库历史为准重建（delta
+    // live-only 纪律的另一半：断帧不补，快照自愈）。
+    for (const id of Object.keys(liveBuckets)) clearBucket(liveBuckets, id)
+    roundBusy = false
+    void loadAgents()
+    if (currentAgentId !== '') void loadContext(currentAgentId)
+    schedulePaint()
+    updateSendState()
+  }
   es.onmessage = (e) => handleEvent(JSON.parse(e.data))
   es.onerror = () => { $('conn')?.classList.remove('on'); es.close(); setTimeout(openStream, 2000) }
 }
@@ -443,46 +520,88 @@ function handleEvent(ev) {
     const content = (ev.letters && ev.letters[0] && typeof ev.letters[0].content === 'string') ? ev.letters[0].content : ''
     if (content.startsWith('<access_request')) { showPermission(content); return }
     if (ev.agentId === currentAgentId) {
-      void loadContext(currentAgentId).then(() => clearBucket(liveBuckets, currentAgentId))
-      void loadAgents() // 信息条六项随轮末账目刷新（ctxTokens/轮次/累计 token）
+      // 收信只刷新历史（新 user 行上屏）；桶归轮生命周期管，此处不动。
+      void loadContext(currentAgentId).catch((e) => console.error('[ui] loadContext@letter', e))
+      void loadAgents()
     }
     return
   }
   if (ev.type === 'status') {
     void loadAgents()
+    if (ev.agentId === currentAgentId && ev.to === 'thinking') roundBusy = true
+    else if (ev.agentId === currentAgentId && (ev.to === 'holding' || ev.to === 'idle' || ev.to === 'interrupted')) {
+      // 轮末收口三步全部**同步**（快照拉取失败也绝不让光标/灰钮滞留）：
+      // 忙态解除 + 桶清 + 光标退场，然后才尽力刷新历史。
+      roundBusy = false
+      clearBucket(liveBuckets, ev.agentId)
+      schedulePaint()
+      void loadContext(currentAgentId).catch((e) => console.error('[ui] loadContext@holding', e))
+    }
     if (ev.to === 'thinking') clearBucket(liveBuckets, ev.agentId) // 新轮开画布
-    if ((ev.to === 'holding' || ev.to === 'idle') && (ev.agentId === currentAgentId || ev.agentId === watchAgentId)) schedulePaint()
+    if (ev.agentId === watchAgentId && (ev.to === 'holding' || ev.to === 'idle')) schedulePaint() // 抽屉定格保留到下轮
+    updateSendState()
   }
 }
 
 // ---------- 会话动作 ----------
 
-function applyActions(agent) {
-  const s = deriveActions(agent)
-  const canSend = s.send !== 'off'
+let sendAllowed = false
+let roundBusy = false // thinking→holding 之间 = 回复未完整收口，送钮灰防误触
+let sendInFlight = false
+
+function updateSendState() {
+  const busy = sendInFlight || roundBusy || (currentAgentId !== '' && liveBuckets[currentAgentId] !== undefined)
+  const canSend = sendAllowed && !busy
   $('sendBtn').disabled = !canSend
-  $('input').disabled = !canSend
-  $('input').placeholder = canSend ? `向 ${agent?.name ?? agent?.id ?? ''} 发消息（Enter 发送，Shift+Enter 换行）` : '选择一位后代开始对话…'
+  $('input').disabled = !sendAllowed
+  const a = currentAgent()
+  $('input').placeholder = !sendAllowed ? '选择一位后代开始对话…'
+    : busy ? `${String(a?.name ?? a?.id ?? '')} 回复中——本轮收口后可继续（消息会合并投递）`
+    : `向 ${a?.name ?? a?.id ?? ''} 发消息（Enter 发送，Shift+Enter 换行）`
+}
+
+function applyActions(agent) {
+  sendAllowed = agent !== null && agent !== undefined && deriveActions(agent).send !== 'off'
+  updateSendState()
 }
 
 async function selectAgent(id) {
   currentAgentId = id
-  const agents = await fetch('/api/agents').then((r) => r.json())
+  roundBusy = false // 换窗不复用旧窗的轮忙态（下个 status 事件自然校正）
+  // 即点即清屏：旧窗内容零残留（空态占位），数据两请求**并行**拉取——
+  // 历史窗口渲染不依赖 agents 行集，串行 await 会让远程主机延迟翻倍。
+  timeline.innerHTML = ''
+  timeline.appendChild(emptyHint())
+  sendAllowed = false
+  updateSendState()
+  const agentsP = fetch('/api/agents').then((r) => r.json())
+  const ctxP = fetch('/api/agents/' + encodeURIComponent(id) + '/context').then((r) => r.json())
+  const pair = await Promise.all([agentsP, ctxP]).catch((e) => {
+    console.error('[ui] selectAgent 数据拉取失败', e)
+    return null
+  })
+  if (pair === null) return
+  const [agents, ctx] = pair
+  if (id !== currentAgentId) return // 等待期已切窗：本轮作废
   agentsCache = agents
   const a = agents.find((x) => x.id === id) ?? null
   applyActions(a)
   renderComposerMeta()
   renderQuickBox()
-  await loadAgents()
+  const msgs = ctx.messages || []
+  renderTimeline(routeLetters(msgs, id, ROOT_ID, nameOf))
+  ctxWindow = Number(ctx.contextWindow) > 0 ? Number(ctx.contextWindow) : 1000000
+  paintCtxBar(contextRatio(msgs, ctxWindow))
   if (a !== null && a.parentId === null) {
-    const data = await fetch('/api/agents/' + encodeURIComponent(id) + '/context').then((r) => r.json())
-    renderTimeline(routeLetters(data.messages || [], id))
-    ctxRatio = contextRatio(data.messages, data.contextWindow)
-    paintCtxBar(ctxRatio)
-    $('turnStats').hidden = true
+    $('turnStats').hidden = true // 根箱无"轮"语义（扮演接口不跑 LLM 轮）
   } else {
-    await loadContext(id)
+    const st = turnStats(msgs)
+    const ts = $('turnStats')
+    ts.hidden = !(st.durationS > 0)
+    ts.textContent = st.durationS > 0 ? `最近一轮耗时 ${st.durationS.toFixed(1)}s` : ''
   }
+  schedulePaint()
+  void loadAgents(agents) // 树重绘复用同一次拉取（高亮换人）
 }
 
 async function terminateAgent(agent) {
@@ -513,7 +632,14 @@ async function send() {
   const text = $('input').value.trim()
   if (text === '' || !currentAgentId) return
   $('input').value = ''
-  await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: currentAgentId, text }) })
+  sendInFlight = true
+  updateSendState()
+  try {
+    await fetch('/api/send', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ to: currentAgentId, text }) })
+  } finally {
+    sendInFlight = false
+    updateSendState()
+  }
 }
 
 async function createAgent() {
@@ -522,9 +648,12 @@ async function createAgent() {
   const body = { className, userPrompt }
   const model = $('createModel').value // 空 = 不显式（落类基因>父继承>家学链）
   if (model) body.model = model
+  const name = $('createName').value.trim() // 空 = 派生 类名-N
+  if (name !== '') body.name = name
   const r = await fetch('/api/instantiate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   const data = await r.json()
-  if (data.agentId) { $('createPrompt').value = ''; void selectAgent(data.agentId) }
+  if (data.error !== undefined) { alert(String(data.error)); return }
+  if (data.agentId) { $('createPrompt').value = ''; $('createName').value = ''; void selectAgent(data.agentId) }
 }
 
 async function loadTemplates() {

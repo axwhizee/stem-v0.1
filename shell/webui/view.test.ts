@@ -36,6 +36,7 @@ import {
   statusGlyph,
   statusTone,
   stripSender,
+  toolFold,
   truncate,
   turnStats,
 } from './view.js'
@@ -95,7 +96,7 @@ describe('routeLetters（R9 第一视角归位）', () => {
     assert.equal(items[0]?.who, '我')
     assert.equal(items[1]?.side, 'agent')
     assert.equal(items[1]?.who, 'a1')
-    assert.equal(items[2]?.side, 'them')
+    assert.equal(items[2]?.side, 'me') // 收到的一切消息（含其它 agent）都在右（agent 自己回复在左的规则）
     assert.equal(items[2]?.who, '来自 buddy#b2')
     assert.equal(items[3]?.text, 'echo ok')
     assert.equal(items[4]?.icon, '摘')
@@ -113,6 +114,32 @@ describe('routeLetters（R9 第一视角归位）', () => {
     assert.equal(items[0]?.who, '我')
     assert.equal(items[1]?.side, 'them')
     assert.equal(items[1]?.who, '来自 watcher#a1')
+  })
+
+  test('agent 窗 assistant 发送者 = 全名 name#id（nameOf 解析）；无解析器回退裸 id', () => {
+    const rows = routeLetters(
+      [{ role: 'assistant', content: 'hi', valid: true }],
+      '0-1-1', ROOT_ID, (id) => (id === '0-1-1' ? 'verify-child' : undefined),
+    )
+    assert.equal(rows[0]?.who, 'verify-child#0-1-1')
+    assert.equal(routeLetters([{ role: 'assistant', content: 'hi', valid: true }], '0-7')[0]?.who, '0-7')
+  })
+  test('纯 tool-call 轮（空正文 assistant）跳过；tool 行携带来源 who 与关联工具名', () => {
+    const rows = routeLetters(
+      [
+        { role: 'assistant', content: ' ', valid: true, toolCalls: [{ id: 'c1', name: 'bash' }, { id: 'c2', name: 'list_agents' }] },
+        { role: 'tool', content: '祖先链: yes', valid: true, toolCallId: 'c1' },
+        { role: 'tool', content: 'agent 类列表', valid: true, toolCallId: 'c2' },
+        { role: 'assistant', content: '有正文', valid: true },
+      ],
+      '0-1-1', ROOT_ID, (id) => (id === '0-1-1' ? 'verify-child' : undefined),
+    )
+    assert.equal(rows.length, 3)
+    assert.equal(rows[0]?.kind, 'tool')
+    assert.equal(rows[0]?.who, 'verify-child#0-1-1')
+    assert.equal(rows[0]?.toolName, 'bash')
+    assert.equal(rows[1]?.toolName, 'list_agents')
+    assert.equal(rows[2]?.kind, 'msg')
   })
 
   test('access_request 出 ask 项（归审面板，不入正文流）', () => {
@@ -250,18 +277,16 @@ describe('reasoningView（running 追最新行 / 结束定格首行）', () => {
     assert.equal(reasoningView('', true), null)
     assert.equal(reasoningView('  \n ', false), null)
   })
-  test('running：摘要 = 最后一个非空行，rest 去重（零重复纪律）', () => {
+  test('running：折叠头 = 最后一个非空行；full = 原文自然序全文', () => {
     const v = reasoningView('第一行\n第二行\n最新半句', true)!
     assert.equal(v.summary, '最新半句')
-    assert.equal(v.rest, '第一行\n第二行')
+    assert.equal(v.full, '第一行\n第二行\n最新半句')
   })
-  test('完成：摘要定格首行，rest = 其余正文', () => {
+  test('完成：折叠头定格首行；展开态只渲染 full（两态互斥零重复）', () => {
     const v = reasoningView('第一行\n第二行', false)!
     assert.equal(v.summary, '第一行')
-    assert.equal(v.rest, '第二行')
-    const one = reasoningView('只有一行', false)!
-    assert.equal(one.summary, '只有一行')
-    assert.equal(one.rest, '') // 单行思维链：展开无重复内容
+    assert.equal(v.full, '第一行\n第二行')
+    assert.equal(reasoningView('只有一行', false)!.summary, '只有一行')
   })
 })
 
@@ -272,8 +297,8 @@ describe('contextRatio + ratioTone', () => {
     assert.equal(contextRatio([{ tokens: 1000 }, { tokens: 500, valid: false }], 2000), 0.5)
     assert.equal(contextRatio([{ tokens: 99999 }], 2000), 1)
   })
-  test('窗口缺省兜底 128000；三色带边界 <0.2 ok / <0.4 warn / 其余 danger', () => {
-    assert.equal(contextRatio([{ tokens: 12800 }], undefined), 0.1)
+  test('窗口缺省兜底 1M；三色带边界 <0.2 ok / <0.4 warn / 其余 danger', () => {
+    assert.equal(contextRatio([{ tokens: 12800 }], undefined), 12800 / 1_000_000)
     assert.equal(ratioTone(0.19), 'ok')
     assert.equal(ratioTone(0.2), 'warn')
     assert.equal(ratioTone(0.39), 'warn')
@@ -389,6 +414,16 @@ describe('infoRows', () => {
     assert.equal(rows[4]?.v, '1,200')
     assert.equal(rows[5]?.v, '8,900')
     assert.deepEqual(composerMeta(null), [])
+  })
+})
+
+describe('toolFold（工具结果默认折叠件数据）', () => {
+  test('头 = 首行截断；meta = 字数与行数；空白 = null', () => {
+    const t = toolFold('total 100\ndrwxr-xr-x 2 node node 4096 Sep 10 .\n\nsecond')!
+    assert.ok(t.head.startsWith('total 100'))
+    assert.ok(t.meta.includes('行'))
+    assert.equal(t.full, 'total 100\ndrwxr-xr-x 2 node node 4096 Sep 10 .\n\nsecond')
+    assert.equal(toolFold('  '), null)
   })
 })
 
