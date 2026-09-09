@@ -269,8 +269,10 @@ export class Kernel {
       onLog: { log: (event) => this.emitLog(event) },
     })
 
-    // 工具自动记录 → 仓库（触发/成功/失败），不依赖 runtime 手动发送。
+    // 工具自动记录 → 仓库（触发/成功/失败），不依赖 runtime 手动发送；
+    // 同时上实时监督流（tool PilotEvent：只带名字/相位/时刻，无 args/result——详情走 DB 面）。
     this.tools?.setRecordSink?.((record, ctx) => {
+      this.events.emit({ type: 'tool', agentId: ctx.agentId, tool: record.invocation.name, phase: record.status, at: record.at })
       forget(this.contextManager.appendToolRecord(ctx.agentId, record), 'kernel:appendToolRecord', (event) => this.emitLog(event))
       if (record.status === 'success' && record.result) {
         if (record.result.metadata?.contextWait) return // 挂起通道（wait/pause）：等待填充，不 append

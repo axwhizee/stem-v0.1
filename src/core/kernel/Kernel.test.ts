@@ -314,7 +314,17 @@ describe('Kernel 邮局模式', () => {
       tools: { oc_echo: 'allow' },
     })
     const echoAgentId = await kernel.getOrCreateAgent(makeAgentClassID('echo-user'), '/proj')
+    // 实时监督流断言：tool PilotEvent 序列 called→success（只带名字/相位，无 args/result——类型上不存在）。
+    const toolEvents: Array<{ tool: string; phase: string; agentId: string }> = []
+    const toolUnsub = kernel.events.subscribe((ev) => {
+      if (ev.type === 'tool') toolEvents.push({ tool: ev.tool, phase: ev.phase, agentId: ev.agentId })
+    })
     await tools.execute({ id: 'call_5', name: 'oc_echo', input: { text: 'hi' } }, { agentId: echoAgentId, spaceId: 'space-1' })
+    toolUnsub()
+    assert.deepEqual(toolEvents, [
+      { tool: 'oc_echo', phase: 'called', agentId: echoAgentId },
+      { tool: 'oc_echo', phase: 'success', agentId: echoAgentId },
+    ])
     const toolLogs = kernel.logger.query({ type: 'tool.invoked' })
     assert.ok(toolLogs.some((e) => (e as { phase?: string }).phase === 'called'))
     assert.ok(

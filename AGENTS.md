@@ -83,7 +83,7 @@ docs/                      # 实况卷 architecture.md（机制详情以此为�
 - **配置**：`.stem/stem.jsonc` 唯一载体（providers.key_env 永不承载明文密钥；user = 根的完整类对象含家学 model 锚点与 name 出生称呼（缺省 'user'→全名 user#0）与根收敛清单 tools（推荐实值住模板）；R12 未知顶层键 fail-fast；agent 类/策略目录即真相、config 永不回写）。→ arch 4.12
 - **进化闭环（人启动）**：agent_class_create/update（同名覆盖、tools 只许收敛、落盘 `.stem/agent/`、只影响后续实例、panel/user 类拒绝）+ telemetry_query（可见域日志）+ 重启新实例携带新基因。→ arch 4.6；记忆生理层 = cortex（已实施）
 - **实例参数唯一写面**：`agent_update`（缺省目标=自身，canReach）= model / name（全局唯一，撞名拒）/ tools 收敛 patch / grantTools 清单整表（两形式互斥）；写实例行 → 族谱全树 replay（收缩沿链下传、改父不动子靠快照）。类定义/拓扑/策略/提示词永不入此通道。→ arch 2.2/4.3/4.4
-- **事件流**：PilotEvent（stream/letter/status/notice）经 EventHub 多订阅者，shell/webui 统一订阅。→ arch 2.4
+- **事件流**：PilotEvent（stream/letter/status/tool/notice；tool 事件只带名字/相位不带参数，详情走 DB 面）经 EventHub 多订阅者，shell/webui 统一订阅。→ arch 2.4
 
 ## 测试与提交（全文 = contributor §6/§7）
 

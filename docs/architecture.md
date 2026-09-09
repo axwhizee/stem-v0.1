@@ -97,7 +97,7 @@
 
 ### 2.4 事件流：PilotEvent + EventHub（多订阅者）
 
-- `PilotEvent` 判别联合：`stream`（LLM 流式 text/reasoning/tool/usage/finish）/ `letter`（信箱来信，含 `<access_request>` 消息化申请）/ `status` / `notice`（扩展位）。
+- `PilotEvent` 判别联合**五元**：`stream`（LLM 流式 text/reasoning/tool/usage/finish）/ `letter`（信箱来信，含 `<access_request>` 消息化申请）/ `status` / `tool`（工具执行相位 called/success/error，= ToolRecord.status 直转，kernel setRecordSink 单点双写）/ `notice`（扩展位）。**tool 事件刻意无 args/result**（裁决：参数摘要不上广播——耗时客户端 called→success 相减，详情走 DB 面 telemetry/logger.query 按需查）；delta 类事件 live-only 定性（快照收口 = 轮末信件与仓库行，断线不补 delta 间隙）。
 - `EventHub`：多订阅者 Set，`subscribe` 返回退订；新订阅者拿不到历史事件（初始视图靠直接查询模块）。
 - kernel 的 `KernelOptions.onEvent` 收敛为单一 `(event: PilotEvent) => void`；Runtime 流式/状态经 kernel 转发到 hub。
 

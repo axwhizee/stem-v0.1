@@ -8,7 +8,7 @@
 //      回写 feishu.jsonc) > 静态绑定表 > 秘书（可选项，secretaryClass 配了才有）；
 //      未绑定且秘书关闭 = 回指令指引；
 //   4. 信箱读 aloud：根来信（接待员回复/审批申请）→ 出口消息/审批卡；
-//   5. watch 订阅：任意 chat 订阅任意 agent 的 letter/status 事件（节流聚合）；
+//   5. watch 订阅：任意 chat 订阅任意 agent 的 letter/status/notice/tool 事件（节流聚合）；
 //   6. 幂等去重：平台事件有重试，message_id LRU 判重（手册 §8 硬建议）。
 // ============================================================
 

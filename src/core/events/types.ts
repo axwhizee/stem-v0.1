@@ -16,5 +16,11 @@ export type PilotEvent =
   | { readonly type: 'letter'; readonly agentId: string; readonly letters: readonly ChatMessage[]; readonly at: number }
   /** 状态变化（thinking/holding/interrupted…）。 */
   | { readonly type: 'status'; readonly agentId: string; readonly from: string; readonly to: string; readonly at: number }
-  /** 系统通知（扩展位：init 完成、工具审计等）。 */
+  /**
+   * 工具执行相位（called/success/error，= ToolRecord.status 直转）——实时监督流。
+   * **刻意不带 args/result/duration**（裁决：参数摘要不上广播，详情走 DB 面
+   * telemetry/logger.query 按需查；耗时 = 客户端 called→success 相减）。
+   */
+  | { readonly type: 'tool'; readonly agentId: string; readonly tool: string; readonly phase: 'called' | 'success' | 'error'; readonly at: number }
+  /** 系统通知（扩展位：init 完成等）。 */
   | { readonly type: 'notice'; readonly at: number; readonly message: string }
