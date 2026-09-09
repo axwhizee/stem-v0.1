@@ -12,7 +12,10 @@
 # ============================================================
 
 # node >= 23.4：node:sqlite 免 flag（个体层持久化硬依赖）。
-FROM node:24-slim
+# 钉 bookworm-slim 而非漂移的 24-slim：可复现性 + 境内镜像源拉层规避
+#（2026-09 局域网主机实测：24-slim 单层 1.05MB/28.23MB 停滞 600s+，
+#  同源 bookworm tag 本地直用后构建 20s）。
+FROM node:24-bookworm-slim
 
 # tsx 是运行期依赖（无扩展名相对导入 + .stem/tools/*.ts 动态 import），
 # 已列入 package.json dependencies，--omit=dev 不会剔除。
