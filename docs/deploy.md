@@ -2,7 +2,7 @@
 
 > 发布镜像 = **WebUIShell 服务形态**（`shell/webui/server.ts`）。安全模型：**容器即边界**——
 > 挂载的 `/data` volume 就是 bash 工具的爆炸半径；非 root（`node` 用户）运行；密钥只经
-> 环境变量注入，绝不写入镜像与配置。机制细节见 architecture §4.13；本文为操作面。
+> 环境变量注入，绝不写入镜像与配置。机制细节见 `shell/*/README.md` 与 `docs/architecture.md`；本文为操作面。
 
 ## 前置
 

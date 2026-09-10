@@ -7,7 +7,7 @@
 
 改代码前：§1（文档纪律）→ §2（分层与模块契约）→ §6（测试）。
 写文档时：§1 + 提交前对拍表（§1.3）。
-扩展系统能力时：各模块 `src/core/*/README.md` + `docs/architecture.md` 对应节（扩展点全景与食谱）。
+扩展系统能力时：各模块 README（`src/core/*/README.md`、`shell/*/README.md`、`extension/README.md`）+ `docs/architecture.md` 跨模块机制节（扩展点全景与食谱）。
 
 ## 1. 文档维护纪律（最高优先级）
 
@@ -15,7 +15,7 @@
 
 | 类型 | 卷 | 义务 |
 |---|---|---|
-| **实况卷** | AGENTS.md · docs/architecture.md · 本卷 · 各模块 `src/core/*/README.md`（api.md 为交付产物，见下注） | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
+| **实况卷** | AGENTS.md · docs/architecture.md · 本卷 · 各模块 README（`src/core/*/README.md`、`shell/*/README.md`、`extension/README.md`）（api.md 为交付产物，见下注） | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
 
 **沿革（"当时发生了什么/定了什么"）由 git 提交历史承载**——每批行为变化写进 commit message，`git log` 即完整时间线；不再另设日志卷（log 文件已删除，git 历史足够充分）。`docs/prompts.md`（需求与优化台账，不提交）仍是需求记录面，但不承载实况。
 
@@ -42,9 +42,9 @@
 
 | 改动 | 对拍位置 |
 |---|---|
-| core 公开接口/端口 | api.md（跑 §6 对拍脚本）+ architecture 对应模块节 + 模块 README |
-| 配置结构 | defaults.ts（首启模板 = 唯一预设）+ architecture 配置节 + AGENTS 配置节 + config/README |
-| 工具 kind/shape/权限语义 | architecture 工具节 + tools/README + AGENTS 设计原则 + `extension/tools/`、`src/core/tools/` 全部住户 |
+| core 公开接口/端口 | api.md（跑 §6 对拍脚本）+ architecture 模块导航 + 模块 README |
+| 配置结构 | defaults.ts（首启模板 = 唯一预设）+ config/README + README.md 配置/参数速查 |
+| 工具 kind/shape/权限语义 | architecture 2.2（权限机制）+ tools/README + AGENTS 设计原则 + `extension/tools/`、`src/core/tools/` 全部住户 |
 | 新增/退役模块、目录形态 | AGENTS 结构树 + architecture 结构图 + 本卷 §3 命名表 |
 | 任何行为变更 | commit message 说清行为变化（git 历史即沿革）；被影响的实况卷按上表整节重写 |
 

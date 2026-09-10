@@ -17,6 +17,12 @@
 | `providers/openaiCompatible.ts` | OpenAI 兼容 SSE 客户端（`fetch?` 传输口可注入） |
 | `FakeGateway.ts` | 单测/冒烟假网关（可注 usage） |
 
+## provider 与路由
+
+- `openaiCompatible` 泛化单点：`{baseUrl(必填), apiKey?(缺省=匿名不发 Authorization), models?(白名单请求前硬拦), fetch?}`，POST `{base_url}/chat/completions` 恒发裸模型 id，解析 reasoning_content → reasoning-delta。**代码零端点常量、零 `process.env`**——端点/密钥全由宿主从 `config.providers` 注入。错误分类含 `provider_unwired`/`model_not_allowed`。
+- **路由在宿主门面**（`shell/cli/gateway.buildGateway(config, env)`）：逐 provider 装配 + 按 `req.model.provider` 分发；两段式 = key_env 未命中启动 warn 点名（不印值）+ 用到才硬错（零兜底；产品无 mock 回落）。
+- **并行工具调用**：协议层 `tool_calls` 数组原生支持；工具轮并行执行，结果按 index 回填（Runtime 侧）。
+
 ## 纪律
 
 - **零端点常量**：provider 的 base_url/key 全部来自 `config.providers`；core 不认厂商。

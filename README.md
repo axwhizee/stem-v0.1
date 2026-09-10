@@ -138,7 +138,7 @@
 
 ### ⑤ extension 层（`extension/`，三类资源目录形态）
 
-仓库级可选扩展的家：`extension/tools/<名>/<名>.ts`、`extension/agent/<名>/<名>.md`、`extension/context/<名>/<名>.ts`，由 `config.extensions.{tools,agent,context}` 分键点名启用（装载与覆盖律见 architecture §4.12/§4.14）。与 custom 层同构，差别只在启用方式（点名 vs 目录即真相）与归属（仓库发布物 vs 用户空间）。当前住户：fs 五件套 + web 两件（tools）、`creator` 调度者示例（agent）。
+仓库级可选扩展的家：`extension/tools/<名>/<名>.ts`、`extension/agent/<名>/<名>.md`、`extension/context/<名>/<名>.ts`，由 `config.extensions.{tools,agent,context}` 分键点名启用（装载与覆盖律见 `extension/README.md`）。与 custom 层同构，差别只在启用方式（点名 vs 目录即真相）与归属（仓库发布物 vs 用户空间）。当前住户：fs 五件套 + web 两件（tools）、`creator` 调度者示例（agent）。
 
 ## 本地参考资料
 

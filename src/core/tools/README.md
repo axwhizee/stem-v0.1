@@ -61,15 +61,48 @@ tools/
 
 `createInternalTools({ host, bash? })` 是 internal 工具唯一定义入口；bash 端口存在时才装配。
 
-## 5. 统一输出 + 窗口限制
+## 5. 系统工具（`internal/systemTools.ts`，20 枚）
 
-`formatToolOutput(result | error, { outputLimit })` 是结果落上下文前的唯一成形点，同时服务于 runtime 会话回填与工具记录 sink，消除两处重复的错误渲染。
+系统自我管理与邮局机制的模型侧能力面；**出生权限逐把声明，通例 `ignore`**——上台面由各级收敛清单显式化（根清单实值 = `config/defaults.ts` 首启模板，非系统兜底）。
+
+| 工具 | 作用 |
+|---|---|
+| `agent_class_create` / `agent_class_update` / `agent_class_list` | 创建（新名 = 变体并存）/ 更新（同名覆盖；tools 增量、只许收敛；panel·user 根类拒绝；**只影响后续实例**）/ 列出——均回写 `.stem/agent/`（ClassStore 注入时） |
+| `telemetry_query` | 运行日志观测（进化闭环"观测"翼）：可见域 = 自身 + 族谱后代（canReach）；行式压缩 + 类型前缀通配 + 时间窗 + limit 截尾 |
+| `agent_instantiate` / `agent_list` / `agent_inspect` | 创建实例（父=调用者；可继承父上下文；模型路径只能收敛；**wait=true 创建并等待回信**——配对原子完成竞态绝迹，可配 waitTimeoutMs）/ 列出 / 详情（族谱链/状态/轮次/成本/生效权限表） |
+| `agent_ancestry` / `agent_descendants` / `agent_terminate` | 祖先链 / 后代子树（BFS）/ 终止（销毁权 + recursive） |
+| `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：model / name / tools 收敛 patch / grantTools 清单整表——吸收原 agent_set_model；审计双事件 |
+| `mail_send` / `mail_participants` | 发消息（自动 from 戳）/ 参与者清单（原 `bus_*` 更名，邮局叙事归位） |
+| `agent_pause` | 自主挂起攒信（ms 到点唤醒；期间信件自然堆积。等特定子回信走 `agent_instantiate` 的 wait） |
+| `context_export` / `context_overview` / `context_remove` / `context_edit` | 导出 jsonl (只读) / 概览（role/turn/tag/token 占比）/ 删除过时消息（markInvalid）/ 重写消息（system 不可改） |
+| `context_apply` | 执行上下文策略专有动作（如 classic compact；仅自身或祖先） |
+| `access_reply` | 答复访问申请（once/always/reject；授权权 = 申请者的族谱根）——**根义务，删则 ask 死锁** |
+
+> internal 出生实值（盘点定形）：`access_reply: allow` + `bash: allow`，其余通例 `ignore`。策略工具（cortex 笔记两键 `cortex_add_note`/`cortex_del_note`）住策略注册点，出生 `ignore`、经 `strategy.tools` raise 声明清单抬升；`cortex_load_*` 是组装轮里的虚拟名不注册（幻觉点名 = unknown 无害）。
+
+## 6. bash 工具（`internal/bash.ts`，kind=internal）
+
+- **最小系统唯一对外操作面**：不采用扩展时，除系统工具外模型触达外部文件/系统的入口只有 bash。core 只定义工具形状与 `ShellRunner` 端口（`run({command,cwd,timeoutMs,shell}) → {stdout,stderr,exitCode,timedOut}`），执行由宿主注入（node `child_process` 实现 = `shell/cli/bash.ts`）——core 零平台依赖不破。
+- **治理 = 机制 + 分担，非询问**（对齐 pi）：**无 ask、无黑名单**（高频工具询问打断模型循环得不偿失）；事故半径三机制（硬超时缺省 120s / stdout·stderr 各 50k 截断 / cwd 缺省项目根，`config.bash` 可配 `path/defaultTimeoutMs/maxOutputChars/cwd`）；行为规范靠工具描述提示词（非交互式、有专职工具优先）；不想给某 agent shell → 模板白名单不列 `bash` 键（键即自我限定）。非零退出码不是工具失败（输出 + exit code 照常返回，模型自判）。
+- 出生权限 `allow`；宿主未注入 `shellRunner` 则不装配（`bootStem` 缺省注入，`shellRunner:false` 可关）。
+
+## 7. 访问确认（`accessRequest.ts`，取代 AccessManager/PanelBus）
+
+- 生效访问经注入 `AccessResolver` 向族谱台账查询（无判定 → 出生值）；`assert`（allow/ignore 通过 / deny 抛错 / ask 投递申请到根信箱并挂起）+ `reply(input, by)`（根授权校验 once/always/reject）。
+- **在途复核（总序防御）**：reply once/always 落地前重查该键现生效值——挂起期间被 `agent_update` 收敛为 deny 的，迟到的批准被铁律压死（reject 回文本带因，不写 always 备忘；复用 resolvePort，零新依赖）。
+- **无元 agent 短路**：根也是普通 agent，其 ask 发给自己，由扮演它的 shell 经 pilot `replyAccess` 确认。
+- **session 豁免备忘**：`always` = 该 `(agent, accessKey)` 免询问放行（仅本实例，非权限层，不破 deny/ignore）。
+- `autoApprove`（config）时 ask 直接放行（deny 仍拒绝）。
+
+## 8. 统一输出 + 窗口限制
+
+`formatToolOutput(result | error, { outputLimit })` 是结果落上下文前的唯一成形点，同时服务于 runtime 会话回填与工具记录 sink（`main/toolWiring.attachToolRecordSink`），消除两处重复的错误渲染。
 
 - `config.tools.outputLimit`（字符口径）；**0/未设 = 不启用**（默认零行为变更）。
 - 超限：头部截断 + 省略说明。错误渲染 `[ToolError <kind>] <细节>`，细节退化链 message → feedback → accessKey → tool。
 - 历史顶层 `tools` 数组形态 = 可行动迁移错误（清单请用 `user.tools` / `extensions.tools`）。
 
-## 6. 加工具 / 加矩阵资源
+## 9. 加工具 / 加矩阵资源
 
 - **internal 工具**：在 `internal/systemTools.ts`（或策略自带工具）定义 `ToolCapability`（id/description/parameters/**birth**/execute），经 `createInternalTools` 或策略 `registerTool`（出生恒 ignore）进入注册表。
 - **extension 工具**：`extension/tools/<名>/<名>.ts` 默认导出 `ToolCapability` 或工厂 `(projectRoot) => ToolCapability`；在 `config.extensions.tools` 点名 `{名: 权限词}`。
