@@ -15,7 +15,7 @@ import type {
   ContextPort,
   SystemToolHost,
   TelemetryPort,
-} from '../tools'
+} from '../tools/internal/ports'
 import type { AccessProfile } from '../lineage'
 import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentID } from './types'

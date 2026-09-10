@@ -26,18 +26,3 @@ export function createInternalTools(deps: InternalToolDeps): ToolCapability[] {
 }
 
 export { createSystemTools, formatTelemetryRow } from './systemTools'
-export type {
-  AgentPort,
-  ContextPort,
-  TelemetryPort,
-  AccessPort,
-  SystemToolHost,
-  AgentClassView,
-  AgentClassInput,
-  AgentClassPatchInput,
-  AgentInstanceView,
-  AgentConfigView,
-  InstantiateRequest,
-  AgentUpdateRequest,
-  StoredMessageView,
-} from './ports'

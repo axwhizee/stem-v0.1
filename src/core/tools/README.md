@@ -57,7 +57,7 @@ tools/
 | `TelemetryPort` | 日志读取（telemetry_query） |
 | `AccessPort` | ask 审批回复（access_reply） |
 
-`SystemToolHost = { agents, context, telemetry, access }`；kernel 经 `kernel/toolHost.ts` 把自身域操作适配为中性 DTO，组合根注入。**其他模块不得 import 本端口类型。**
+`SystemToolHost = { agents, context, telemetry, access }`；kernel 经 `kernel/toolHost.ts` 把自身域操作适配为中性 DTO，组合根注入。**其他模块不得 import 本端口类型**：类型只住 `internal/ports.ts`，不随 `tools/index.ts` 公开导出；kernel 适配器为具名例外，直取 `../tools/internal/ports`。
 
 `createInternalTools({ host, bash? })` 是 internal 工具唯一定义入口；bash 端口存在时才装配。
 

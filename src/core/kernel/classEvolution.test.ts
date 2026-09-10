@@ -9,6 +9,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../gateway'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
+import { registerInternalTools } from '../main'
 import { checkToolsConvergence } from '../tools'
 
 import { makeAgentClassID, makeAgentID, ROOT_ID, type AgentClass } from './types'
@@ -80,7 +81,7 @@ describe('agent_class_create：注册 + 落盘（S5.2）', () => {
       userClass: { tools: userTools },
       classStore: store.classStore,
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     const result = await createViaTool(tools, {
       name: 'reviewer',
       description: '代码审查',
@@ -100,7 +101,7 @@ describe('agent_class_create：注册 + 落盘（S5.2）', () => {
     const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')), {
       userClass: { tools: userTools },
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     const result = await createViaTool(tools, { name: 'lab', description: 'd', systemPrompt: 'p', tools: {} })
     assert.match(result.text, /仅内存注册/)
     assert.ok(kernel.templates.getSync(makeAgentClassID('lab')))
@@ -110,7 +111,7 @@ describe('agent_class_create：注册 + 落盘（S5.2）', () => {
     const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')), {
       userClass: { tools: userTools },
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     await createViaTool(tools, { name: 'dup', description: 'd', systemPrompt: 'p' })
     await assert.rejects(
       () => createViaTool(tools, { name: 'dup', description: 'd2', systemPrompt: 'p2' }),
@@ -126,7 +127,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
       userClass: { tools: userTools },
       classStore: store.classStore,
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     await createViaTool(tools, { name: 'reviewer', description: 'v1', systemPrompt: 'p1', tools: { read: 'allow', bash: 'ask' } })
     const result = await updateViaTool(tools, { name: 'reviewer', systemPrompt: 'p2', tools: { read: 'deny', bash: 'deny' }, model: 'prov/m1' })
     assert.match(result.text, /已更新类 reviewer/)
@@ -150,7 +151,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
       userClass: { tools: userTools },
       classStore: store.classStore,
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     await createViaTool(tools, { name: 'gated', description: 'd', systemPrompt: 'p', tools: { bash: 'ask' } })
     const before = store.saved.length
     const result = await updateViaTool(tools, { name: 'gated', tools: { bash: 'allow' }, systemPrompt: 'sneak' })
@@ -164,7 +165,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')), {
       userClass: { tools: userTools },
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     const result = await updateViaTool(tools, { systemPrompt: 'hack myself' })
     assert.match(result.text, /user 根类/)
     assert.ok(kernel.templates.getSync(makeAgentClassID('user'))!.systemPrompt !== 'hack myself')
@@ -175,7 +176,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')), {
       userClass: { tools: userTools },
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     await kernel.templates.register({
       name: makeAgentClassID('__strategy_role__'),
       description: 'panel',
@@ -191,7 +192,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')), {
       userClass: { tools: userTools },
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     assert.match((await updateViaTool(tools, { name: 'ghost', systemPrompt: 'x' })).text, /类不存在/)
     assert.match((await updateViaTool(tools, { name: 'reviewer2', description: 'x' })).text, /类不存在/)
     await createViaTool(tools, { name: 'reviewer2', description: 'd', systemPrompt: 'p' })
@@ -202,7 +203,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')), {
       userClass: { tools: userTools },
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     await createViaTool(tools, { name: 'runner', description: 'd', systemPrompt: 'p', tools: { bash: 'allow' } })
     const first = await kernel.instantiateAgent(
       { className: makeAgentClassID('runner'), parentId: makeAgentID(ROOT_ID), userPrompt: 'go' },

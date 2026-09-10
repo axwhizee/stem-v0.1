@@ -40,23 +40,6 @@ export type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode, Convergenc
 export type { ShellRunOptions, ShellRunResult, ShellRunner, BashToolSettings } from './internal/bash'
 export { createBashTool, formatShellOutput, BASH_DEFAULTS } from './internal/bash'
 
-// internal 工具宿主端口（消费方拥有；kernel 适配器实现、组合根注入）。
-export type {
-  AgentPort,
-  ContextPort,
-  TelemetryPort,
-  AccessPort,
-  SystemToolHost,
-  AgentClassView,
-  AgentClassInput,
-  AgentClassPatchInput,
-  AgentInstanceView,
-  AgentConfigView,
-  InstantiateRequest,
-  AgentUpdateRequest,
-  StoredMessageView,
-} from './internal/ports'
-
 export type { AccessAskOptions, AccessAskBus } from './accessRequest'
 export { DefaultAccessAskBus, formatAccessRequest } from './accessRequest'
 

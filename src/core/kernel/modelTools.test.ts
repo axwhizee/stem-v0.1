@@ -10,6 +10,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../gateway'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
+import { registerInternalTools } from '../main'
 import { formatTelemetryRow } from '../tools/internal/systemTools'
 
 import { makeAgentClassID, ROOT_ID, type AgentClass } from './types'
@@ -44,7 +45,7 @@ async function harness() {
     userClass: { tools: userTools },
     templates: [selfModelCls, genedCls],
   })
-  await h.kernel.registerSystemTools(h.tools)
+  await registerInternalTools(h.kernel, h.tools)
   return h
 }
 

@@ -5,7 +5,7 @@
 // ============================================================
 
 import { Kernel, makeAgentClassID, ROOT_ID } from '../../src/core/kernel'
-import { createRuntime } from '../../src/core/main'
+import { attachToolRecordSink, createRuntime } from '../../src/core/main'
 import type { UserDelivery } from '../../src/core/context'
 import type { ContextSettings, StrategyRegistry } from '../../src/core/context'
 import { defaultStemConfig } from '../../src/core/config'
@@ -117,6 +117,9 @@ export async function createKernelHarness(
       if (e.type === 'letter') deliveries.push({ kind: 'user', agentId: e.agentId, letters: e.letters })
     },
   })
+  // 工具记录 sink（生产由组合根接线；Kernel 构造器不再自接线）——工具相位
+  // 事件流 + 仓库工具记录/历史行（tokenUsage 等测试依赖）。
+  attachToolRecordSink(kernel, tools)
   await kernel.registerRootAgent()
   return { kernel, timers, deliveries, tools }
 }

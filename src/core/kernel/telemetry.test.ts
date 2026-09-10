@@ -10,13 +10,14 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../gateway'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
+import { registerInternalTools } from '../main'
 import { makeAgentClassID, ROOT_ID } from './types'
 import type { LogEvent } from '../logging'
 
 /** 构造根 → {A→A1, B} 三叉谱系（observer 类显式声明观测面）并注入混合事件。 */
 async function setup() {
   const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')))
-  await kernel.registerSystemTools(tools)
+  await registerInternalTools(kernel, tools)
   // 观测者类：telemetry_query 显式 allow（internal 出生 ignore = 不暴露）。
   await kernel.templates.register({
     name: makeAgentClassID('observer'),

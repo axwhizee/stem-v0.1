@@ -1,14 +1,15 @@
 # AGENTS.md
 
-> 本文件 = 每次会话必读的最小上下文：硬规则 + 命令 + 结构 + 概念速查。
-> **机制细节一律看 `docs/architecture.md`（实况以此为准）；工程纪律动手前通读 `docs/contributor.md`。** 勿往本文缝细节。
+> 本文件 = 面向 agent 的**实操手册**：硬规则 + 命令 + 环境坑 + 纪律。
+> 项目本身（定位/架构/概念/参数/工具清单/上手）看 `README.md`；机制细节看 `docs/architecture.md`（实况以此为准）；完整工程纪律看 `docs/contributor.md`。**两份文档不重复叙述：项目描述归 README，坑与纪律留本文件。**
 
-## 项目
+## 项目速记（描述看 README）
 
-**stem**（Self-Training Evolutionary Matrix）= 以**原子化 AgentClass（模板）+ Agent 实例**为核心的自主多 agent 系统：类可自由创建/实例化，配**族谱树**与协作，让 AI 自己管理 agent 信息、自我进化。定位 = **用户主权的 Agent 系统**，宿主无关（core 零平台依赖，已从 VSCode 剥离）。
+**stem**（Self-Training Evolutionary Matrix）= 以**原子化 AgentClass（模板）+ Agent 实例**为核心的自主多 agent 系统：类可自由创建/实例化，配**族谱树**与协作，让 AI 自己管理 agent 信息、自我进化。定位 = **用户主权的 Agent 系统**，宿主无关（core 零平台依赖，已从 VSCode 剥离）。完整描述见 `README.md`。
 
-- `reference/` 是参考源码（deepseek-harness/pi/opencode/VSCode），**非本项目产物**，类型/编译错误可忽略。
-- `docs/prompts.md` = 需求与优化台账（不提交）；`docs/log1.md` / `log2.md` = 历史卷（只追加）。
+agent 须知：
+- `reference/` 是外部参考源码（deepseek-harness/pi/opencode/VSCode），**非本项目产物**——其类型/编译错误一律忽略。
+- `docs/prompts.md` = 需求与优化台账（不提交）；沿革由 git 提交历史承载（改行为 → commit message 说清）。
 
 ## 设计原则（硬规则）
 
@@ -18,6 +19,13 @@
 4. **模块自治**：装配在 core（`createStemSystem` 组合根，平台能力接口注入）；shell 只做平台适配 + UI；外部交互经模块接口（pilot = 根扮演接口）。
 5. **分层**：`shell`（最外）→ `core`（agents + 系统工具 + bash = 最小系统）→ `extension`（目录形态资源）；core 零平台依赖（禁平台全局）。**少即是多**：优先 `init` 生命周期扩展，不新建子系统。
 6. **对外操作面 = bash 单点**：无 ask、无黑名单（对齐 pi），事故半径靠硬超时 / 输出截断 / 默认 cwd。**容器即边界**：挂载 volume 即爆炸半径，不建议裸机暴露 webui。
+7. **对过时文件/死代码零容忍**，文档忠于现状、不写临时行为。
+
+## 工作方法：加减法
+
+- **加法**：满足需求、增加功能时放手做加法——把能力完整做进去，不为省事留半成品。
+- **减法**：代码审阅/优化时做减法——**用通用、清晰的机制替代冗杂的打补丁**，删特判、去重复、灭死代码（硬规则 7）。
+- 落点：新需求先问「既有机制能否自然表达」（硬规则 2）——能则复用收敛、不新增组件，不能才加法；批末回看这段逻辑能否用更少、更通用的原语重写。
 
 ## 快速命令
 
@@ -26,7 +34,7 @@ npm install                 # 依赖（node >= 23.4，node:sqlite 免 flag）
 npm run typecheck           # tsc --noEmit（唯一 lint/typecheck）
 npm test                    # 全量单测（node:test）
 npm run test:module -- "src/core/kernel/*.test.ts"   # 按模块跑
-npm run test:feas           # 离线可行性冒烟（mockSse 零密钥；在线两档见 contributor §6.2）
+npm run test:feas           # 可行性冒烟（离线档零密钥；在线档需真网关，见 contributor §6.2）
 npm run shell               # CLI：cwd 即空间（`-- <path>` 指定；key 走 env）
 ALIBABA_API_KEY=<key> npm run shell   # 真实网关（密钥只走 env，config providers.<p>.key_env 声明变量名）
 npm run web                 # WebUI http://localhost:4321（`-- <path>` / STEM_PROJECT_ROOT）
@@ -34,6 +42,17 @@ npm run dashboard -- [path] # 仪表盘 http://localhost:4421（DB 只读直查�
 npm run feishu -- [path]    # 飞书长连接远程 shell（FEISHU_APP_ID/SECRET 走 env）
 python3 run-docker.py       # 容器一键起（Windows/WSL 双端）
 ```
+
+## 环境与踩坑（WSL 开发机实录）
+
+- **node PATH 不跨 shell 会话**：每条命令自带 `export PATH="$HOME/.nvm/versions/node/v24.16.0/bin:$PATH"`。
+- 密钥只走 env：读 Windows 用户变量经 `powershell.exe -NoProfile -Command "[Environment]::GetEnvironmentVariable('<NAME>','User')"`，只进子进程环境，零打印零落盘。
+- 常驻服务必须 `setsid` 脱组（工具会话超时 SIGKILL 连坐进程组）；`pkill -f` 模式串用 `[r]` 拆分写法（防自噬当前命令行）。
+- `/mnt/c` drvfs 偶发 `FileSystem.access` NotFound——重试即恢复，非产品问题。
+- loopback HTTP 测试脚本内防御性清 `*_PROXY` env；webui SSE 端点 = `/api/events`。
+- SQLite：`all` 是保留字（`AS all` 语法错，`AS at` 可用）；node >= 23.4（node:sqlite 免 flag）。
+- 运行依赖 `tsx`（无扩展名相对导入 + `.stem/tools/*.ts` 动态 import）；`jsonc-parser`/`yaml` 是运行时 dependencies。
+- 完整清单与「真端点教训」见 `docs/contributor.md §6/§8`。
 
 ## 项目结构
 
@@ -43,7 +62,7 @@ src/core/       纯 TS 零平台依赖（硬规则；全表见 contributor §2.1
   context/      重建邮局：Repository/ContextManager/Courier + tag/双索引 + legalize + strategies/(classic/cortex/none)
   events/       PilotEvent(五元) + EventHub
   gateway/      ModelGateway + providers/openaiCompatible + FakeGateway
-  main/         createStemSystem 组合根 + runInit 矩阵装载 + runtime 执行器 + 端口适配（唯一 import 一切）
+  main/         createStemSystem 组合根（含 internal 工具 + 记录 sink 接线/toolWiring）+ runInit 矩阵装载 + runtime 执行器 + 端口适配（唯一 import 一切）
   kernel/       Kernel/TemplateRegistry/InstanceManager/SpaceManager + builtin/agents + 持久化端口/装饰器 + RuntimePort/SystemFacade
   lineage/      LineageTree：拓扑 + 能力物化（权限/模型）+ canReach 唯一门面
   logging/      LogEvent + Logger（注入 LogSink，运行时内存）+ forget
@@ -51,31 +70,20 @@ src/core/       纯 TS 零平台依赖（硬规则；全表见 contributor §2.1
   tools/        ToolCapabilityRegistry + access 四态代数 + accessRequest + output（统一输出）+ internal/（系统工具 + bash）
 shell/          宿主层：cli/（bootStem + SQLite + mockSse）/ webui/ / dashboard/ / feishu/
 extension/      矩阵 extension 层：tools/（fs 五件套 + web 两件 + _lib）/ agent/（creator）/ context/
-test/           support/ + feasibility/（四档冒烟）+ space-demo/ + space-v10/
+test/           support/ + feasibility/（可行性冒烟）+ space-demo/（演示空间）
 docs/           实况卷 architecture.md（机制以此为准）/ contributor.md（工程纪律）/ scenarios.md
-                api.md / dev-guide.md（交付产物，1.0 前可能滞后）
-                log1.md / log2.md（历史卷，只追加）/ prompts.md（需求台账，不提交）
+                api.md（交付产物，1.0 前可能滞后）/ prompts.md（需求台账，不提交）
 ```
 
-## 核心概念速查（详情 = architecture.md 对应节）
+> 概念/参数/工具清单/上手 → `README.md`；机制细节 → `docs/architecture.md` 对应节。本文件不复述。
 
-- **AgentClass**：name 即 id；`tools` 四态 Record（键即白名单；未设 = 继承，`{}` = 封闭）；contextStrategy 实例化时固化；panel = 模块扮演；custom 自由位。→ arch §2/4.6
-- **AgentInstance**：id = 出生路径（根 `0`，子 `<父id>-<序号>`，序号永不回收，terminate 落墓碑）；name 全局唯一（缺省派生 `类名-N`）；parentId = 创建者 = 族谱父；model/modelSnapshot 随行持久；轮账 turnCount/totalCost/totalTokens（终身累计）走 recordTurnEnd；状态 idle→thinking→holding，interrupted 可恢复。呈现 `name#id`，写面三形态寻址。→ arch 2.1/4.3
-- **族谱树**：实例层派生事实唯一面（拓扑实时推导 + 权限/模型注册期物化 + canReach）；纯派生不入库。→ arch 4.4
-- **邮局**：仓库 → 管理员（打戳/策略 process/组装/legalize/waitForReply）→ 快递员（倒计时送信，只发不组装）；通信 = `kernel.sendMessage`，无总线。→ arch §3
-- **上下文策略**：契约 note/role/tools/assemble/process/actions/init（tools = 收敛链 raise 声明清单）；触发 = user_prompt 抵达，终点 = 唤醒快递员；classic = 直出 + compact（markInvalid 可逆）；cortex = 三层记忆（LTM/笔记/STM）+ 阈值做梦二段事务（dreamer 回信交付）；`.stem/context/*.ts` 可覆盖。→ arch 2.2b
-- **工具与访问**：注册即出生声明（internal 注册点写死：`access_reply`/`bash` allow，其余 ignore；extension/custom 经 `config.extensions.tools {名:权限词}` 点名，**未点名 = 不存在**）+ 收敛链（根→类→[策略]→实例逐级收紧）；模型可见 = allow ∪ ask；kind 纯 provenance。→ arch 2.2/4.5/4.9
-- **消息库**：StoredMessage tag（六元词表）+ turn/indexInTurn 双索引；信件戳 `<sender id="name#id" at="yymmdd.hhmm">`；tokens = 网关真实值差分归位、chars/4 兜底。→ arch 2.6
-- **持久化**：个体层 SQLite write-through（消息/实例/空间，schema v3——版本不符 = 拒载硬错）；类/策略/工具 = 文件真相；一空间一库一进程；重启 = 装载 + 归一化 + replay + 零重放。→ arch 4.15
-- **配置**：`.stem/stem.jsonc` 唯一载体（`providers.key_env` 存变量名不存密钥；`user` = 根的完整类对象，`user.model` 必填家学锚点；R12 未知顶层键 fail-fast；类/策略目录即真相，config 永不回写）。→ arch 4.12
-- **进化闭环（人启动）**：agent_class_create/update（同名覆盖、tools 只许收敛、落盘 `.stem/agent/`、只影响后续实例）+ telemetry_query（可见域日志）+ 重启新实例携带新基因。记忆生理层 = cortex。→ arch 4.6
-- **实例参数唯一写面**：`agent_update`（缺省目标 = 自身，canReach）= model / name / tools 收敛 patch / grantTools 整表；写实例行 → 全树 replay。类/拓扑/策略/提示词永不入此通道。→ arch 2.2/4.3/4.4
-- **事件流**：PilotEvent 五元（stream/letter/status/tool/notice）；tool 事件只带名字/相位不带参数，详情走 DB；EventHub 多订阅者。→ arch 2.4
+## 门槛与提交纪律
 
-## 门槛
-
-`npm run typecheck` 0 错误 + `npm test` 全绿；改跨模块机制跑 `npm run test:feas` 离线档；改行为在 `docs/log2.md` 追加一条；commit message 只描述功能变化、禁进度代号，**提交前先征得用户同意**。全文见 `docs/contributor.md §6/§7`。
+`npm run typecheck` 0 错误 + `npm test` 全绿；改跨模块机制跑 `npm run test:feas` 离线档。改行为的说明写进 commit message（git 历史即沿革），只描述功能变化、**禁进度代号**，**提交前先征得用户同意**。全文见 `docs/contributor.md §6/§7`。
 
 ## 文档管理
 
-docs下面的`logx.md`是所有迭代记录的日志，只做尾部追加（避免撑爆上下文）；交付产物不需要每次迭代都进行更新，只需要发布前更新就够了；临时信息（典型如步骤代号、日期等）不进持久化文档
+- 实况文档（AGENTS / architecture / contributor / 各模块 README）承载"当前系统是什么"；**沿革由 git 提交历史承载**（改行为 → commit message 说清），不设日志卷。
+- **AGENTS vs README 分工**：AGENTS = agent 实操（硬规则/命令/环境坑/纪律）；README = 项目描述（定位/架构/概念/参数/工具清单/上手）。**勿在本文件复述项目描述**。
+- 交付产物（`api.md`）不需要每次迭代更新，发布前统一重定稿即可。
+- 文档正文**整段单行**书写，不要手动折行；临时信息（典型如步骤代号、日期等）不进持久化文档。

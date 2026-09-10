@@ -11,17 +11,18 @@
 
 ## 1. 文档维护纪律（最高优先级）
 
-### 1.1 两类文档，两种义务
+### 1.1 文档只有一类：实况卷
 
 | 类型 | 卷 | 义务 |
 |---|---|---|
 | **实况卷** | AGENTS.md · docs/architecture.md · 本卷 · 各模块 `src/core/*/README.md`（api.md 为交付产物，见下注） | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
-| **历史卷** | docs/log1.md / docs/log2.md（日志按 ~100KB 滚动切卷）· prompts.md（plan 卷如 brain-plan/test-plan 落地即随批退役，沿革由 log 承载） | 承载"当时发生了什么/定了什么"。**只追加不回改**（偏差记 log，plan 卷是执行依据非实况） |
+
+**沿革（"当时发生了什么/定了什么"）由 git 提交历史承载**——每批行为变化写进 commit message，`git log` 即完整时间线；不再另设日志卷（log 文件已删除，git 历史足够充分）。`docs/prompts.md`（需求与优化台账，不提交）仍是需求记录面，但不承载实况。
 
 > **交付产物标记（2026-09-10）**：`docs/api.md` 是面向 1.0 交付的接口参考，**正式发布前可能滞后于代码**——实现以 `architecture.md`、各模块 README 与代码为准，v1.0 冻结时统一重定稿（见 `prompts.md` 优化台账）。
 
 **plan 卷生命周期**（用户裁决）：阶段计划卷（`*-plan.md`）是实施期的执行依据；
-**实施完成即随下一个功能提交删除**——全部裁决与沿革已追加在日志卷（当时为 log.md，现为 log1/log2），残留计划
+**实施完成即随下一个功能提交删除**——全部裁决与沿革由 git 提交历史承载，残留计划
 只会长成过时指路牌。写 plan 时即按此契约：plan 卷只承载"将要做什么+为什么这么定"，
 不承载实况描述（实况永远归 architecture/api/模块 README）。
 
@@ -45,11 +46,11 @@
 | 配置结构 | defaults.ts（首启模板 = 唯一预设）+ architecture 配置节 + AGENTS 配置节 + config/README |
 | 工具 kind/shape/权限语义 | architecture 工具节 + tools/README + AGENTS 设计原则 + `extension/tools/`、`src/core/tools/` 全部住户 |
 | 新增/退役模块、目录形态 | AGENTS 结构树 + architecture 结构图 + 本卷 §3 命名表 |
-| 任何行为变更 | docs/log2.md（现行日志卷）**追加**一条（含验证证据）；被影响的实况卷按上表整节重写 |
+| 任何行为变更 | commit message 说清行为变化（git 历史即沿革）；被影响的实况卷按上表整节重写 |
 
 ### 1.4 事实优先
 
-文档与代码冲突时，**代码是真相，改文档**——除非确认代码本身是 bug（走修复+log 记账，不得反向把 bug 写成文档）。拿不准实况时读码或跑标本（dashboard 资源页 = 矩阵真实装配结果），禁止凭旧文档记忆推断。
+文档与代码冲突时，**代码是真相，改文档**——除非确认代码本身是 bug（走修复 + commit message 记账，不得反向把 bug 写成文档）。拿不准实况时读码或跑标本（dashboard 资源页 = 矩阵真实装配结果），禁止凭旧文档记忆推断。
 
 ## 2. 分层与模块结构契约
 
@@ -98,7 +99,7 @@
 - 严格度**总序** `deny ≺ ask ≺ allow ≺ ignore`（按监督度：ignore=看不见的执行最宽）：一切权限书写面（类文件 update / 实例 agent_update / 台账物化）同一把尺，只许顺链收缩；藏匿（allow→ignore）判扩张被拒。
 - `grant` = 清单形整表替换 + 逐键祖先显式**封顶**（无扩张面）：`InstantiateOptions.accessMode` 仍为策略/宿主专用；模型侧清单便利走 `agent_update.grantTools`（受限语义使其安全等价于逐键填表）。
 - 运行期实例参数写面唯一 = `kernel.updateAgent`（agent_update 工具 / pilot 共用；改后全树 replay），禁止新增散点 setter。
-- ask 是消息交换不是系统通道：改审批流程 = 改 `<access_request>` 消息形状，考虑根信箱可读性（实参披露是待裁决项，见 log）。
+- ask 是消息交换不是系统通道：改审批流程 = 改 `<access_request>` 消息形状，考虑根信箱可读性（实参披露是待裁决项，见 git 历史）。
 
 ## 6. 测试规范
 
@@ -110,11 +111,11 @@
 
 ### 6.2 可行性冒烟（test/feasibility/，`npm run test:feas`）
 
-跨模块全链路脚本（非 node:test，独立退出码）：offline1 装配/端到端/审批/书写/模型/重启、offline2 compact 策略面、online 真网关、http 双服务。改动 core 装配/族谱/网关后**必须**跑离线两档；发版前全四档。
+跨模块全链路脚本（非 node:test，独立退出码）：offline1 装配/端到端/审批/书写/模型/重启、offline2 compact 策略面、online 真网关（需 ALIBABA_API_KEY）。改动 core 装配/族谱/网关后**必须**跑离线两档；发版前补跑在线档。
 
 ### 6.3 真端点教训（本项目最高价值测试经验）
 
-1. **自造 mock 会精确隐藏它没见过的形状**——dashscope tool_calls 尾分片带 `id:""` 覆盖真 id → 真网关工具链整体静默失效，单测全绿掩盖至今（修复见 log）。真端点冒烟不可省；抓真 SSE 原文写回归用例是标准流程。
+1. **自造 mock 会精确隐藏它没见过的形状**——dashscope tool_calls 尾分片带 `id:""` 覆盖真 id → 真网关工具链整体静默失效，单测全绿掩盖至今（修复见 git 历史）。真端点冒烟不可省；抓真 SSE 原文写回归用例是标准流程。
 2. **假阳性断言自查**：marker 别出现在 prompt 里（否则 user 行命中）；断言要指到 `role:"tool"` 行级证据。
 3. **时序与口径陷阱**：等 LLM 轮先等进 `thinking` 再等离开（固定 sleep 竞态）；compact 检查点在"下一封 user 信抵达"，测试需要第三轮做触发探针；mock `prompt_tokens` 给**固定值**会命中负差回落护栏（Δ≤0 回落估算）——用量阶梯递增让真实归位通道保持畅通。
 4. **手动计时器的时间坍缩**（kernelHarness `manualTimers` 实录教训）：`flushAll` 不看 ms 全量触发 = 同时炸掉"回信等待超时（60s）"与"0ms 发送倒计时"——凡被测链含 `waitForReply` 类长超时，先 pump microtask、久无进展才 flush（FakeGateway 链不经计时器）；harness 已修 0ms 档走真定时器（setTimeout(0)），worker 类 0 倒计时不再永滞 cooling 态。配对类通道改语义时守"**先登记等待者、后投递触发信**"（instantiate 的创建配对原子性同款纪律，纠错循环曾栽在反序上）。
@@ -124,11 +125,11 @@
 - 门槛：`npm run typecheck` 0 错误（`reference/` 参考码噪音忽略，对拍 `grep -v reference/`）+ `npm test` 全绿。
 - 身份：`git -c user.name="OwlCat" -c user.email="owlcat@local" commit`（沿用仓库习惯）。
 - `TODO.md`、`prompts.md` 是需求记录，不纳入提交。
-- **commit message 只描述功能变化本身，严禁出现阶段/进度代号**（S7、T1、R6 之类）——历史要可读出"系统多了什么能力"，不是"项目走到哪"。plan 卷与日志卷才承载代号叙事。
+- **commit message 只描述功能变化本身，严禁出现阶段/进度代号**（S7、T1、R6 之类）——历史要可读出"系统多了什么能力"，不是"项目走到哪"。代号只许出现在 plan 卷。
 - 每功能批一次 conventional commit；scope 用能力域（feat(gateway)/feat(dashboard)/test/docs…）。
 - **提交前一律先征求用户同意**（方案落盘、功能批次完成均报告待批，不自行入库）。
-- **message 遵循 conventional 规范且精炼**：标题一句话说清功能变化，正文只列关键改动点，避免长篇过程叙事（细节住 plan 卷与日志卷）。
-- **plan 卷随实现退役**（§1.1 契约的执行面）：计划落盘先独立 docs 批提交；其内容实现完成后，**删除该 plan 卷并随功能批一并提交**（沿革归 log，不留过时指路牌）。
+- **message 遵循 conventional 规范且精炼**：标题一句话说清功能变化，正文只列关键改动点，避免长篇过程叙事（细节住 plan 卷）。
+- **plan 卷随实现退役**（§1.1 契约的执行面）：计划落盘先独立 docs 批提交；其内容实现完成后，**删除该 plan 卷并随功能批一并提交**（沿革归 git 提交历史，不留过时指路牌）。
 
 ## 8. 环境与运行陷阱（WSL 开发机实录）
 
@@ -148,6 +149,6 @@
 - [ ] 判别联合类型、无 `any`、`import type` 齐？
 - [ ] 新逻辑有同目录单测？纯函数抽了？fake 注入而非 mock 全局？
 - [ ] 动了接口/配置/工具 shape → §1.3 对拍表逐行走完（实况卷**整节**重写，非补一句）？
-- [ ] log2.md（现行日志卷）追加了本批记账（含验证证据）？
+- [ ] 本批行为变化已写进 commit message（含关键验证证据）？
 - [ ] commit message 无进度代号？typecheck + 全量测试绿？
-- [ ] 跨模块机制动过 → `npm run test:feas` 离线档跑了吗？发版批跑全四档 + 真端点？
+- [ ] 跨模块机制动过 → `npm run test:feas` 离线档跑了吗？发版批补跑在线档 + 真端点？

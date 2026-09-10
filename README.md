@@ -4,7 +4,7 @@
 > 干细胞之意：如同原始 Agent 类，可分化出任意角色与能力。
 > 抛弃会话概念：以**原子化 Agent 类 + Agent 实例**为核心，配合**族谱树**与模块化 harness 系统，构建可自我进化的多智能体集群。
 
-**状态**：架构定稿，v1.0 发布前逐模块收敛（核心骨架 + 个体层持久化（schema v3）+ 上下文策略框架 classic/cortex + 族谱权限台账与出生声明 + 根配置对象化 + 身份代数（路径 id + 全局 name + 带时戳信件）+ bash 最小操作面 + extensions 点名装载）。发布进展与验证证据以 **`docs/log2.md`** 为准（本文不再承载用例数/日期等易漂移数字）。
+**状态**：架构定稿，v1.0 发布前逐模块收敛（核心骨架 + 个体层持久化（schema v3）+ 上下文策略框架 classic/cortex + 族谱权限台账与出生声明 + 根配置对象化 + 身份代数（路径 id + 全局 name + 带时戳信件）+ bash 最小操作面 + extensions 点名装载）。发布进展与验证证据以 **git 提交历史** 为准（本文不再承载用例数/日期等易漂移数字）。
 
 ---
 
@@ -30,7 +30,7 @@
 │   webui/（HTTP + SSE；三件套分文件；流式思维链/监督抽屉/占用条；/api/health） │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                     │
-│   init/（createStemSystem 组合根）· kernel/（Kernel/Runtime/builtin/agents │
+│   main/（createStemSystem 组合根 + runInit 装载）· kernel/（Kernel/实例/空间 │
 │   pilot/（根 user#0 扮演接口）· events/（PilotEvent + EventHub）      │
 │   lineage/（族谱纯关系视图）· context/（邮局 + legalize + 持久化端口）│
 │   tools/（注册表 + access 四态 + accessRequest + bash 端口）          │
@@ -84,7 +84,7 @@
 
 工具按来源分三类（`ToolKind = internal | extension | custom`，kind 是纯 provenance 不参与权限）。权限只有两个来源：**注册表出生声明**（每个工具注册点写死 birth——`access_reply`/`bash` 出生 allow，其余 internal 通例 ignore 背景在场；extension/custom 由 `config.extensions.tools` 点名时给定权限词）与**收敛清单链**（根→类→[策略]→实例逐级收紧）。**模型可见 = allow ∪ ask**。
 
-### ① core 系统工具（`kind=internal`，20 个，`src/core/kernel/systemTools.ts`）
+### ① core 系统工具（`kind=internal`，20 个，`src/core/tools/internal/systemTools.ts`）
 
 系统自我管理与邮局机制的模型侧能力面；"根清单（模板实值）"列 = 首启模板的 `user.tools` 推荐实值（config 是唯一清单源，代码零缺省表；boot 校验律审判 access_reply=allow 缺位拒启）。
 

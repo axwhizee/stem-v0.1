@@ -18,6 +18,7 @@ function stamped(identity: string, body: string): RegExp {
 }
 import { makeAgentClassID, makeAgentID, ROOT_ID } from './types'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
+import { registerInternalTools } from '../main'
 import { BUILTIN_TEMPLATES } from './Kernel'
 
 const _model = { provider: 'opencode', id: 'test-model' }
@@ -216,7 +217,7 @@ describe('Kernel 邮局模式', () => {
         },
       },
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
 
     // user#0 身份调用：registry/ask 总线经 AccessResolver 查询台账（不再手传权限层）。
     const adminCtx = { agentId: ROOT_ID, spaceId: 'space-1' }
@@ -271,7 +272,7 @@ describe('Kernel 邮局模式', () => {
   test('logging：全链路日志经消息总线路由到记录器', async () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
     const { kernel, tools, timers, deliveries } = await createKernelHarness(gateway)
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
 
     const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
     await deliveries.next() // 首信回复

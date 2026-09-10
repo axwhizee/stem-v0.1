@@ -14,3 +14,7 @@ export { createStemSystem } from './system'
 // agent 执行器（原 kernel/Runtime.ts；Kernel 经 RuntimePort 接口消费）
 export { DefaultRuntime, createRuntime } from './runtime'
 export type { RuntimePort, RuntimePortDeps } from '../kernel'
+
+// internal 工具装配 + 工具记录 sink 接线（组合根；Kernel 不再自接线）
+export type { InternalToolWiringOptions } from './toolWiring'
+export { registerInternalTools, attachToolRecordSink } from './toolWiring'

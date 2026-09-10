@@ -11,6 +11,7 @@ import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../gateway'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
+import { registerInternalTools } from '../main'
 
 import { ROOT_ID, type AgentClass } from './types'
 import { makeAgentClassID } from './types'
@@ -43,7 +44,7 @@ async function harness() {
     userClass: { tools: userTools },
     templates: [inheritCls, listedCls],
   })
-  await h.kernel.registerSystemTools(h.tools)
+  await registerInternalTools(h.kernel, h.tools)
   return h
 }
 

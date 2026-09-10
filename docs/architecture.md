@@ -2,7 +2,7 @@
 
 > 本文档记录**实际开发过程中明确的系统架构**与各模块内部的实现逻辑（落地后的真实形态，与规划冲突时以本文档为准，并会同步修订）。
 
-**日期**：2026-08-22 · 最后同步 2026-09-11（tools 模块收口：internal 工具统一 `tools/internal/` + DIP 窄端口；组合根 `init/`→`main/`、`kernel/Runtime.ts`→`main/runtime.ts`（RuntimePort）；`agentParse/Serialize`→`config/agentFile.ts`；pilot 门面化 SystemFacade；统一输出 `tools/output.ts` + `config.tools.outputLimit`；模块自述拆入 `src/core/*/README.md`）
+**日期**：2026-08-22 · 最后同步 2026-09-11（tools 模块收口：internal 工具统一 `tools/internal/` + DIP 窄端口；组合根 `init/`→`main/`、`kernel/Runtime.ts`→`main/runtime.ts`（RuntimePort）；`agentParse/Serialize`→`config/agentFile.ts`；pilot 门面化 SystemFacade；统一输出 `tools/output.ts` + `config.tools.outputLimit`；模块自述拆入 `src/core/*/README.md`；工具装配上移 `main/toolWiring.ts`（internal 工具 + 记录 sink，Kernel 不再认识 bash）+ internal 端口收口（只留 `tools/internal/ports.ts`，kernel 适配器具名直取））
 
 > **模块自述导航**：`src/core/{tools,main,kernel,config,context,lineage,gateway,pilot,events,logging}/README.md`
 > 承载各模块实现细节；本卷承载架构总览与跨模块机制。`api.md` 为交付产物（发布前可能滞后）。
@@ -86,7 +86,7 @@
 - **两段式生命周期**：`process`（异步许可：可做摘要/整理、经系统通道造 agent，返回即"就绪"）与 `assemble`（纯函数同步：送信快照）分离——快递员永不异步、只发不组装（组装权归管理员）。`ContextRegistration.contextStrategy` 开辟时确定（上下文属性），未知策略注册期 fail-fast（恢复接线兜底默认，不炸启动）。
 - **契约面**：`init?(ctx)` 装载期钩子（组合根在工具 `initAll` 之前逐策略执行；`StrategyInitContext = {projectRoot, fs(读+可选写口), settings, log, registerTool}`——策略自带工具经窄口注册进总表，**出生恒 ignore**；策略 provenance 与自身分类对齐：core 策略 → internal 形、`.stem/context/` 策略 → custom 形）；**`tools?` 声明清单 = 收敛链 raise 步**（只抬不封：逐键把策略注册面键抬到声明值，封顶 = 出生值 ∧ 链上显式判定；声明宽于封顶 = 违例，写入面实例化拒绝、物化面静默钳制——"策略与类矛盾 = 拒造"零特判，见 2.2）；`StrategyApi.custom`（宿主类 custom 自由槽 = 策略基因参数载体）+ `lastWorkerId/roleAgentId/updateMessage`；**`spawn(task, spec, opts?)` 回信纠错循环**：`opts.validate(reply)` 报不合 = role 名义发纠错信给同一 worker 再等回信（缺省 ≤2 轮；等待者先登记后发信免竞态），轮尽原样返回末件（半途语义归策略裁决）——classic/cortex/用户策略共用通用端口。
 - **classic（急救室，对齐 opencode compact）**：完整历史直出 + 逼近窗口阈值时把轮边界之前的旧段交摘要 worker 精炼为一条 `<context_summary>`（tag='summary'）、旧消息 `markInvalid`（**仓库/DB 语料保留，压缩可逆可审计**，opencode 无此优势）。轮边界压缩 + append-only → 前缀缓存稳定。触发 = user_prompt 抵达（`process`，await 压缩完成再就绪），另导出 `actions.compact`。参数 `config.context.{window,compact}`。compact 是 classic **私有动作**——参数不与其它策略混用。
-- **cortex（睡眠生理，纯既有接口组合）**："上下文 = 专注度资源"。三层外挂记忆：**LTM**（JSON，仓库 tool 行 tag='ltm' + `.stem/mem/<id>/.memory.json` 单向镜像永不回灌）/ **笔记层**（`.stem/mem/<id>/<主题>.md`，agent 与 dreamer 双可写，目录行 tag='note' 磁盘巡检 in-place 再生；**文件层 = 人机共读地盘**——agent 经 bash 直改笔记文件合法，dreamer 下拍目录再生吸收人工编辑；`.memory.json` 是投影勿手改）/ **STM**（tag='stm' 行，无文件）。**教学样板组装**：记忆组 = 仓库真实行（锚点 user tag='cortex' 一次写不轮替 + 载体 assistant 虚拟调用 `cortex_load_ltm/notes/stm` 三枚——不注册，幻觉点名 = unknown 无害 + 三 tool 行配对），assemble 恒直出。触发 = `estimatedTokens ≥ custom.cortex.dreamAt`（阈值激活无 timer，轮替即瞬降水位）→ **异步点火不等收口**。**dreamer（`cortex-dreamer`，类规格策略硬编码）**：spawn 走标准通道（素材全景重放于任务书、grant 清单收敛至笔记两键），正职是**说**——**回信即交付物**：`<cortex_dream><ltm>JSON</ltm><stm>markdown</stm></cortex_dream>` 双段报告，schema 校验（`parseDreamReport` 纯函数）住 spawn validate——不合 = 纠错信循环（见上契约面）；双份齐 → **runDream 收口段**执行轮替（旧组+快照实时行 markInvalid、新组 append、镜像、`context.dreamed` 事件——**二段事务的原子性本就住在这里**），半途/轮尽 = 不轮替水位不动下拍重触发。笔记不经回信：dreamer 调 add/del_note **当场以 host 名义落盘** host 目录（全局梦锁在场即路由，无暂存机制——旧 `cortex_set_*` 工具与梦 token 暂存分流已整体退役）。**agent 主权面**：`cortex_add_note/del_note` 出生策略注册面（ignore），启用 cortex 的类经策略声明清单抬 allow——**非 cortex 类不再白拿**；水位线无独立存储（现行记忆组最大 turn 行序推导）。`actions.dream` 手动提前做梦。参数仅两件：`custom.cortex = {dreamAt?, consolidateModel?}`。方案史见日志卷（brain-plan→cortex 三版收敛→纯接口化减法）。
+- **cortex（睡眠生理，纯既有接口组合）**："上下文 = 专注度资源"。三层外挂记忆：**LTM**（JSON，仓库 tool 行 tag='ltm' + `.stem/mem/<id>/.memory.json` 单向镜像永不回灌）/ **笔记层**（`.stem/mem/<id>/<主题>.md`，agent 与 dreamer 双可写，目录行 tag='note' 磁盘巡检 in-place 再生；**文件层 = 人机共读地盘**——agent 经 bash 直改笔记文件合法，dreamer 下拍目录再生吸收人工编辑；`.memory.json` 是投影勿手改）/ **STM**（tag='stm' 行，无文件）。**教学样板组装**：记忆组 = 仓库真实行（锚点 user tag='cortex' 一次写不轮替 + 载体 assistant 虚拟调用 `cortex_load_ltm/notes/stm` 三枚——不注册，幻觉点名 = unknown 无害 + 三 tool 行配对），assemble 恒直出。触发 = `estimatedTokens ≥ custom.cortex.dreamAt`（阈值激活无 timer，轮替即瞬降水位）→ **异步点火不等收口**。**dreamer（`cortex-dreamer`，类规格策略硬编码）**：spawn 走标准通道（素材全景重放于任务书、grant 清单收敛至笔记两键），正职是**说**——**回信即交付物**：`<cortex_dream><ltm>JSON</ltm><stm>markdown</stm></cortex_dream>` 双段报告，schema 校验（`parseDreamReport` 纯函数）住 spawn validate——不合 = 纠错信循环（见上契约面）；双份齐 → **runDream 收口段**执行轮替（旧组+快照实时行 markInvalid、新组 append、镜像、`context.dreamed` 事件——**二段事务的原子性本就住在这里**），半途/轮尽 = 不轮替水位不动下拍重触发。笔记不经回信：dreamer 调 add/del_note **当场以 host 名义落盘** host 目录（全局梦锁在场即路由，无暂存机制——旧 `cortex_set_*` 工具与梦 token 暂存分流已整体退役）。**agent 主权面**：`cortex_add_note/del_note` 出生策略注册面（ignore），启用 cortex 的类经策略声明清单抬 allow——**非 cortex 类不再白拿**；水位线无独立存储（现行记忆组最大 turn 行序推导）。`actions.dream` 手动提前做梦。参数仅两件：`custom.cortex = {dreamAt?, consolidateModel?}`。方案史见 git 提交历史（brain-plan→cortex 三版收敛→纯接口化减法）。
 - **模块扮演 agent（role）**：策略需造工具 agent 时，懒生成一个自己的扮演 agent（父 = **宿主 agent**，故 terminate 级联回收；`AgentClass.panel=true` 面板态：不组装、不跑 LLM、收信由策略模块消费）——是"pilot 扮演根"的同构推广，赋予代码模块族谱位/信箱/权限面。worker（`summarizer`/`cortex-dreamer` 规格，策略硬编码，父 = role，`contextStrategy:'none'`）经邮局正规往返 + 回信配对 `waitForReply` 兑现，用完即 terminate 归档。role 的 `tools` 语义要点：**不设 = 匿名不封顶**（cortex role 须如此，否则空表本地封闭会锁死 worker grant 键——`ensureSystemTemplate` 对 `spec.tools` undefined 原样透传）。
 - **递归终止**：role/worker 均 `panel` 或 `none` 策略（无 process、不再 spawn），天然断套娃；策略失败绝不卡死送信（catch + 降级照常唤醒，双保险；cortex 自动链另走 fire-and-forget）。
 - **用户策略加载（`.stem/context/*.ts`）**：init 管线扫描默认导出 `ContextStrategyModule` 注册进注册表（同名覆盖内置 = 用户主权），与 `.stem/tools/` 同构——"让 agent 自己写上下文策略"的加载通道；用户策略同样享有 `init` 装载期。
@@ -100,7 +100,7 @@
 
 ### 2.4 事件流：PilotEvent + EventHub（多订阅者）
 
-- `PilotEvent` 判别联合**五元**：`stream`（LLM 流式 text/reasoning/tool/usage/finish）/ `letter`（信箱来信，含 `<access_request>` 消息化申请）/ `status` / `tool`（工具执行相位 called/success/error，= ToolRecord.status 直转，kernel setRecordSink 单点双写）/ `notice`（扩展位）。**tool 事件刻意无 args/result**（裁决：参数摘要不上广播——耗时客户端 called→success 相减，详情走 DB 面 telemetry/logger.query 按需查）；delta 类事件 live-only 定性（快照收口 = 轮末信件与仓库行，断线不补 delta 间隙）。
+- `PilotEvent` 判别联合**五元**：`stream`（LLM 流式 text/reasoning/tool/usage/finish）/ `letter`（信箱来信，含 `<access_request>` 消息化申请）/ `status` / `tool`（工具执行相位 called/success/error，= ToolRecord.status 直转，main `attachToolRecordSink` 单点双写）/ `notice`（扩展位）。**tool 事件刻意无 args/result**（裁决：参数摘要不上广播——耗时客户端 called→success 相减，详情走 DB 面 telemetry/logger.query 按需查）；delta 类事件 live-only 定性（快照收口 = 轮末信件与仓库行，断线不补 delta 间隙）。
 - `EventHub`：多订阅者 Set，`subscribe` 返回退订；新订阅者拿不到历史事件（初始视图靠直接查询模块）。
 - kernel 的 `KernelOptions.onEvent` 收敛为单一 `(event: PilotEvent) => void`；Runtime 流式/状态经 kernel 转发到 hub。
 
@@ -179,7 +179,7 @@
 - **治理 = 机制 + 分担，非询问**（对齐 pi）：**无 ask、无黑名单**（高频工具询问打断模型循环得不偿失）；事故半径三机制（硬超时缺省 120s / stdout·stderr 各 50k 截断 / cwd 缺省项目根，`config.bash` 可配 `path/defaultTimeoutMs/maxOutputChars/cwd`）；行为规范靠工具描述提示词（非交互式、有专职工具优先）；不想给某 agent shell → 模板白名单不列 `bash` 键（键即自我限定）。非零退出码不是工具失败（输出 + exit code 照常返回，模型自判）。
 - 出生权限 `allow`（A1：对外操作面的自然出生，随注册点声明，`config.user.tools` 收敛可关）；宿主未注入 `shellRunner` 则不装配（`bootStem` 缺省注入，`shellRunner:false` 可关）。
 
-### 4.6 系统工具（`core/kernel/systemTools.ts`，internal；**出生权限逐把声明，通例 ignore——上台面由各级清单显式化**）
+### 4.6 系统工具（`core/tools/internal/systemTools.ts`，internal；**出生权限逐把声明，通例 ignore——上台面由各级清单显式化**）
 
 | 工具 | 作用 |
 |---|---|
@@ -239,7 +239,7 @@
 - **系统装配**（`core/main/system.ts`，`createStemSystem(deps)` 组合根；agent 执行器住 `main/runtime.ts`，Kernel 经 `RuntimePort` 消费）：
  0. （可选 `stateStore` 注入）Kernel 构造内：内存核建好后先从 store 恢复（实例/消息/空间 + 状态归一化 + id 计数器续接 + 族谱树能力相 replay 重放），再套 write-through 装饰器，恢复出的实例在构造末尾统一接线上下文——装配顺序不变，恢复收敛在 Kernel 内；
  1. 读取配置（不存在 = `defaultStemConfig` 内存等效；**家学硬校验 config.user.model**）→ 工具注册表 + Kernel（user 类 = config.user 对象，`contextSettings`/`maxSteps`/**`project`（项目空间身份，根挂真实空间）**注入；策略注册表内置 classic/none）；
- 2. 系统工具（agent_*/bus_*/context_* + telemetry_query + context_apply + access_reply）→ bash 工具（注入 `shellRunner` 才装配）→ 类回写通道（注入 `classFs` 才建 `ClassStore`：create/update 授权后 serialize → .stem/agent/<name>.md`）；
+  2. 工具记录 sink（`main/toolWiring.attachToolRecordSink`：工具三相位 → 事件流 tool 变体 + 仓库记录/历史行）→ internal 工具（`main/toolWiring.registerInternalTools` 唯一入口：系统工具 agent_*/mail_*/context_*/telemetry_query/access_reply + 注入 `shellRunner` 才装配的 bash）→ 类回写通道（注入 `classFs` 才建 `ClassStore`：create/update 授权后 serialize → .stem/agent/<name>.md`）；
  3. `runInit` 管线（统一矩阵装载）：三类资源（tools / agent 类 / context 策略）× 两来源层——**extension 层**按 `config.extensions.<种类>` 点名从 `extensionRoots`（宿主注入仓库 `extension/` 根）装载目录形态资源（`<名>/<名>.<ext>`；工具入口可工厂形态收 projectRoot）；**custom 层**自动扫描 `.stem/` 各目录（平铺兼容 + 目录形态优先）。装载序 internal → extension → custom，**后层同名覆盖前层**（registry/template register replace）。**目录即真相：仅配置文件不存在时写默认模板，管线此后纯只读、永不回写**（镜像同步/orphan 检测已整体移除）。
  4. `createPilot`（pilot 初始化内实例化根，挂真实项目空间）→ 订阅事件流；
  5. `tools.initAll`（fs/projectRoot/log 注入）→ 用户注入钩子（`userHooks`，init 末尾，深度扩展）。

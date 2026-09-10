@@ -34,6 +34,7 @@ import { runInit } from './loader'
 import type { InitDeps, InitReport, ClassFs } from './types'
 import { createRuntime } from './runtime'
 import { createSystemFacade } from './systemFacade'
+import { attachToolRecordSink, registerInternalTools } from './toolWiring'
 import { agentFileOf, serializeAgentClass } from '../config'
 
 /** 系统上下文（用户注入钩子入参）。 */
@@ -145,17 +146,23 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     ...(classStore !== undefined ? { classStore } : {}),
   })
 
+  // 工具记录 sink（唯一接线点）：工具执行三相位 → 事件流 tool 变体 + 仓库记录/历史行。
+  attachToolRecordSink(kernel, tools, config.tools?.outputLimit)
+
   // 系统工具（agent_*/mail_*/context_* + access_reply）+ （注入 ShellRunner 才装配的）bash，
   // 统一经 internal 唯一出入口 createInternalTools；bash cwd 缺省 = 空间根
   //（事故半径三机制之"默认 cwd"；工具参数相对路径以此为基准）。
-  await kernel.registerSystemTools(
+  await registerInternalTools(
+    kernel,
     tools,
     deps.shellRunner !== undefined
       ? {
-          runner: deps.shellRunner,
-          settings: { ...(config.bash ?? {}), cwd: config.bash?.cwd ?? deps.config.paths.projectRoot },
+          bash: {
+            runner: deps.shellRunner,
+            settings: { ...(config.bash ?? {}), cwd: config.bash?.cwd ?? deps.config.paths.projectRoot },
+          },
         }
-      : undefined,
+      : {},
   )
   // 宿主显式注入的工具（测试/深度定制通道；常规 extension 工具走 runInit 矩阵装载）。
   for (const tool of deps.hostTools ?? []) await tools.register(tool)

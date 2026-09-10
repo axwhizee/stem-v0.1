@@ -17,6 +17,7 @@ import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentID, ROOT_ID } from './types'
 import { BUILTIN_TEMPLATES } from './Kernel'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
+import { registerInternalTools } from '../main'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
@@ -81,7 +82,7 @@ describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
       parameters: { type: 'object', properties: {} },
       execute: () => ({ text: '当前 UTC 时间: 2026-08-11T12:00:00.000Z' }),
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
 
     const creatorId = await kernel.instantiateAgent(
       { className: makeAgentClassID('creator'), parentId: makeAgentID(ROOT_ID), userPrompt: '请创建一个能读取时间的助手并让它把时间报告给我。' },
@@ -158,7 +159,7 @@ describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
       templates: [...BUILTIN_TEMPLATES, creatorTemplate],
       countdownMs: 0,
     })
-    await kernel.registerSystemTools(tools)
+    await registerInternalTools(kernel, tools)
     const creatorId = await kernel.instantiateAgent(
       { className: makeAgentClassID('creator'), parentId: makeAgentID(ROOT_ID), userPrompt: '先挂起等我攒信' },
       '/proj',

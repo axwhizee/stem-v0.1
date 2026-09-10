@@ -7,6 +7,7 @@
 - 持有并暴露领域聚合：`TemplateRegistry`（类表）、`InstanceManager`（实例）、`SpaceManager`（空间）、`LineageTree`（族谱/能力）、`Repository`/`ContextManager`/`Courier`（邮局）、`RuntimePort`（执行器接口）、`ToolCapabilityRegistry`、`AccessAskBus`、`EventHub`、`Logger`。
 - 定义运行期写通道：`updateAgent`（实例参数唯一写面，改后全树 replay）、`terminateAgent`、`interruptAgent`、`instantiateInSpace`、`registerAgentClass`/`updateAgentClass`。
 - 提供端口适配器：`toolHost.ts`（`SystemToolHost`）、`runtimePort.ts`（接口声明）、`systemFacade.ts`（接口声明）。
+- **不自接线**：工具记录 sink 与 internal 工具装配由组合根 `main/toolWiring.ts` 完成（Kernel 不认识 bash）；Kernel 只注入日志/访问端口（`setLogSink`/`setAccessSink`/`setAccessResolver`）。
 
 ## 文件
 

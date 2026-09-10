@@ -34,7 +34,7 @@ import type { Logger } from '../logging'
 import { forget, InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
 import type { AccessAskBus, AccessResolver, ToolAccess } from '../tools'
-import { DefaultAccessAskBus, formatAccessRequest, foldConvergenceSteps, formatToolOutput } from '../tools'
+import { DefaultAccessAskBus, formatAccessRequest, foldConvergenceSteps } from '../tools'
 import type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode } from '../tools'
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
@@ -64,9 +64,6 @@ import type { SpaceManager } from './SpaceManager'
 import type { RuntimePort, RuntimePortDeps } from './runtimePort'
 import { DefaultLineageTree } from '../lineage'
 import type { AccessProfile, LineageTree } from '../lineage'
-import { createInternalTools } from '../tools/internal'
-import type { InternalToolDeps } from '../tools/internal'
-import { createSystemToolHost } from './toolHost'
 import { ASSISTANT, buildUserClass } from './builtin/agents'
 import type { UserClassConfig } from './builtin/agents'
 import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, ProjectRef } from './types'
@@ -167,13 +164,10 @@ export class Kernel {
   private readonly rootName: string
   /** 策略注册表（收敛链策略层解析口；缺省 = 无策略声明参与）。 */
   private readonly strategies?: StrategyRegistry
-  /** 工具输出窗口上限（config.tools.outputLimit；0/未设 = 不启用）。 */
-  private readonly toolOutputLimit?: number
 
   constructor(options: KernelOptions) {
     this.rootName = options.userClass?.name ?? ROOT_NAME
     this.strategies = options.strategies
-    this.toolOutputLimit = options.toolOutputLimit
     this.templates = new DefaultTemplateRegistry([
       buildUserClass(options.userClass),
       ...(options.templates ?? BUILTIN_TEMPLATES),
@@ -281,27 +275,8 @@ export class Kernel {
       onLog: { log: (event) => this.emitLog(event) },
     })
 
-    // 工具自动记录 → 仓库（触发/成功/失败），不依赖 runtime 手动发送；
-    // 同时上实时监督流（tool PilotEvent：只带名字/相位/时刻，无 args/result——详情走 DB 面）。
-    this.tools?.setRecordSink?.((record, ctx) => {
-      this.events.emit({ type: 'tool', agentId: ctx.agentId, tool: record.invocation.name, phase: record.status, at: record.at })
-      forget(this.contextManager.appendToolRecord(ctx.agentId, record), 'kernel:appendToolRecord', (event) => this.emitLog(event))
-      if (record.status === 'success' && record.result) {
-        if (record.result.metadata?.contextWait) return // 挂起通道（wait/pause）：等待填充，不 append
-        forget(this.contextManager.appendHistory(ctx.agentId, {
-          role: 'tool',
-          content: formatToolOutput(record.result, { outputLimit: this.toolOutputLimit }),
-          toolCallId: record.invocation.id,
-        }), 'kernel:appendToolHistory', (event) => this.emitLog(event))
-      } else if (record.status === 'error') {
-        const error = record.error ?? { kind: 'execution_failed' as const, tool: record.invocation.name, message: '工具执行失败' }
-        forget(this.contextManager.appendHistory(ctx.agentId, {
-          role: 'tool',
-          content: formatToolOutput(error, { outputLimit: this.toolOutputLimit }),
-          toolCallId: record.invocation.id,
-        }), 'kernel:appendToolError', (event) => this.emitLog(event))
-      }
-    })
+    // 工具记录 sink（记录/历史回填 + 事件流 tool 相位）由组合根接线：
+    // `main/toolWiring.attachToolRecordSink`（Kernel 不再自接线，DIP）。
     // 工具调用日志；访问确认 → AccessAskBus；族谱权限查询 → 台账。
     this.tools?.setLogSink?.({ log: (event) => this.emitLog(event) })
     this.tools?.setAccessSink?.(this.access)
@@ -670,13 +645,6 @@ export class Kernel {
       contextStrategy: cls.contextStrategy ?? 'none',
     })
     this.emitLog({ type: 'kernel.class.registered', at: Date.now(), classId: cls.name })
-  }
-
-  /** 注册系统管理工具（agent_/context_/mail_/telemetry_ 与 access_reply）+ （可选）bash。 */
-  async registerSystemTools(registry: ToolCapabilityRegistry, bash?: InternalToolDeps['bash']): Promise<void> {
-    for (const tool of createInternalTools({ host: createSystemToolHost(this), ...(bash !== undefined ? { bash } : {}) })) {
-      await registry.register(tool)
-    }
   }
 
   /**
