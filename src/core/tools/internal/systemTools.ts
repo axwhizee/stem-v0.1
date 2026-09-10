@@ -1,36 +1,27 @@
 // ============================================================
-// core/kernel/systemTools.ts —— 系统管理工具（Kernel 提供）
+// core/tools/internal/systemTools.ts —— 系统管理工具（internal 唯一定义域）
 //
 // 注册即出生声明：每个工具携带 birth（出生权限）——`access_reply: allow`
 //   （根答复义务的自然出生）与 `bash: allow`（对外操作面）为已定实值，
 //   其余通例出生 `ignore`（上台面由收敛链各级清单显式化；kind 纯 provenance
 //   不参与权限推断）。
-// 工具执行器闭包引用 Kernel（组合根装配时注册到注册表）。
+// 消费方拥有端口（./ports）：本文件只认 SystemToolHost 窄接口，零 kernel import。
 // 命名规范：`<模块>_<动作>`（mail_send / mail_participants / agent_*）。
-// 寻址（B3）：一切目标参数经 kernel.resolveAgent 三形态解析（name 优先 /
+// 寻址（B3）：一切目标参数经 host.agents.resolveAgent 三形态解析（name 优先 /
 // name#id 精确制导 / 裸 id：精确→唯一前缀）；呈现面统一 `name#id`。
 // ============================================================
 
-import type { ToolCapability } from '../tools'
-import type { ToolAccess } from '../tools'
-import { checkToolsConvergence } from '../tools'
-import type { AccessReply } from '../tools'
-import type { AccessProfile } from '../lineage'
-import type { ModelOrigin } from '../lineage'
-import type { ModelRef } from '../gateway'
-import type { LogEvent } from '../logging'
-import { eventInvolvesAgent } from '../logging'
-import type { Kernel } from './Kernel'
-import type { AgentClass, AgentID } from './types'
-import { makeAgentClassID, makeAgentID } from './types'
+import type { ToolCapability, ToolAccess, AccessReply } from '../types'
+import { checkToolsConvergence } from '../access'
+import type { ModelRef } from '../../gateway'
+import type { LogEvent } from '../../logging'
+import { eventInvolvesAgent } from '../../logging'
+import type { AgentConfigView, SystemToolHost } from './ports'
 
-/**
- * 写面三形态寻址（B3）薄壳：kernel.resolveAgent 失败转**可行动文本**
- * （工具失败不抛栈炸轮）——歧义给候选清单，缺失指路 mail_participants。
- */
-function resolveOr(kernel: Kernel, _ctx: { agentId: string }, ref: string): { id: AgentID } | { text: string } {
+/** 写面三形态寻址薄壳：适配器失败转**可行动文本**（工具失败不抛栈炸轮）。 */
+function resolveOr(host: SystemToolHost, ref: string): { id: string } | { text: string } {
   try {
-    return { id: kernel.resolveAgent(ref) }
+    return { id: host.agents.resolveAgent(ref) }
   } catch (e) {
     const err = e as { kind?: string; ref?: string; candidates?: readonly string[] }
     if (err?.kind === 'agent_ref_ambiguous') {
@@ -40,34 +31,34 @@ function resolveOr(kernel: Kernel, _ctx: { agentId: string }, ref: string): { id
   }
 }
 
-/** 生成系统工具清单（由 Kernel.registerSystemTools 装配）。 */
-export function createSystemTools(kernel: Kernel): ToolCapability[] {
+/** 生成系统工具清单（由组合根装配）。 */
+export function createSystemTools(host: SystemToolHost): ToolCapability[] {
   return [
-    agentClassCreate(kernel),
-    agentClassUpdate(kernel),
-    agentClassList(kernel),
-    agentInstantiate(kernel),
-    agentList(kernel),
-    agentInspect(kernel),
-    agentAncestry(kernel),
-    agentDescendants(kernel),
-    agentTerminate(kernel),
-    agentUpdate(kernel),
-    mailSend(kernel),
-    mailParticipants(kernel),
-    telemetryQuery(kernel),
-    agentPause(kernel),
-    contextExport(kernel),
-    contextOverview(kernel),
-    contextRemove(kernel),
-    contextEdit(kernel),
-    contextApply(kernel),
-    accessReply(kernel),
+    agentClassCreate(host),
+    agentClassUpdate(host),
+    agentClassList(host),
+    agentInstantiate(host),
+    agentList(host),
+    agentInspect(host),
+    agentAncestry(host),
+    agentDescendants(host),
+    agentTerminate(host),
+    agentUpdate(host),
+    mailSend(host),
+    mailParticipants(host),
+    telemetryQuery(host),
+    agentPause(host),
+    contextExport(host),
+    contextOverview(host),
+    contextRemove(host),
+    contextEdit(host),
+    contextApply(host),
+    accessReply(host),
   ]
 }
 
 /** 创建新 agent 类（admin 权限，D7/铁律 8）。只承载类属性，不含实例数据（userPrompt 等）。 */
-function agentClassCreate(kernel: Kernel): ToolCapability {
+function agentClassCreate(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_class_create',
     description:
@@ -107,8 +98,8 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
         if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
         model = parsed
       }
-      const cls: AgentClass = {
-        name: makeAgentClassID(args.name),
+      const cls = {
+        name: args.name,
         description: args.description,
         systemPrompt: args.systemPrompt ?? '',
         tools: args.tools ?? {},
@@ -117,9 +108,9 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
         ...(args.sendCountdown !== undefined ? { sendCountdown: args.sendCountdown } : {}),
         ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
       }
-      await kernel.registerAgentClass(cls, { persist: true, by: ctx.agentId })
+      await host.agents.registerAgentClass(cls, { persist: true, by: ctx.agentId })
       return {
-        text: `已创建 agent 类 ${args.name}（tools=${cls.tools === undefined ? '未设=继承父档案' : Object.keys(cls.tools).length + ' 条规则'}，${kernel.hasClassStore() ? '已落盘 .stem/agent/，重启后仍生效' : '仅内存注册——宿主未启用类回写通道'}）`,
+        text: `已创建 agent 类 ${args.name}（tools=${Object.keys(cls.tools).length} 条规则，${host.agents.hasClassStore() ? '已落盘 .stem/agent/，重启后仍生效' : '仅内存注册——宿主未启用类回写通道'}）`,
       }
     },
   }
@@ -131,7 +122,7 @@ function agentClassCreate(kernel: Kernel): ToolCapability {
  * ②工具路径**只许收敛**（checkToolsConvergence——deny 不可撤销、ask 不许变执行免询问）；
  * ③panel 机制类与 user 根类不可改（红线：系统机制与用户基因分界；根人格归 config.user）。
  */
-function agentClassUpdate(kernel: Kernel): ToolCapability {
+function agentClassUpdate(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_class_update',
     description:
@@ -165,13 +156,13 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
         maxSteps?: number
       }
       // 缺省目标 = 调用者所属类（自我进化主路径）。
-      const selfClass = kernel.instances.getSync(makeAgentID(ctx.agentId))?.classRef
-      const target = args.name !== undefined ? makeAgentClassID(args.name) : selfClass
+      const selfClass = host.agents.getInstanceSync(ctx.agentId)?.classRef
+      const target = args.name !== undefined ? args.name : selfClass
       if (target === undefined) return { text: '无法确定目标类（请显式给出 name）' }
-      if ((target as string) === 'user') {
+      if (target === 'user') {
         return { text: 'user 根类的基因由 config.user（stem.jsonc）承载，不经本通道改写' }
       }
-      const current = kernel.templates.getSync(target)
+      const current = host.agents.getClassSync(target)
       if (!current) return { text: `类不存在: ${target}（新建请用 agent_class_create）` }
       if (current.panel === true) {
         return { text: `panel 类 ${target} 为系统机制承载（策略 role 等），不可修改/回写（红线）` }
@@ -190,7 +181,7 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
         if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
         model = parsed
       }
-      const patch: Partial<AgentClass> = {
+      const patch = {
         ...(args.description !== undefined ? { description: args.description } : {}),
         ...(args.systemPrompt !== undefined ? { systemPrompt: args.systemPrompt } : {}),
         ...(args.contextStrategy !== undefined ? { contextStrategy: args.contextStrategy } : {}),
@@ -199,9 +190,9 @@ function agentClassUpdate(kernel: Kernel): ToolCapability {
         ...(model !== undefined ? { model } : {}),
         ...(mergedTools !== undefined ? { tools: mergedTools } : {}),
       }
-      const patchKeys = Object.keys(patch).filter((k) => k !== 'name')
+      const patchKeys = Object.keys(patch)
       if (patchKeys.length === 0) return { text: '无可更新字段（description/systemPrompt/tools/model/contextStrategy/sendCountdown 至少给一项）' }
-      const { persisted } = await kernel.updateAgentClass(target, patch, { persist: true, by: ctx.agentId })
+      const { persisted } = await host.agents.updateAgentClass(target, patch, { persist: true, by: ctx.agentId })
       return {
         text: `已更新类 ${target}（${patchKeys.join(', ')}；${persisted ? '已落盘 .stem/agent/' : '仅内存更新——宿主未启用类回写通道'}；对后续实例生效）`,
       }
@@ -219,16 +210,15 @@ function parseModelArg(value: string): { provider: string; id: string } | undefi
 const MODEL_FORMAT_HINT = 'model 必须是 "提供商/模型" 格式（提供商 = config providers 注册表的键；裸模型名无归属不受理）'
 
 /** 模型解析命中层的中文谱系标签（agent_inspect 出示；R6 四级律）。 */
-const MODEL_ORIGIN_LABELS: Record<ModelOrigin, string> = {
+const MODEL_ORIGIN_LABELS: Record<string, string> = {
   explicit: '实例显式（出生指定或 set_model 改写）',
   class: '类基因',
   inherited: '父继承',
   home: '家学 = config.user.model',
 }
 
-
 /** 列出 agent 类。 */
-function agentClassList(kernel: Kernel): ToolCapability {
+function agentClassList(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_class_list',
     description: '列出全部 agent 类（模板）及关键属性。',
@@ -238,7 +228,7 @@ function agentClassList(kernel: Kernel): ToolCapability {
     category: 'system',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
-      const classes = await kernel.templates.list()
+      const classes = await host.agents.listClasses()
       const lines = classes.map(
         (c) =>
           `${c.name}  tools=${c.tools === undefined ? 'inherit' : Object.keys(c.tools).length > 0 ? Object.entries(c.tools).map(([t, a]) => `${t}:${a}`).join(',') : '-'}${c.contextStrategy ? `  strategy=${c.contextStrategy}` : ''}${c.model ? `  model=${c.model.id}` : ''}`,
@@ -249,7 +239,7 @@ function agentClassList(kernel: Kernel): ToolCapability {
 }
 
 /** 创建 agent 实例（必填 className + userPrompt；父 = 调用者）。 */
-function agentInstantiate(kernel: Kernel): ToolCapability {
+function agentInstantiate(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_instantiate',
     description:
@@ -290,24 +280,24 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
         if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
         model = parsed
       }
-      let agentId: Awaited<ReturnType<Kernel['instantiateInSpace']>>
+      let agentId: string
       try {
-        agentId = await kernel.instantiateInSpace(
-        {
-          className: makeAgentClassID(args.className),
-          userPrompt: args.userPrompt,
-          parentId: makeAgentID(ctx.agentId),
-          ...(args.name !== undefined ? { name: args.name } : {}),
-          contextRefs: args.contextRefs,
-          tools: args.tools,
-          ...(model !== undefined ? { model } : {}),
-          // wait：hold 随实例化原子注册（Kernel 在首信投递前放置，竞态绝迹）；
-          // 本调用不回填结果，runtime 见 contextWait 标记收束本轮等唤醒。
-          ...(args.wait === true
-            ? { hold: { toolCallId: ctx.callId ?? '', ...(args.waitTimeoutMs !== undefined ? { timeoutMs: args.waitTimeoutMs } : {}) } }
-            : {}),
-        },
-        ctx.spaceId,
+        agentId = await host.agents.instantiate(
+          {
+            className: args.className,
+            userPrompt: args.userPrompt,
+            parentId: ctx.agentId,
+            ...(args.name !== undefined ? { name: args.name } : {}),
+            contextRefs: args.contextRefs,
+            tools: args.tools,
+            ...(model !== undefined ? { model } : {}),
+            // wait：hold 随实例化原子注册（kernel 在首信投递前放置，竞态绝迹）；
+            // 本调用不回填结果，runtime 见 contextWait 标记收束本轮等唤醒。
+            ...(args.wait === true
+              ? { hold: { toolCallId: ctx.callId ?? '', ...(args.waitTimeoutMs !== undefined ? { timeoutMs: args.waitTimeoutMs } : {}) } }
+              : {}),
+          },
+          ctx.spaceId,
         )
       } catch (cause) {
         const err = cause as { kind?: string; violations?: string[]; message?: string }
@@ -326,7 +316,7 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
       if (args.wait === true) {
         return { text: '', metadata: { contextWait: true } }
       }
-      return { text: `已创建 agent ${kernel.displayOf(agentId)}` }
+      return { text: `已创建 agent ${host.agents.displayOf(agentId)}` }
     },
   }
 }
@@ -337,7 +327,7 @@ function agentInstantiate(kernel: Kernel): ToolCapability {
  * 无特权通道）；改后下一轮送信生效，**不级联**已出生子孙（R6 族规=出生快照）；
  * 显式层随实例行落盘（R14，重启延续）。provider 未接通/模型不在白名单 → 用到才硬错。
  */
-function agentUpdate(kernel: Kernel): ToolCapability {
+function agentUpdate(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_update',
     description:
@@ -370,10 +360,10 @@ function agentUpdate(kernel: Kernel): ToolCapability {
         tools?: Record<string, ToolAccess>
         grantTools?: Record<string, ToolAccess>
       }
-      const resolved = args.agentId !== undefined ? resolveOr(kernel, ctx, args.agentId) : { id: makeAgentID(ctx.agentId) }
+      const resolved = args.agentId !== undefined ? resolveOr(host, args.agentId) : { id: ctx.agentId }
       if ('text' in resolved) return { text: resolved.text }
       const target = resolved.id
-      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), makeAgentID(target))) {
+      if (!host.agents.canReach(ctx.agentId, target)) {
         return { text: `无权更新该 agent（可见域 = 自身 + 族谱后代）: ${target}` }
       }
       if (args.tools !== undefined && args.grantTools !== undefined) {
@@ -393,7 +383,7 @@ function agentUpdate(kernel: Kernel): ToolCapability {
         return { text: '至少给出一个更新字段（model / name / tools / grantTools）；现档案见 agent_inspect' }
       }
       try {
-        await kernel.updateAgent({
+        await host.agents.updateAgent({
           agentId: target,
           by: ctx.agentId,
           ...(model !== undefined ? { model } : {}),
@@ -409,15 +399,15 @@ function agentUpdate(kernel: Kernel): ToolCapability {
         if (err.kind === 'agent_name_conflict') return { text: `改名被拒：${err.message ?? String(e)}` }
         throw e
       }
-      const cfg = kernel.lineage.nodeConfigOf(target)
-      const modelEcho = cfg?.model !== undefined ? `${cfg.model.ref.provider}/${cfg.model.ref.id}·${cfg.model.origin}` : '-'
-      return { text: `已更新 ${kernel.displayOf(target)}（下一轮送信生效；收缩已沿族谱下传重算）。现模型 = ${modelEcho}；生效清单见 agent_inspect。` }
+      const cfg = host.agents.getAgentConfig(target)
+      const modelEcho = cfg?.model !== undefined ? `${cfg.model.provider}/${cfg.model.id}·${cfg.model.origin}` : '-'
+      return { text: `已更新 ${host.agents.displayOf(target)}（下一轮送信生效；收缩已沿族谱下传重算）。现模型 = ${modelEcho}；生效清单见 agent_inspect。` }
     },
   }
 }
 
 /** 列出 agent 实例（缺省列出调用者所在空间）。 */
-function agentList(kernel: Kernel): ToolCapability {
+function agentList(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_list',
     description: '列出 agent 实例（可选指定空间，缺省为调用者所在空间）。',
@@ -431,7 +421,7 @@ function agentList(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const spaceId = (input as { spaceId?: string }).spaceId ?? ctx.spaceId
-      const agents = await kernel.instances.listBySpace(spaceId as never)
+      const agents = await host.agents.listInstances(spaceId)
       const lines = agents.map((a) => `${a.name}#${a.id} <${a.classRef}> parent=${a.parentId ?? '-'} [${a.status}]`)
       return { text: lines.length > 0 ? `agent 列表:\n${lines.join('\n')}` : '（当前空间无 agent）' }
     },
@@ -439,7 +429,7 @@ function agentList(kernel: Kernel): ToolCapability {
 }
 
 /** 查看单个 agent 实例详情（含族谱）。 */
-function agentInspect(kernel: Kernel): ToolCapability {
+function agentInspect(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_inspect',
     description: '查看单个 agent 实例详情：父/子/祖先链、状态、轮次、成本。',
@@ -453,21 +443,21 @@ function agentInspect(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const ref = (input as { agentId?: string }).agentId ?? ctx.agentId
-      const resolved = resolveOr(kernel, ctx, ref)
+      const resolved = resolveOr(host, ref)
       if ('text' in resolved) return { text: resolved.text }
       const agentId = resolved.id
-      const instance = await kernel.instances.get(agentId as never)
-      const children = kernel.lineage.getChildren(instance.id)
-      const ancestors = kernel.lineage.getAncestors(instance.id)
-      const node = kernel.lineage.nodeConfigOf(agentId)
+      const instance = await host.agents.getInstance(agentId)
+      const children = host.agents.getChildren(instance.id)
+      const ancestors = host.agents.getAncestors(instance.id)
+      const node = host.agents.getAgentConfig(agentId)
       const lines = [
         `agent ${instance.name}#${instance.id}`,
         `  class: ${instance.classRef}`,
-        `  parent: ${instance.parentId !== null ? kernel.displayOf(instance.parentId) : '（根）'}`,
-        `  children: ${children.length > 0 ? children.map((id) => kernel.displayOf(id)).join(', ') : '-'}`,
-        `  ancestry: ${ancestors.length > 0 ? ancestors.map((id) => kernel.displayOf(id)).join(' → ') : '（树根）'}`,
+        `  parent: ${instance.parentId !== null ? host.agents.displayOf(instance.parentId) : '（根）'}`,
+        `  children: ${children.length > 0 ? children.map((id) => host.agents.displayOf(id)).join(', ') : '-'}`,
+        `  ancestry: ${ancestors.length > 0 ? ancestors.map((id) => host.agents.displayOf(id)).join(' → ') : '（树根）'}`,
         `  status: ${instance.status}  turns: ${instance.turnCount}  cost: ${instance.totalCost}`,
-        `  model: ${node?.model !== undefined ? `${node.model.ref.provider}/${node.model.ref.id}（${MODEL_ORIGIN_LABELS[node.model.origin]}）` : '（全链无锚——检查 config.user.model）'}`,
+        `  model: ${node?.model !== undefined ? `${node.model.provider}/${node.model.id}（${MODEL_ORIGIN_LABELS[node.model.origin] ?? node.model.origin}）` : '（全链无锚——检查 config.user.model）'}`,
         `  access: ${formatEffectiveAccess(node?.access)}`,
       ]
       return { text: lines.join('\n') }
@@ -476,7 +466,7 @@ function agentInspect(kernel: Kernel): ToolCapability {
 }
 
 /** 查询祖先链。 */
-function agentAncestry(kernel: Kernel): ToolCapability {
+function agentAncestry(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_ancestry',
     description: '查询指定 agent 的祖先链（[父 → … → 根]，不含自身）。',
@@ -490,16 +480,16 @@ function agentAncestry(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const ref = (input as { agentId?: string }).agentId ?? ctx.agentId
-      const resolved = resolveOr(kernel, ctx, ref)
+      const resolved = resolveOr(host, ref)
       if ('text' in resolved) return { text: resolved.text }
-      const ancestors = kernel.lineage.getAncestors(resolved.id)
-      return { text: ancestors.length > 0 ? `祖先链: ${ancestors.map((id) => kernel.displayOf(id)).join(' → ')}` : `${kernel.displayOf(resolved.id)} 是族谱树根` }
+      const ancestors = host.agents.getAncestors(resolved.id)
+      return { text: ancestors.length > 0 ? `祖先链: ${ancestors.map((id) => host.agents.displayOf(id)).join(' → ')}` : `${host.agents.displayOf(resolved.id)} 是族谱树根` }
     },
   }
 }
 
 /** 查询后代。 */
-function agentDescendants(kernel: Kernel): ToolCapability {
+function agentDescendants(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_descendants',
     description: '查询指定 agent 的全部后代（BFS 子树）。',
@@ -513,16 +503,16 @@ function agentDescendants(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const ref = (input as { agentId?: string }).agentId ?? ctx.agentId
-      const resolved = resolveOr(kernel, ctx, ref)
+      const resolved = resolveOr(host, ref)
       if ('text' in resolved) return { text: resolved.text }
-      const descendants = kernel.lineage.getDescendants(resolved.id)
-      return { text: descendants.length > 0 ? `后代: ${descendants.map((id) => kernel.displayOf(id)).join(', ')}` : `${kernel.displayOf(resolved.id)} 无后代` }
+      const descendants = host.agents.getDescendants(resolved.id)
+      return { text: descendants.length > 0 ? `后代: ${descendants.map((id) => host.agents.displayOf(id)).join(', ')}` : `${host.agents.displayOf(resolved.id)} 无后代` }
     },
   }
 }
 
 /** 终止 agent 实例（销毁权校验：调用者须是目标的祖先）。 */
-function agentTerminate(kernel: Kernel): ToolCapability {
+function agentTerminate(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_terminate',
     description:
@@ -541,16 +531,16 @@ function agentTerminate(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const { agentId, recursive } = input as { agentId: string; recursive?: boolean }
-      const resolved = resolveOr(kernel, ctx, agentId)
+      const resolved = resolveOr(host, agentId)
       if ('text' in resolved) return { text: resolved.text }
-      await kernel.terminateAgent(resolved.id, { by: ctx.agentId, recursive })
-      return { text: `已终止 agent ${kernel.displayOf(resolved.id)}` }
+      await host.agents.terminateAgent(resolved.id, { by: ctx.agentId, recursive })
+      return { text: `已终止 agent ${host.agents.displayOf(resolved.id)}` }
     },
   }
 }
 
 /** 邮寄消息（单目标；一对多通过并行多次调用实现）。 */
-function mailSend(kernel: Kernel): ToolCapability {
+function mailSend(host: SystemToolHost): ToolCapability {
   return {
     id: 'mail_send',
     description: '向指定参与者投递信件（单目标，一对多请并行调用多次）。消息自动添加发送者戳。',
@@ -568,16 +558,16 @@ function mailSend(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const { to, message } = input as { to: string; message: string }
-      const resolved = resolveOr(kernel, ctx, to)
+      const resolved = resolveOr(host, to)
       if ('text' in resolved) return { text: resolved.text }
-      await kernel.sendMessage(ctx.agentId, resolved.id, message)
-      return { text: `已发送消息给 ${kernel.displayOf(resolved.id)}` }
+      await host.agents.sendMessage(ctx.agentId, resolved.id, message)
+      return { text: `已发送消息给 ${host.agents.displayOf(resolved.id)}` }
     },
   }
 }
 
 /** 查询邮局在册参与者。 */
-function mailParticipants(kernel: Kernel): ToolCapability {
+function mailParticipants(host: SystemToolHost): ToolCapability {
   return {
     id: 'mail_participants',
     description: '列出当前邮局在册参与者（全名 `name#id`，可直接作 mail_send 的 to）。',
@@ -587,7 +577,7 @@ function mailParticipants(kernel: Kernel): ToolCapability {
     category: 'system',
     parameters: { type: 'object', properties: {} },
     execute: async () => {
-      const ids = await kernel.listParticipants()
+      const ids = await host.agents.listParticipants()
       return { text: ids.length > 0 ? `参与者: ${ids.join(', ')}` : '（暂无参与者）' }
     },
   }
@@ -599,7 +589,7 @@ function mailParticipants(kernel: Kernel): ToolCapability {
  * 数小时挂起合法；孤儿风险由 ContextManager 注销清理兜底）。
  * 等特定子的回信不用它——用 agent_instantiate 的 wait 参数。
  */
-function agentPause(kernel: Kernel): ToolCapability {
+function agentPause(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_pause',
     description:
@@ -624,14 +614,14 @@ function agentPause(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const { ms } = input as { ms: number }
-      await kernel.contextManager.registerPause(ctx.agentId, { toolCallId: ctx.callId ?? '', ms })
+      await host.context.registerPause(ctx.agentId, { toolCallId: ctx.callId ?? '', ms })
       return { text: '', metadata: { contextWait: true } }
     },
   }
 }
 
 /** 导出上下文为 jsonl（只读；agent 只能导出自己的上下文）。 */
-function contextExport(kernel: Kernel): ToolCapability {
+function contextExport(host: SystemToolHost): ToolCapability {
   return {
     id: 'context_export',
     description: '导出指定 agent 的完整上下文为 jsonl（逐行 JSON，含 tag/turn/indexInTurn）。只读，不修改上下文。',
@@ -647,21 +637,21 @@ function contextExport(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const ref = (input as { agentId?: string }).agentId ?? ctx.agentId
-      const resolved = resolveOr(kernel, ctx, ref)
+      const resolved = resolveOr(host, ref)
       if ('text' in resolved) return { text: resolved.text }
       const agentId = resolved.id
       // 权限：agent 只能导出自己的上下文（或祖先）。
-      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), agentId)) {
+      if (!host.agents.canReach(ctx.agentId, agentId)) {
         return { text: '无权导出该 agent 的上下文' }
       }
-      const jsonl = await kernel.exportContext(agentId)
+      const jsonl = await host.context.exportJsonl(agentId)
       return { text: jsonl === '' ? '（空上下文）' : jsonl }
     },
   }
 }
 
 /** 上下文概览（只读反射；agent 只能查看自己的上下文）。 */
-function contextOverview(kernel: Kernel): ToolCapability {
+function contextOverview(host: SystemToolHost): ToolCapability {
   return {
     id: 'context_overview',
     description:
@@ -678,19 +668,19 @@ function contextOverview(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const ref = (input as { agentId?: string }).agentId ?? ctx.agentId
-      const resolved = resolveOr(kernel, ctx, ref)
+      const resolved = resolveOr(host, ref)
       if ('text' in resolved) return { text: resolved.text }
       const agentId = resolved.id
-      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), agentId)) {
+      if (!host.agents.canReach(ctx.agentId, agentId)) {
         return { text: '无权查看该 agent 的上下文' }
       }
-      return { text: await kernel.contextOverview(agentId) }
+      return { text: await host.context.overview(agentId) }
     },
   }
 }
 
 /** 删除上下文中的过时消息（标记无效，组装时跳过；删除后组装统一过 legalize 保证可经 gateway 发送）。 */
-function contextRemove(kernel: Kernel): ToolCapability {
+function contextRemove(host: SystemToolHost): ToolCapability {
   return {
     id: 'context_remove',
     description:
@@ -709,26 +699,26 @@ function contextRemove(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const args = input as { agentId?: string; messageIds?: string[]; turn?: number }
-      const resolved = args.agentId !== undefined ? resolveOr(kernel, ctx, args.agentId) : { id: makeAgentID(ctx.agentId) }
+      const resolved = args.agentId !== undefined ? resolveOr(host, args.agentId) : { id: ctx.agentId }
       if ('text' in resolved) return { text: resolved.text }
       const target = resolved.id
-      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), target)) {
+      if (!host.agents.canReach(ctx.agentId, target)) {
         return { text: '无权删除该 agent 的上下文' }
       }
-      const state = await kernel.contextManager.getState(target)
+      const state = await host.context.getState(target)
       const ids = args.turn !== undefined ? state.messages.filter((m) => m.turn === args.turn).map((m) => m.id) : (args.messageIds ?? [])
       // system 消息不可删。
-      const systemIds = new Set(state.messages.filter((m) => m.message.role === 'system').map((m) => m.id))
+      const systemIds = new Set(state.messages.filter((m) => m.role === 'system').map((m) => m.id))
       const removable = ids.filter((id) => !systemIds.has(id))
       if (removable.length === 0) return { text: '无消息可删除（system 消息不可删）' }
-      await kernel.repository.markInvalid(target, removable)
+      await host.context.markInvalid(target, removable)
       return { text: `已删除 ${removable.length} 条消息（agent ${target}）` }
     },
   }
 }
 
 /** 重写上下文中的某条消息内容（保留 role/索引；改后组装过 legalize 保证合法）。 */
-function contextEdit(kernel: Kernel): ToolCapability {
+function contextEdit(host: SystemToolHost): ToolCapability {
   return {
     id: 'context_edit',
     description: '重写指定 agent 上下文中的某条消息内容（保留 role/索引；system 消息不可改）。',
@@ -747,24 +737,24 @@ function contextEdit(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const args = input as { agentId?: string; messageId: string; content: string }
-      const resolved = args.agentId !== undefined ? resolveOr(kernel, ctx, args.agentId) : { id: makeAgentID(ctx.agentId) }
+      const resolved = args.agentId !== undefined ? resolveOr(host, args.agentId) : { id: ctx.agentId }
       if ('text' in resolved) return { text: resolved.text }
       const target = resolved.id
-      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), target)) {
+      if (!host.agents.canReach(ctx.agentId, target)) {
         return { text: '无权修改该 agent 的上下文' }
       }
-      const state = await kernel.contextManager.getState(target)
+      const state = await host.context.getState(target)
       const stored = state.messages.find((m) => m.id === args.messageId)
       if (!stored) return { text: `消息不存在: ${args.messageId}` }
-      if (stored.message.role === 'system') return { text: 'system 消息不可修改' }
-      await kernel.repository.updateMessage(target, args.messageId, { ...stored.message, content: args.content })
+      if (stored.role === 'system') return { text: 'system 消息不可修改' }
+      await host.context.updateMessageContent(target, args.messageId, args.content)
       return { text: `已更新消息 ${args.messageId}` }
     },
   }
 }
 
 /** 执行上下文策略专有动作（策略独立接口的模型侧通道；agent 只能操作自身，祖先可代操作）。 */
-function contextApply(kernel: Kernel): ToolCapability {
+function contextApply(host: SystemToolHost): ToolCapability {
   return {
     id: 'context_apply',
     description:
@@ -784,20 +774,20 @@ function contextApply(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const args = input as { agentId?: string; action: string; args?: string }
-      const resolved = args.agentId !== undefined ? resolveOr(kernel, ctx, args.agentId) : { id: makeAgentID(ctx.agentId) }
+      const resolved = args.agentId !== undefined ? resolveOr(host, args.agentId) : { id: ctx.agentId }
       if ('text' in resolved) return { text: resolved.text }
       const target = resolved.id
-      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), target)) {
+      if (!host.agents.canReach(ctx.agentId, target)) {
         return { text: '无权操作该 agent 的上下文策略' }
       }
-      const result = await kernel.contextManager.runStrategyAction(target, args.action, args.args ?? '')
+      const result = await host.context.runStrategyAction(target, args.action, args.args ?? '')
       return { text: result }
     },
   }
 }
 
 /** 批准/拒绝访问申请（ask 消息化的回复侧；授权权：仅申请者的族谱根可调用）。 */
-function accessReply(kernel: Kernel): ToolCapability {
+function accessReply(host: SystemToolHost): ToolCapability {
   return {
     id: 'access_reply',
     description:
@@ -817,7 +807,7 @@ function accessReply(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const args = input as { requestId: string; reply: AccessReply; feedback?: string }
-      await kernel.access.reply(
+      await host.access.reply(
         {
           requestId: args.requestId,
           reply: args.reply,
@@ -836,7 +826,7 @@ function accessReply(kernel: Kernel): ToolCapability {
  * 自身 ∪ 祖先代查（后代可查、兄弟不可见、根天然全视），与 context_* 工具同一
  * canReach 谓词。行式压缩输出（控制 token 面）。
  */
-function telemetryQuery(kernel: Kernel): ToolCapability {
+function telemetryQuery(host: SystemToolHost): ToolCapability {
   return {
     id: 'telemetry_query',
     description:
@@ -857,10 +847,10 @@ function telemetryQuery(kernel: Kernel): ToolCapability {
     },
     execute: async (input, ctx) => {
       const args = input as { agentId?: string; types?: string[]; since?: number; until?: number; limit?: number }
-      const resolved = args.agentId !== undefined ? resolveOr(kernel, ctx, args.agentId) : { id: makeAgentID(ctx.agentId) }
+      const resolved = args.agentId !== undefined ? resolveOr(host, args.agentId) : { id: ctx.agentId }
       if ('text' in resolved) return { text: resolved.text }
       const target = resolved.id
-      if (!kernel.lineage.canReach(makeAgentID(ctx.agentId), target)) {
+      if (!host.agents.canReach(ctx.agentId, target)) {
         return { text: `无权查看该 agent 的运行日志（可见域 = 自身 + 族谱后代）: ${target}` }
       }
       const limit = Math.min(Math.max(args.limit ?? 50, 1), 200)
@@ -874,10 +864,10 @@ function telemetryQuery(kernel: Kernel): ToolCapability {
         if (args.until !== undefined && event.at > args.until) return false
         return true
       }
-      const events = kernel.logger.all().filter(matches)
+      const events = host.telemetry.allLogs().filter(matches)
       if (events.length === 0) return { text: '(no events)' }
       const shown = events.slice(-limit)
-      const header = `${kernel.displayOf(target)} | ${shown.length} 条${events.length > shown.length ? `（最近 ${shown.length} 条，共匹配 ${events.length}）` : ''}`
+      const header = `${host.agents.displayOf(target)} | ${shown.length} 条${events.length > shown.length ? `（最近 ${shown.length} 条，共匹配 ${events.length}）` : ''}`
       return { text: `${header}\n${shown.map(formatTelemetryRow).join('\n')}` }
     },
   }
@@ -941,7 +931,7 @@ function telemetryBrief(event: LogEvent): string {
 }
 
 /** 格式化生效访问（权限台账物化出示：显式判定 + 本地封闭/不设限）。 */
-function formatEffectiveAccess(profile: AccessProfile | undefined): string {
+function formatEffectiveAccess(profile: AgentConfigView['access']): string {
   if (!profile) return '（未绑定）'
   const entries = Object.entries(profile.explicit).map(([k, v]) => `${k}:${v}`)
   const fallback = profile.fallback !== undefined ? `*: ${profile.fallback}` : '*: default'

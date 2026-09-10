@@ -1,5 +1,5 @@
 // ============================================================
-// core/kernel/Runtime.ts —— 被动驱动运行循环
+// core/main/runtime.ts —— 被动驱动运行循环（agent 执行器；原 kernel/Runtime.ts）
 //
 // 由邮局"送信"回调驱动（kernel 注册 onDelivery → processDelivery）：
 //   收到组装好的完整上下文 → status=thinking → LLM → 工具轮（并行）
@@ -8,66 +8,21 @@
 //   → status=cooldown（邮局倒计时；无信则 onHold → status=hold）
 //
 // agent 全程被动：不主动轮询，不发起对话。core 零平台依赖。
+// Kernel 经 RuntimePort 接口消费本实现（组合根注入）。
 // ============================================================
 
-import type { ModelGateway } from '../gateway'
-import type { ChatMessage, LLMEvent, LLMRequest, ModelRef, ToolCallEvent, UsageEvent } from '../gateway'
+import type { ChatMessage, LLMEvent, LLMRequest, ToolCallEvent, UsageEvent } from '../gateway'
 import { isAbortError, isGatewayError } from '../gateway'
-import type { LogSink } from '../logging'
-import type { AgentDelivery, ContextManager, Repository } from '../context'
-import type { ToolCapabilityRegistry, ToolContext } from '../tools'
-import type { AgentClass, AgentClassID } from './types'
-import type { InstanceManager } from './InstanceManager'
-import type { AgentID, AgentStatus } from './types'
-import { makeAgentID, ROOT_ID } from './types'
-
-export interface RuntimeDeps {
-  readonly gateway: ModelGateway
-  readonly instances: InstanceManager
-  readonly contextManager: ContextManager
-  /** 上下文仓库（assistant/tool 消息入库）。 */
-  readonly repository: Repository
-  /** 工具注册表（缺省不启用工具轮）。 */
-  readonly tools?: ToolCapabilityRegistry
-  /**
-   * 模型解析端口（S6/R6：族谱树四级律——显式 > 类基因 > 父继承 > 家学；
-   * kernel 接 lineage.modelOf。undefined = 全链无锚，见 processDelivery 防御）。
-   */
-  readonly resolveModel: (agentId: AgentID) => ModelRef | undefined
-  /** 全局最大循环步数兜底（含工具轮；S9：**≤0/未设 = 无限制**，长程工作默认放开）。 */
-  readonly maxSteps?: number
-  /** 类模板读取口（S9：类基因 maxSteps 每轮起点解析；缺省只看全局兜底）。 */
-  readonly templates?: { getSync: (name: AgentClassID) => AgentClass | undefined }
-  readonly estimateCost?: (usage: UsageEvent | undefined) => number
-  /** 流式事件全局透传（shell 面板显示用）。 */
-  readonly onEvent?: (agentId: AgentID, event: LLMEvent) => void
-  /** 状态变化通知（agentId, from, to）。 */
-  readonly onStatus?: (agentId: AgentID, from: AgentStatus, to: AgentStatus) => void
-  /** 日志出口（组合根注入 → core/logging）。 */
-  readonly onLog?: LogSink
-  /** 可注入计时器（drain 超时兜底；缺省 setTimeout，与 Courier/管理员同法）。 */
-  readonly timer?: (fn: () => void, ms: number) => { cancel: () => void }
-}
-
-export interface Runtime {
-  /** 邮局送信回调（kernel 装配时注册）。 */
-  readonly processDelivery: (delivery: AgentDelivery) => Promise<void>
-  /** 邮局倒计时结束无信 → hold。 */
-  readonly notifyHold: (agentId: AgentID) => Promise<void>
-  /** 中断指定 agent 的当前轮（触发 AbortController.abort）。 */
-  readonly abort: (agentId: AgentID) => void
-  /** 中断所有活跃 agent（进程优雅收尾用）。 */
-  readonly abortAll: () => void
-  /** 当前活跃（thinking/进行中）的 agent id 列表。 */
-  readonly activeAgents: () => readonly AgentID[]
-  /** 等活跃轮收尾落账（abort 之后调用；超时兜底，dispose 前必须 drain）。 */
-  readonly drainActiveTurns: (timeoutMs?: number) => Promise<void>
-}
+import type { AgentDelivery } from '../context'
+import type { ToolContext, ToolError } from '../tools'
+import { formatToolOutput } from '../tools'
+import type { AgentID, AgentStatus, RuntimePort, RuntimePortDeps } from '../kernel'
+import { makeAgentID, ROOT_ID } from '../kernel'
 
 /** 中断后收尾标记（消息闭合：避免出现"assistant 后直接接 user"的非法消息序列）。 */
 const INTERRUPTED_MARKER = '<interrupted>'
 
-export class DefaultRuntime implements Runtime {
+export class DefaultRuntime implements RuntimePort {
   private readonly maxSteps: number
   private readonly estimateCost: (usage: UsageEvent | undefined) => number
   /** 各 agent 当前轮的中断控制器（进程/用户中断入口）。 */
@@ -75,7 +30,7 @@ export class DefaultRuntime implements Runtime {
   /** 活跃轮 promise 登记（优雅收尾 drain 用；同一 agent 串行只挂一枚）。 */
   private readonly activeTurns = new Map<AgentID, Promise<void>>()
 
-  constructor(private readonly deps: RuntimeDeps) {
+  constructor(private readonly deps: RuntimePortDeps) {
     // S9 语义修正：0/负/未设 = 无限制（旧实现 0 = 一步都不许跑，从未有意使用）。
     this.maxSteps = deps.maxSteps ?? 0
     this.estimateCost = deps.estimateCost ?? (() => 0)
@@ -252,14 +207,13 @@ export class DefaultRuntime implements Runtime {
                 waiting = true
                 return null
               }
-              return { role: 'tool', content: result.text, toolCallId: call.id }
+              return { role: 'tool', content: formatToolOutput(result, { outputLimit: this.deps.toolOutputLimit }), toolCallId: call.id }
             } catch (cause) {
-              const error = cause as { kind?: string; message?: string }
-              const message =
-                typeof error.kind === 'string'
-                  ? `[ToolError ${error.kind}] ${typeof error.message === 'string' ? error.message : JSON.stringify(error)}`
-                  : '[ToolError execution_failed] 工具执行失败'
-              return { role: 'tool', content: message, toolCallId: call.id }
+              const error: ToolError =
+                cause !== null && typeof cause === 'object' && 'kind' in cause
+                  ? (cause as ToolError)
+                  : { kind: 'execution_failed', tool: call.name, message: cause instanceof Error ? cause.message : String(cause) }
+              return { role: 'tool', content: formatToolOutput(error, { outputLimit: this.deps.toolOutputLimit }), toolCallId: call.id }
             }
           }),
         )
@@ -374,4 +328,9 @@ function mergeUsage(a: UsageEvent | undefined, b: UsageEvent | undefined): Usage
       ? { cacheWriteTokens: (a.cacheWriteTokens ?? 0) + (b.cacheWriteTokens ?? 0) }
       : {}),
   }
+}
+
+/** 执行器工厂（组合根接线；兑现 KernelOptions.runtime）。 */
+export function createRuntime(deps: RuntimePortDeps): RuntimePort {
+  return new DefaultRuntime(deps)
 }

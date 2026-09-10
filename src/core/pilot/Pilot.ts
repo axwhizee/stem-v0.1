@@ -5,14 +5,14 @@
 // Pilot 是根的「驾驶舱」：
 //   - 扮演层：以根身份行动（发消息/实例化/终止/中断/回复访问申请/
 //     上下文管理）——即根的 action，与 agent 经工具调用等同；
-//   - 观察层：经 kernel 直接读（列表/详情/活跃/上下文概览）。
+//   - 观察层：经 SystemFacade 直接读（列表/详情/活跃/上下文概览）。
 // 事件流统一经 subscribe 订阅（PilotEvent：stream/letter/status/notice）。
-// identity 字段支持未来 as(agentId) 扮演任意 agent（当前恒为根）。
+// **门面化（D4）**：pilot 只依赖 SystemFacade 接口，不依赖具体 Kernel；
+// 实现由组合根注入。identity 字段支持未来 as(agentId) 扮演任意 agent（当前恒为根）。
 // ============================================================
 
-import type { Kernel } from '../kernel'
+import type { AgentID, AgentInstance, ProjectRef, SystemFacade } from '../kernel'
 import { makeAgentClassID, makeAgentID, ROOT_ID } from '../kernel'
-import type { AgentID, AgentInstance, ProjectRef } from '../kernel'
 import type { PilotEvent } from '../events'
 import type { AccessReplyInput, ToolAccess } from '../tools'
 import type { ModelRef } from '../gateway'
@@ -67,29 +67,30 @@ export interface Pilot {
 }
 
 export interface PilotOptions {
-  readonly kernel: Kernel
+  /** 系统门面（组合根注入；pilot 唯一依赖面）。 */
+  readonly facade: SystemFacade
   /** 扮演身份（缺省根 `0`）。 */
   readonly identity?: AgentID
 }
 
 export class DefaultPilot implements Pilot {
   readonly identity: AgentID
-  private readonly kernel: Kernel
+  private readonly facade: SystemFacade
 
   constructor(options: PilotOptions) {
-    this.kernel = options.kernel
+    this.facade = options.facade
     this.identity = options.identity ?? ROOT_ID
   }
 
   subscribe(listener: (event: PilotEvent) => void): () => void {
-    return this.kernel.events.subscribe(listener)
+    return this.facade.subscribe(listener)
   }
 
   async sendMessage(to: string, text: string): Promise<void> {
     // 根的完整 transcript：人类（扮演根）的输出记录为根的 assistant 消息；
     // 同一文本作为 user 消息投递给目标 agent（from=根）。
-    await this.kernel.contextManager.appendHistory(this.identity, { role: 'assistant', content: text })
-    await this.kernel.sendUserMessage(to, text)
+    await this.facade.appendHistory(this.identity, { role: 'assistant', content: text })
+    await this.facade.sendUserMessage(to, text)
   }
 
   async instantiate(
@@ -103,8 +104,8 @@ export class DefaultPilot implements Pilot {
     },
     project: ProjectRef,
   ): Promise<AgentID> {
-    const space = await this.kernel.spaces.getOrCreate(project)
-    return this.kernel.instantiateInSpace(
+    const spaceId = await this.facade.getOrCreateSpace(project)
+    return this.facade.instantiate(
       {
         className: makeAgentClassID(opts.className),
         parentId: this.identity,
@@ -114,69 +115,69 @@ export class DefaultPilot implements Pilot {
         tools: opts.tools,
         ...(opts.model !== undefined ? { model: opts.model } : {}),
       },
-      space.id,
+      spaceId,
     )
   }
 
   async setModel(agentId: string, model: ModelRef): Promise<void> {
     // 根 = 族谱全体祖先，可见域天然覆盖；by 记审计归属。
-    await this.kernel.setAgentModel(agentId, model, { by: this.identity })
+    await this.facade.setAgentModel(agentId, model, { by: this.identity })
   }
 
   async terminate(agentId: string, opts?: { recursive?: boolean }): Promise<void> {
-    await this.kernel.terminateAgent(agentId, { by: this.identity, recursive: opts?.recursive })
+    await this.facade.terminateAgent(agentId, { by: this.identity, recursive: opts?.recursive })
   }
 
   async interrupt(agentId: string): Promise<void> {
-    await this.kernel.interruptAgent(agentId, { by: this.identity })
+    await this.facade.interruptAgent(agentId, { by: this.identity })
   }
 
   async replyAccess(input: AccessReplyInput): Promise<void> {
-    await this.kernel.access.reply(input, this.identity)
+    await this.facade.replyAccess(input, this.identity)
   }
 
   async listAgents(spaceId?: string): Promise<AgentInstance[]> {
     if (spaceId !== undefined) {
-      return this.kernel.instances.listBySpace(spaceId as never)
+      return [...(await this.facade.listInstancesInSpace(spaceId))]
     }
-    const spaces = await this.kernel.spaces.list()
+    const spaces = await this.facade.listSpaces()
     const result: AgentInstance[] = []
     for (const space of spaces) {
-      result.push(...(await this.kernel.instances.listBySpace(space.id)))
+      result.push(...(await this.facade.listInstancesInSpace(space.id)))
     }
     return result
   }
 
   async inspect(agentId: string): Promise<AgentInstance> {
-    return this.kernel.instances.get(makeAgentID(agentId))
+    return this.facade.getInstance(makeAgentID(agentId))
   }
 
   activeAgents(): readonly AgentID[] {
-    return this.kernel.activeAgents()
+    return this.facade.activeAgents()
   }
 
   async contextOverview(agentId: string): Promise<string> {
-    return this.kernel.contextOverview(agentId)
+    return this.facade.contextOverview(agentId)
   }
 
   async exportContext(agentId: string): Promise<string> {
-    return this.kernel.exportContext(agentId)
+    return this.facade.exportContext(agentId)
   }
 
   async runContextAction(agentId: string, action: string, args?: string): Promise<string> {
     // user#0 = 族谱根（全体祖先）：策略动作授权校验天然通过。
-    return this.kernel.contextManager.runStrategyAction(agentId, action, args)
+    return this.facade.runStrategyAction(agentId, action, args)
   }
 }
 
 /** 构造 Pilot：pilot 初始化流程内自动实例化 user#0（user 类，普通实例，parentId=null）。 */
 export async function createPilot(options: PilotOptions): Promise<Pilot> {
   const identity = options.identity ?? ROOT_ID
-  if (!options.kernel.instances.getSync(identity)) {
-    await options.kernel.registerRootAgent()
+  if (!options.facade.getInstanceSync(identity)) {
+    await options.facade.registerRootAgent()
   } else {
     // 重启恢复路径：config.user.name = 真相，对齐存量根（配置面改动跨重启生效）。
-    await options.kernel.alignRootName()
+    await options.facade.alignRootName()
   }
   return new DefaultPilot({ ...options, identity })
 }

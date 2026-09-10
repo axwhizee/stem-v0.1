@@ -30,11 +30,32 @@ export type {
 
 export { validateArgs } from './validate'
 
+// 统一输出成形（成功/失败同一入口 + 窗口限制）
+export type { ToolOutputOptions } from './output'
+export { formatToolOutput, formatToolError } from './output'
+
 export { restrictAccess, accessRank, checkToolsConvergence, foldConvergenceSteps } from './access'
 export type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode, ConvergenceViolation } from './access'
 
-export type { ShellRunOptions, ShellRunResult, ShellRunner, BashToolSettings } from './bash'
-export { createBashTool, formatShellOutput, BASH_DEFAULTS } from './bash'
+export type { ShellRunOptions, ShellRunResult, ShellRunner, BashToolSettings } from './internal/bash'
+export { createBashTool, formatShellOutput, BASH_DEFAULTS } from './internal/bash'
+
+// internal 工具宿主端口（消费方拥有；kernel 适配器实现、组合根注入）。
+export type {
+  AgentPort,
+  ContextPort,
+  TelemetryPort,
+  AccessPort,
+  SystemToolHost,
+  AgentClassView,
+  AgentClassInput,
+  AgentClassPatchInput,
+  AgentInstanceView,
+  AgentConfigView,
+  InstantiateRequest,
+  AgentUpdateRequest,
+  StoredMessageView,
+} from './internal/ports'
 
 export type { AccessAskOptions, AccessAskBus } from './accessRequest'
 export { DefaultAccessAskBus, formatAccessRequest } from './accessRequest'

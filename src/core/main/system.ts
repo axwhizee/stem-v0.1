@@ -1,5 +1,5 @@
 // ============================================================
-// core/init/system.ts —— createStemSystem（系统初始化与装配主入口）
+// core/main/system.ts —— createStemSystem（系统初始化与装配主入口；组合根）
 //
 // 自治系统组合根：任何 shell（cli/webui）注入平台能力即可装配出
 // 完整可运行的最小系统，避免各 shell 各自装配导致发散。
@@ -24,15 +24,17 @@ import type { StrategyInitFs } from '../context'
 import type { InstanceStore } from '../kernel'
 import type { ClassStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
-import { createBashTool, DefaultToolCapabilityRegistry } from '../tools'
+import { DefaultToolCapabilityRegistry } from '../tools'
 import type { ShellRunner } from '../tools'
 import { Kernel, ROOT_ID } from '../kernel'
 import type { Pilot } from '../pilot'
 import { createPilot } from '../pilot'
 import type { PilotEvent } from '../events'
-import { runInit } from './init'
+import { runInit } from './loader'
 import type { InitDeps, InitReport, ClassFs } from './types'
-import { agentFileOf, serializeAgentClass } from './agentSerialize'
+import { createRuntime } from './runtime'
+import { createSystemFacade } from './systemFacade'
+import { agentFileOf, serializeAgentClass } from '../config'
 
 /** 系统上下文（用户注入钩子入参）。 */
 export interface StemSystem {
@@ -126,6 +128,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
         }
   const kernel = new Kernel({
     gateway: deps.gateway,
+    runtime: createRuntime,
     userClass: config.user,
     // S6/R11：项目根 = 空间身份（根挂真实空间；.stem 目录即世界）。
     project: deps.config.paths.projectRoot,
@@ -134,6 +137,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     autoApprove: config.autoApprove,
     timer: deps.timer,
     maxSteps: deps.maxSteps ?? config.maxSteps,
+    ...(config.tools?.outputLimit !== undefined ? { toolOutputLimit: config.tools.outputLimit } : {}),
     estimateCost: deps.estimateCost,
     logger: deps.logger,
     ...(settings !== undefined ? { contextSettings: settings } : {}),
@@ -141,21 +145,20 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     ...(classStore !== undefined ? { classStore } : {}),
   })
 
-  // 系统工具（agent_*/mail_*/context_* + access_reply；注册即出生声明）。
-  await kernel.registerSystemTools(tools)
+  // 系统工具（agent_*/mail_*/context_* + access_reply）+ （注入 ShellRunner 才装配的）bash，
+  // 统一经 internal 唯一出入口 createInternalTools；bash cwd 缺省 = 空间根
+  //（事故半径三机制之"默认 cwd"；工具参数相对路径以此为基准）。
+  await kernel.registerSystemTools(
+    tools,
+    deps.shellRunner !== undefined
+      ? {
+          runner: deps.shellRunner,
+          settings: { ...(config.bash ?? {}), cwd: config.bash?.cwd ?? deps.config.paths.projectRoot },
+        }
+      : undefined,
+  )
   // 宿主显式注入的工具（测试/深度定制通道；常规 extension 工具走 runInit 矩阵装载）。
   for (const tool of deps.hostTools ?? []) await tools.register(tool)
-
-  // bash 工具（internal；宿主注入 ShellRunner 才装配——core 零平台依赖）。
-  if (deps.shellRunner) {
-    await tools.register(
-      createBashTool({
-        runner: deps.shellRunner,
-        // cwd 缺省 = 空间根（事故半径三机制之"默认 cwd"；工具参数相对路径以此为基准）。
-        settings: { ...(config.bash ?? {}), cwd: config.bash?.cwd ?? deps.config.paths.projectRoot },
-      }),
-    )
-  }
 
   // init 管线：三维资源矩阵统一装载（extension 点名 + custom 扫描 → 注册；目录即真相，不回写 config）。
   const init = await runInit({
@@ -209,7 +212,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   await kernel.realignRestoredInstances()
 
   // Pilot（根扮演接口）：pilot 初始化内实例化根 agent（user 类普通实例，id `0`）。
-  const pilot = await createPilot({ kernel })
+  const pilot = await createPilot({ facade: createSystemFacade(kernel) })
   if (deps.onEvent) pilot.subscribe(deps.onEvent)
 
   // boot 校验律（A3，替代一切代码兜底）：ask 审批是消息交换——根信箱的答复

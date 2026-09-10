@@ -92,7 +92,7 @@ test('未知顶层键 fail-fast；custom 是唯一合法扩展位', () => {
 
 test('已废除历史键 → fail-fast 且错误可行动（指路新家）', () => {
   expectFail('{ "model": "opencode-go/x" }', '未知配置键 "model"', '家学锚点 = user.model')
-  expectFail('{ "tools": [] }', '目录即真相')
+  // tools 已升级为配置块：数组（历史清单）形态 → 专属迁移错误，见下方 tools 配置块用例。
   expectFail('{ "agents": {} }', '目录即真相')
   expectFail('{ "strategies": [] }', '目录即真相')
 })
@@ -195,4 +195,20 @@ test('模板含唯一预设 opencode-go + 家学锚点 user.model（零代码常
   assert.equal(config.providers?.['opencode-go']?.key_env, 'OPENCODE_API_KEY')
   assert.deepEqual(config.user?.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
   assert.ok(DEFAULT_CONFIG_TEXT.includes('key_env'))
+})
+
+// ---------- tools 配置块（P2：outputLimit 窗口限制） ----------
+
+test('tools 配置块：outputLimit 解析', () => {
+  const config = parseConfigText('{ "tools": { "outputLimit": 5000 } }')
+  assert.equal(config.tools?.outputLimit, 5000)
+})
+
+test('tools 数组形态（历史清单）= 可行动迁移错误', () => {
+  expectFail('{ "tools": ["read"] }', 'config.tools 不再是工具清单数组', 'config.user.tools')
+})
+
+test('tools 未知键 / 非法 outputLimit 拒启', () => {
+  expectFail('{ "tools": { "unknown": 1 } }', 'tools.unknown')
+  expectFail('{ "tools": { "outputLimit": -1 } }', 'tools.outputLimit')
 })

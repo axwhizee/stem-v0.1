@@ -1,5 +1,5 @@
 // ============================================================
-// core/init/system.test.ts —— 系统装配组合根（createStemSystem）单测
+// core/main/system.test.ts —— 系统装配组合根（createStemSystem）单测
 // ============================================================
 
 import { describe, test } from 'node:test'

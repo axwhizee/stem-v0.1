@@ -32,9 +32,11 @@ export { PersistedInstanceManager, PersistedSpaceManager } from './persisted'
 // 空间管理
 export type { SpaceManager } from './SpaceManager'
 export { DefaultSpaceManager } from './SpaceManager'
-// 运行时
-export type { Runtime } from './Runtime'
-export { DefaultRuntime } from './Runtime'
+// 运行时端口（调用方拥有；实现住 main/runtime.ts，组合根注入）
+export type { RuntimePort, RuntimePortDeps } from './runtimePort'
+
+// 系统门面（pilot 消费面；实现住 main/systemFacade.ts，组合根注入）
+export type { SystemFacade } from './systemFacade'
 
 // Kernel 容器
 export type { KernelOptions, ClassStore } from './Kernel'
@@ -47,5 +49,5 @@ export { USER_CLASS_ID, ROOT_ID, ROOT_NAME, formatFull, parentIdOf, AGENT_ID_PAT
 export { BUILTIN_AGENT_CLASSES, USER_DEFAULT, ASSISTANT, buildUserClass } from './builtin/agents'
 export type { UserClassConfig } from './builtin/agents'
 
-// 系统管理工具
-export { createSystemTools } from './systemTools'
+// 系统工具宿主适配器（internal 工具端口实现；组合根接线用）
+export { createSystemToolHost } from './toolHost'

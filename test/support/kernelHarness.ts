@@ -5,6 +5,7 @@
 // ============================================================
 
 import { Kernel, makeAgentClassID, ROOT_ID } from '../../src/core/kernel'
+import { createRuntime } from '../../src/core/main'
 import type { UserDelivery } from '../../src/core/context'
 import type { ContextSettings, StrategyRegistry } from '../../src/core/context'
 import { defaultStemConfig } from '../../src/core/config'
@@ -97,6 +98,7 @@ export async function createKernelHarness(
 
   const kernel = new Kernel({
     gateway,
+    runtime: createRuntime,
     userClass: {
       // 缺省根清单 = 模板实值（单一真相源；测试空间与真实首启同形）。
       tools: defaultStemConfig().user?.tools,

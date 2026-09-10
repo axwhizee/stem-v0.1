@@ -1,5 +1,5 @@
 // ============================================================
-// core/kernel/Runtime.test.ts —— 运行时单元测试（被动驱动）
+// core/main/runtime.test.ts —— 运行时单元测试（被动驱动）
 // ============================================================
 
 import { describe, test } from 'node:test'
@@ -9,11 +9,11 @@ import type { ModelRef } from '../gateway'
 import { DefaultRepository, DefaultCourier, DefaultContextManager } from '../context'
 import type { AgentDelivery } from '../context'
 import { DefaultToolCapabilityRegistry } from '../tools'
-import { DefaultTemplateRegistry } from './TemplateRegistry'
-import { DefaultInstanceManager } from './InstanceManager'
-import { DefaultRuntime } from './Runtime'
-import type { AgentClass } from './types'
-import { makeAgentClassID, makeAgentID, makeAgentSpaceID, ROOT_ID } from './types'
+import { DefaultTemplateRegistry } from '../kernel'
+import { DefaultInstanceManager } from '../kernel'
+import { DefaultRuntime } from './runtime'
+import type { AgentClass } from '../kernel'
+import { makeAgentClassID, makeAgentID, makeAgentSpaceID, ROOT_ID } from '../kernel'
 
 const cls: AgentClass = {
   name: makeAgentClassID('chat'),

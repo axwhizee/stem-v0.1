@@ -1,5 +1,5 @@
 // ============================================================
-// core/init/init.test.ts —— 初始化管线单测（装载面二元制：工具点名、类/策略扫描，内存 fake）
+// core/main/loader.test.ts —— 资源装载管线单测（装载面二元制：工具点名、类/策略扫描，内存 fake）
 // ============================================================
 
 import { test } from 'node:test'
@@ -12,7 +12,7 @@ import type { ToolCapability } from '../tools'
 import { DefaultToolCapabilityRegistry } from '../tools'
 import { DefaultStrategyRegistry } from '../context'
 import { DefaultTemplateRegistry } from '../kernel'
-import { runInit } from './init'
+import { runInit } from './loader'
 import type { InitDeps, InitFs } from './types'
 
 function makePaths(toolDir = '/proj/.stem/tools', agentDir = '/proj/.stem/agent', strategyDir = '/proj/.stem/context'): ConfigPaths {
@@ -176,7 +176,8 @@ test('旧 ghost 键不再静默丢弃：R12 全量有效原则 → 解析即硬�
     () => runInit(deps),
     (e: unknown) => {
       const err = e as { kind?: string; message?: string }
-      return err.kind === 'invalid_config' && err.message?.includes('未知配置键 "tools"') === true
+      // tools 已升级为配置块（数组形态另有专属迁移错误，见 parse.test）；agents 仍为退役键。
+      return err.kind === 'invalid_config' && err.message?.includes('未知配置键 "agents"') === true
     },
   )
 })

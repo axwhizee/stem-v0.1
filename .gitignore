@@ -15,5 +15,6 @@ __pycache__/
 
 # 临时
 prompts.md
+plan.md
 tmp/
 reference/

@@ -41,7 +41,7 @@ import type { AccessReply } from '../../src/core/tools'
 import type { PilotEvent } from '../../src/core/events'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
 import { bootStem } from './platform'
-import type { InitReport, StemSystem } from '../../src/core/init'
+import type { InitReport, StemSystem } from '../../src/core/main'
 import type { StemConfig } from '../../src/core/config'
 
 /** S6/R11 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（一进程 = 一空间 = 一 .stem）。

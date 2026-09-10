@@ -1,12 +1,12 @@
 // ============================================================
-// core/tools/bash.test.ts —— bash 工具单测（fake runner，零平台）
+// core/tools/internal/bash.test.ts —— bash 工具单测（fake runner，零平台）
 // ============================================================
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createBashTool, BASH_DEFAULTS } from './bash'
 import type { ShellRunOptions, ShellRunResult, ShellRunner } from './bash'
-import type { ToolContext } from './types'
+import type { ToolContext } from '../types'
 
 const ctx: ToolContext = { agentId: 'a1', spaceId: 's1' }
 

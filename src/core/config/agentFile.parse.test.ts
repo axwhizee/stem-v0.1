@@ -1,10 +1,10 @@
 // ============================================================
-// core/init/agentParse.test.ts —— 用户 agent 文件解析单测
+// core/config/agentFile.parse.test.ts —— 用户 agent 文件解析单测
 // ============================================================
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parseAgentFile, parseFrontmatter, extractPrompt } from './agentParse'
+import { parseAgentFile, parseFrontmatter, extractPrompt } from './agentFile'
 
 const SAMPLE = `---
 description: 代码审查员

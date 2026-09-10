@@ -7,7 +7,7 @@
 
 改代码前：§1（文档纪律）→ §2（分层与模块契约）→ §6（测试）。
 写文档时：§1 + 提交前对拍表（§1.3）。
-扩展系统能力时：`docs/dev-guide.md`（扩展点全景与食谱）。
+扩展系统能力时：各模块 `src/core/*/README.md` + `docs/architecture.md` 对应节（扩展点全景与食谱）。
 
 ## 1. 文档维护纪律（最高优先级）
 
@@ -15,13 +15,15 @@
 
 | 类型 | 卷 | 义务 |
 |---|---|---|
-| **实况卷** | AGENTS.md · docs/architecture.md · docs/api.md · docs/dev-guide.md · 本卷 · README | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
+| **实况卷** | AGENTS.md · docs/architecture.md · 本卷 · 各模块 `src/core/*/README.md`（api.md 为交付产物，见下注） | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
 | **历史卷** | docs/log1.md / docs/log2.md（日志按 ~100KB 滚动切卷）· prompts.md（plan 卷如 brain-plan/test-plan 落地即随批退役，沿革由 log 承载） | 承载"当时发生了什么/定了什么"。**只追加不回改**（偏差记 log，plan 卷是执行依据非实况） |
+
+> **交付产物标记（2026-09-10）**：`docs/api.md` 是面向 1.0 交付的接口参考，**正式发布前可能滞后于代码**——实现以 `architecture.md`、各模块 README 与代码为准，v1.0 冻结时统一重定稿（见 `prompts.md` 优化台账）。
 
 **plan 卷生命周期**（用户裁决）：阶段计划卷（`*-plan.md`）是实施期的执行依据；
 **实施完成即随下一个功能提交删除**——全部裁决与沿革已追加在日志卷（当时为 log.md，现为 log1/log2），残留计划
 只会长成过时指路牌。写 plan 时即按此契约：plan 卷只承载"将要做什么+为什么这么定"，
-不承载实况描述（实况永远归 architecture/api/dev-guide）。
+不承载实况描述（实况永远归 architecture/api/模块 README）。
 
 ### 1.2 为什么（历史教训实录）
 
@@ -39,9 +41,9 @@
 
 | 改动 | 对拍位置 |
 |---|---|
-| core 公开接口/端口 | api.md（跑 §6 对拍脚本）+ architecture 对应模块节 + dev-guide 清单表 |
-| 配置结构 | defaults.ts（首启模板 = 唯一预设）+ architecture 配置节 + AGENTS 配置节 + dev-guide §4 |
-| 工具 kind/shape/权限语义 | architecture 工具节 + dev-guide §2-D + AGENTS 设计原则 + `extension/tools/`、`src/core/tools/` 全部住户 |
+| core 公开接口/端口 | api.md（跑 §6 对拍脚本）+ architecture 对应模块节 + 模块 README |
+| 配置结构 | defaults.ts（首启模板 = 唯一预设）+ architecture 配置节 + AGENTS 配置节 + config/README |
+| 工具 kind/shape/权限语义 | architecture 工具节 + tools/README + AGENTS 设计原则 + `extension/tools/`、`src/core/tools/` 全部住户 |
 | 新增/退役模块、目录形态 | AGENTS 结构树 + architecture 结构图 + 本卷 §3 命名表 |
 | 任何行为变更 | docs/log2.md（现行日志卷）**追加**一条（含验证证据）；被影响的实况卷按上表整节重写 |
 
@@ -53,7 +55,7 @@
 
 ### 2.1 core 零平台依赖（D11，最高优先级硬规则）
 
-- `src/core/` 禁止平台依赖与平台全局（`window`/`process`/`Deno`）；平台能力一律**接口暴露、宿主注入**（MessageStore/InstanceStore/ConfigStore/InitFs/InitToolLoader/ClassFs/ShellRunner/TimerFactory/LogSink/ModelGateway——全表见 dev-guide §2-A/§2-I）。
+- `src/core/` 禁止平台依赖与平台全局（`window`/`process`/`Deno`）；平台能力一律**接口暴露、宿主注入**（MessageStore/InstanceStore/ConfigStore/InitFs/InitToolLoader/ClassFs/ShellRunner/TimerFactory/LogSink/ModelGateway——全表见 main/README 与各模块 README）。
 - 依赖方向单向：`shell → core ← extension`（core 不认识任何住户）；**禁止反向**（gateway 调 shell 之类）。
 - 每个模块目录一个 `index.ts` 唯一出口（只 re-export 不写逻辑）；跨层引用**只能 import index**，禁止直引内部文件。
 - 禁止全局单例（`globalThis`/`static` 持跨层状态）；装配只发生在组合根 `createStemSystem`（core 侧）与 `bootStem`（宿主侧）。

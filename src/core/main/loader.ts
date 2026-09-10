@@ -1,5 +1,5 @@
 // ============================================================
-// core/init/init.ts —— 初始化管线（装载面二元制：工具点名、类/策略目录扫描）
+// core/main/loader.ts —— 资源装载管线（装载面二元制：工具点名、类/策略目录扫描）
 //
 // 流程（纯 TS，fs/import 经 InitDeps 注入）：
 //   1. 读取唯一配置（ConfigStore.load）；
@@ -19,8 +19,7 @@ import type { AgentClass, AgentClassID } from '../kernel'
 import { makeAgentClassID } from '../kernel'
 import type { ContextStrategyModule } from '../context'
 import type { ToolAccess, ToolCapability } from '../tools'
-import { DEFAULT_CONFIG_TEXT } from '../config'
-import { parseAgentFile } from './agentParse'
+import { DEFAULT_CONFIG_TEXT, parseAgentFile } from '../config'
 import type { DiscoveredEntry, InitDeps, InitError, InitIssue, InitReport, ResourceEntry } from './types'
 
 /** 运行初始化管线。 */

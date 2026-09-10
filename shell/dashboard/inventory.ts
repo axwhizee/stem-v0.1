@@ -13,8 +13,8 @@ import { BUILTIN_TEMPLATES, ROOT_ID } from '../../src/core/kernel'
 import { createBuiltinStrategyRegistry } from '../../src/core/context'
 import type { AgentClass } from '../../src/core/kernel'
 import type { ToolCapability } from '../../src/core/tools'
-import type { StemSystem } from '../../src/core/init'
-import type { InitIssue } from '../../src/core/init'
+import type { StemSystem } from '../../src/core/main'
+import type { InitIssue } from '../../src/core/main'
 
 export interface InventoryTool {
   readonly id: string

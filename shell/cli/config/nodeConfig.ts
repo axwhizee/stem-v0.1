@@ -13,7 +13,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import type { ConfigLoadResult, ConfigPaths, ConfigStore, StemConfig } from '../../../src/core/config'
 import { parseConfigText } from '../../../src/core/config'
-import type { ClassFs, InitFs, InitToolLoader } from '../../../src/core/init'
+import type { ClassFs, InitFs, InitToolLoader } from '../../../src/core/main'
 
 /** 解析 `.stem/` 目录结构（先看 stem.jsonc，再看 stem.json）。 */
 export function resolveConfigPaths(projectRoot: string): ConfigPaths {

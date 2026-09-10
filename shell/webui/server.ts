@@ -14,7 +14,7 @@ import { bootStem } from '../cli/platform'
 import { makeAgentClassID } from '../../src/core/kernel'
 import type { AgentClass } from '../../src/core/kernel'
 import type { PilotEvent } from '../../src/core/events'
-import type { StemSystem } from '../../src/core/init'
+import type { StemSystem } from '../../src/core/main'
 
 const PORT = Number(process.env.PORT ?? 4321)
 /** 绑定地址：裸机默认仅本机（127.0.0.1）；容器内由 STEM_HOST=0.0.0.0 放开（端口映射需要）。 */

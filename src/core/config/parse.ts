@@ -9,7 +9,7 @@ import { parse as parseJsonc } from 'jsonc-parser'
 import type { ParseError } from 'jsonc-parser'
 import type { ToolAccess } from '../tools'
 import type { ModelRef } from '../gateway'
-import type { ConfigError, StemBashConfig, StemConfig, StemContextConfig, StemExtensionsConfig, StemProviderConfig, StemUserClass } from './types'
+import type { ConfigError, StemBashConfig, StemConfig, StemContextConfig, StemExtensionsConfig, StemProviderConfig, StemToolsConfig, StemUserClass } from './types'
 
 /** 合法工具访问动作（四态）。 */
 const ACTIONS: readonly ToolAccess[] = ['allow', 'deny', 'ask', 'ignore']
@@ -26,6 +26,7 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   'maxSteps',
   'context',
   'bash',
+  'tools',
   'sendCountdown',
   'extensions',
   'custom',
@@ -34,7 +35,6 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
 /** 已废除的历史键 → 迁移指路（仍 fail-fast，但错误可行动）。 */
 const RETIRED_KEYS: Readonly<Record<string, string>> = {
   model: '顶层 model 已拆除（R12）：家学锚点 = user.model（全体缺省的本体）',
-  tools: '目录即真相：用户工具放入 .stem/tools/ 即自动注册',
   agents: '目录即真相：类文件放入 .stem/agent/ 即自动注册',
   strategies: '目录即真相：策略文件放入 .stem/context/ 即自动注册',
 }
@@ -92,6 +92,7 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
   const user = raw.user !== undefined ? validateUser(raw.user, fail) : undefined
   const context = raw.context !== undefined ? validateContext(raw.context, fail) : undefined
   const bash = raw.bash !== undefined ? validateBash(raw.bash, fail) : undefined
+  const tools = raw.tools !== undefined ? validateTools(raw.tools, fail) : undefined
   const extensions = raw.extensions !== undefined ? validateExtensions(raw.extensions, fail) : undefined
   const custom =
     raw.custom !== undefined && raw.custom !== null && typeof raw.custom === 'object'
@@ -112,6 +113,7 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
     ...(user !== undefined ? { user } : {}),
     ...(context !== undefined ? { context } : {}),
     ...(bash !== undefined ? { bash } : {}),
+    ...(tools !== undefined ? { tools } : {}),
     ...(extensions !== undefined ? { extensions } : {}),
     ...(custom !== undefined ? { custom } : {}),
   }
@@ -294,6 +296,30 @@ function validateBash(value: unknown, fail: (message: string) => never): StemBas
     ...(raw.defaultTimeoutMs !== undefined ? { defaultTimeoutMs: validateNumber(raw.defaultTimeoutMs, fail, 'bash.defaultTimeoutMs') } : {}),
     ...(raw.maxOutputChars !== undefined ? { maxOutputChars: validateNumber(raw.maxOutputChars, fail, 'bash.maxOutputChars') } : {}),
     ...(raw.cwd !== undefined ? { cwd: raw.cwd as string } : {}),
+  }
+}
+
+/**
+ * tools 配置块（`{ outputLimit? }`）。历史顶层 `tools` 为工具清单，
+ * 现由 user.tools / extensions.tools 承载——数组形态给可行动迁移错误。
+ */
+function validateTools(value: unknown, fail: (message: string) => never): StemToolsConfig | undefined {
+  if (value === undefined) return undefined
+  if (Array.isArray(value)) {
+    fail(
+      'config.tools 不再是工具清单数组：现为工具框架配置块（{ outputLimit }）。' +
+        '工具访问清单请在 config.user.tools（根收敛）或 config.extensions.tools（装载点名）声明',
+    )
+  }
+  if (value === null || typeof value !== 'object') {
+    fail('tools 必须是对象（工具框架配置块 { outputLimit? }）')
+  }
+  const raw = value as Record<string, unknown>
+  for (const key of Object.keys(raw)) {
+    if (key !== 'outputLimit') fail(`tools.${key} 为未知键（合法：outputLimit）`)
+  }
+  return {
+    ...(raw.outputLimit !== undefined ? { outputLimit: validateNumber(raw.outputLimit, fail, 'tools.outputLimit') } : {}),
   }
 }
 

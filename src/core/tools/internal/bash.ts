@@ -17,7 +17,7 @@
 // ============================================================
 
 import { isAbsolute, resolve as resolvePath } from 'node:path'
-import type { ToolCapability, ToolResult } from './types'
+import type { ToolCapability, ToolResult } from '../types'
 
 // ---------- ShellRunner 端口（宿主注入） ----------
 

@@ -92,6 +92,12 @@ export interface StemBashConfig {
   readonly cwd?: string
 }
 
+/** 工具框架配置块（`config.tools`；与 tools/output.ts 的窗口限制同源）。 */
+export interface StemToolsConfig {
+  /** 工具结果进入上下文的字符上限；0/未设 = 不启用（默认零行为变更）。 */
+  readonly outputLimit?: number
+}
+
 /**
  * extensions 资源点名面：
  *   - tools = **{名: 权限词} 对象**（装载与出生一句话说完：键在
@@ -122,6 +128,8 @@ export interface StemConfig {
   readonly context?: StemContextConfig
   /** bash 工具配置（超时/输出上限/shell 路径/缺省目录）。 */
   readonly bash?: StemBashConfig
+  /** 工具框架配置（结果窗口限制等）。 */
+  readonly tools?: StemToolsConfig
   /** 全局默认送信倒计时（毫秒；agent 文件/类未指定时使用）。 */
   readonly sendCountdown?: number
   /**

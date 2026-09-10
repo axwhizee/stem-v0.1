@@ -1,5 +1,5 @@
 // ============================================================
-// core/init/agentSerialize.test.ts —— 类序列化器单测（S5.2 往返律）
+// core/config/agentFile.serialize.test.ts —— 类序列化器单测（S5.2 往返律）
 //
 // 核心契约：parse(serialize(cls), name) ≡ normalize(cls)。
 // 红线：panel 类永不序列化；custom 与已知键冲突拒绝；类名字符集守卫。
@@ -8,8 +8,8 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { makeAgentClassID, type AgentClass } from '../kernel'
-import { parseAgentFile } from './agentParse'
-import { serializeAgentClass, agentFileName, agentFileOf } from './agentSerialize'
+import { parseAgentFile } from './agentFile'
+import { serializeAgentClass, agentFileName, agentFileOf } from './agentFile'
 
 const full: AgentClass = {
   name: makeAgentClassID('reviewer'),

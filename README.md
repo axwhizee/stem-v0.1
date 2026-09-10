@@ -4,8 +4,7 @@
 > 干细胞之意：如同原始 Agent 类，可分化出任意角色与能力。
 > 抛弃会话概念：以**原子化 Agent 类 + Agent 实例**为核心，配合**族谱树**与模块化 harness 系统，构建可自我进化的多智能体集群。
 
-**状态**：架构定稿，发布前收敛（核心骨架 + 个体层持久化（schema v3）+ 上下文策略框架 classic/cortex + 族谱权限台账与出生声明 + 根配置对象化 + 身份代数（路径 id + 全局 name + 带时戳信件）+ bash 最小操作面 + extensions 点名装载，403 单测全绿）。
-**日期**：2026-08
+**状态**：架构定稿，v1.0 发布前逐模块收敛（核心骨架 + 个体层持久化（schema v3）+ 上下文策略框架 classic/cortex + 族谱权限台账与出生声明 + 根配置对象化 + 身份代数（路径 id + 全局 name + 带时戳信件）+ bash 最小操作面 + extensions 点名装载）。发布进展与验证证据以 **`docs/log2.md`** 为准（本文不再承载用例数/日期等易漂移数字）。
 
 ---
 
@@ -19,7 +18,7 @@
   - **元能力工具**（`agent_class_create` / `agent_inspect` / `agent_ancestry` / `agent_descendants` …）让 AI 自己管理 Agent 信息，实现自我进化（特修斯之船）。
   - **消息库 tag + 双索引**：为上下文管理策略（压缩/印象/记忆）提供定位，引导从经典组装走向自聚焦/记忆分层。
   - **Logging** 贯穿全系统，记录工具调用/API 请求/上下文组装，驱动评估与进化闭环。
-- **Core 完全解耦**：core 层为纯 TS 领域逻辑，零 VSCode 依赖，所有平台能力经接口由宿主注入——为目标是从 VSCode 剥离的独立项目。
+- **Core 完全解耦**：core 层为纯 TS 领域逻辑，零平台依赖，所有平台能力经接口由宿主注入——已从 VSCode 剥离的独立项目。
 - **AgentSpace**：按项目/工作区划分 agent 列表，UI 复用 session 模式但一条目 = 一个 Agent 实例，用户可实时观察与接管任何 Agent。
 
 ## 架构一图流
@@ -27,19 +26,19 @@
 ```text
 ┌───────────────────────────────────────────────────────────────────────┐
 │ Layer 3  shell/（交互层，最外）—— 平台适配 + UI                       │
-│   cli/（bootStem + TOOL_SETS + bash runner + storage + CLI）          │
+│   cli/（bootStem + extensionRoots + bash runner + storage + CLI）     │
 │   webui/（HTTP + SSE；三件套分文件；流式思维链/监督抽屉/占用条；/api/health） │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                     │
 │   init/（createStemSystem 组合根）· kernel/（Kernel/Runtime/builtin/agents │
 │   pilot/（根 user#0 扮演接口）· events/（PilotEvent + EventHub）      │
 │   lineage/（族谱纯关系视图）· context/（邮局 + legalize + 持久化端口）│
-│   tools/（注册表 + access + accessRequest + bash + SkillRegistry）    │
+│   tools/（注册表 + access 四态 + accessRequest + bash 端口）          │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 1  Model Gateway (core/gateway/)   ← 纯 TS（opencode 隔离）    │
 │   ModelGateway · providers/(openaiCompatible) · FakeGateway           │
 └───────────────────────────────────────────────────────────────────────┘
-   extension/tools/  可选 tool_set 包（config.extensions 选择，宿主解析注入）
+   extension/{tools,agent,context}/  矩阵扩展层：目录形态资源（config.extensions 分键点名）
    横切  Logging (core/logging/) —— LogEvent 经注入 LogSink 直达记录器（无总线）
 ```
 
@@ -50,12 +49,12 @@
 | 概念 | 说明 |
 |---|---|
 | **AgentClass（模板）** | 角色设定：name（即 id）/ description / systemPrompt / **tools**（四态 Record，键即白名单）/ contextStrategy / model / sendCountdown / panel / custom——全量参数速查见下表。用户主权载体。 |
-| **AgentInstance** | 运行时原子单位：**id**（出生路径，系统全托管：根 `0`，子 `<父id>-<序号>`，永不复用）/ classRef / **parentId**（=创建者，族谱）/ **name**（全局唯一称呼，呈现 `name#id`）/ status / turnCount / totalCost。 |
+| **AgentInstance** | 运行时原子单位：**id**（出生路径，系统全托管：根 `0`，子 `<父id>-<序号>`，永不复用）/ classRef / **parentId**（=创建者，族谱）/ **name**（全局唯一称呼，呈现 `name#id`）/ status / turnCount / totalCost / totalTokens（终身累计，不受 compact 影响）。 |
 | **族谱树 LineageTree** | 无状态关系视图：parentId 挂实例上，实时推导 children/ancestors/descendants；销毁权判定。 |
 | **根（user#0）** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.user` = 其类配置完整对象（人格/权限/模型声明式可配 + `name` 出生称呼，缺省 'user'）。 |
-| **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`lineage/AccessLedger` 注册期物化：继承→收敛，键即白名单；grant 加法为系统特权），tools 经 `AccessResolver` 端口查询。 |
+| **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`lineage/AccessLedger` 注册期物化：继承→收敛，键即白名单；grant 双门面：spawn 受限 / `agent_update.grantTools`），tools 经 `AccessResolver` 端口查询。 |
 | **邮局** | 无集中式总线：仓库（存储）→ 管理员（打戳/策略处理/组装 + legalize）→ 快递员（倒计时+发送，只发不组装）。个体层经 MessageStore/InstanceStore 端口 write-through 落 SQLite（宿主注入），缺省纯内存。 |
-| **上下文策略** | `context/strategies/` 独立子模块（契约：note/role/assemble/process/actions/init；process 触发=user_prompt 抵达、终点=就绪唤醒快递员）。classic = 全量直出 + compact（markInvalid 归档可逆）；cortex = 三层外挂记忆（LTM/笔记/STM）+ 阈值做梦二段事务（dreamer 回信交付、记忆组轮替、`.stem/mem/` 单向镜像）；`.stem/context/*.ts` 可加载用户策略（自我进化承载之一）。 |
+| **上下文策略** | `context/strategies/` 独立子模块（契约：note/role/tools/assemble/process/actions/init；tools = 收敛链 raise 声明清单；process 触发=user_prompt 抵达、终点=就绪唤醒快递员）。classic = 全量直出 + compact（markInvalid 归档可逆）；cortex = 三层外挂记忆（LTM/笔记/STM）+ 阈值做梦二段事务（dreamer 回信交付、记忆组轮替、`.stem/mem/` 单向镜像）；`.stem/context/*.ts` 可加载用户策略（自我进化承载之一）。 |
 | **ask 消息化** | ask 审批 = 消息交换：`access_request` 投递根信箱 → 根经 `access_reply` 回复（once/always/reject；always = per-agent 免询问备忘）。 |
 | **PilotEvent** | 统一事件流（stream/letter/status/tool/notice）+ EventHub 多订阅者；外部（shell/webui）订阅。 |
 | **tag + 双索引** | StoredMessage 带 tag（非原生合成消息）+ turn/indexInTurn（双索引），为上下文策略提供精确定位。 |
@@ -97,6 +96,7 @@
 | | `agent_instantiate` | 实例化类（parentId=调用者；可继承父上下文；模型路径只能收敛；**wait=true 创建并等待回信**——配对原子完成竞态绝迹，可配 waitTimeoutMs） | allow |
 | | `agent_list` | 列出空间内实例 | allow |
 | | `agent_inspect` | 实例详情：族谱链/状态/轮次/成本/**生效权限表** | allow |
+| | `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：model / name / tools 收敛 patch / grantTools 清单整表 | `ask` |
 | | `agent_ancestry` | 祖先链 `[父 → … → 根]` | allow |
 | | `agent_descendants` | 后代子树（BFS） | allow |
 | | `agent_terminate` | 销毁实例（自身或祖先；recursive 级联子树） | `ask` |
@@ -115,7 +115,7 @@
 
 | 工具 | 位置 | 说明 | 根清单（模板实值） |
 |---|---|---|---|
-| `bash` | `src/core/tools/bash.ts` | **最小系统唯一对外操作面**（外部文件/系统）：执行 shell 命令返回 stdout/stderr/exit code。core 只定义工具与 `ShellRunner` 端口，执行由宿主注入（node child_process）。治理对齐 pi：**不走 ask、无黑名单**——靠超时/截断/默认 cwd 限事故半径 + 提示词分担；`config.bash` 配参（`path/defaultTimeoutMs/maxOutputChars/cwd`）。 | `allow` |
+| `bash` | `src/core/tools/internal/bash.ts` | **最小系统唯一对外操作面**（外部文件/系统）：执行 shell 命令返回 stdout/stderr/exit code。core 只定义工具与 `ShellRunner` 端口，执行由宿主注入（node child_process）。治理对齐 pi：**不走 ask、无黑名单**——靠超时/截断/默认 cwd 限事故半径 + 提示词分担；`config.bash` 配参（`path/defaultTimeoutMs/maxOutputChars/cwd`）。 | `allow` |
 > 不配 shell 的 agent：模板 `tools` 白名单**不列 `bash` 键**即可（键即自我限定，代码里永不写危险命令黑名单）。
 
 ### ③ extension 工具（`kind=extension`，fs 五件套 + web 两件，`extension/tools/`）
@@ -136,16 +136,16 @@
 
 平铺 `<名>.ts` 或目录 `<名>/<名>.ts` 形态默认导出 `ToolCapability`（示例：`test/space-demo/.stem/tools/user_hello.ts`），在 `config.extensions.tools` 点名才进世界（权限词即出生）。**agent 类/上下文策略仍是目录即真相**（`.stem/agent/`、`.stem/context/` 自动装载，用户主权书写面不受影响）。
 
-### ⑤ extension（tool_set 包挂载点，`extension/tools/`）
+### ⑤ extension 层（`extension/`，三类资源目录形态）
 
-可选功能扩展以 **tool_set 包**形式落此（一组 `ToolCapability`），经 `config.extensions` 选择、宿主装配层解析注入（见 ③）。当前 fs 参考实现暂驻 `shell/cli/tools/`（其本身体依赖 node 平台能力），本目录承接第三方/宿主专属包。
+仓库级可选扩展的家：`extension/tools/<名>/<名>.ts`、`extension/agent/<名>/<名>.md`、`extension/context/<名>/<名>.ts`，由 `config.extensions.{tools,agent,context}` 分键点名启用（装载与覆盖律见 architecture §4.12/§4.14）。与 custom 层同构，差别只在启用方式（点名 vs 目录即真相）与归属（仓库发布物 vs 用户空间）。当前住户：fs 五件套 + web 两件（tools）、`creator` 调度者示例（agent）。
 
 ## 本地参考资料
 
-- `reference/deepseek-harness/` —— DeepSeek harness（事件源会话日志、capability seam、单调 guard 参考）
-- `reference/pi/` —— 极简 agent harness（核心极简、快照/进度分离参考）
-- `reference/le-opencode/` —— opencode 源码（provider/LLM 复用依据）
-- `reference/vscode-1.132.0/` —— VSCode 源码（API 铁律核对依据）
+- `reference/deepseek-harness-dsh-v0.1.2-rc.1/` —— DeepSeek harness（事件源会话日志、capability seam、单调 guard 参考）
+- `reference/pi-0.84.4/` —— 极简 agent harness（核心极简、快照/进度分离参考）
+- `reference/opencode-1.18.27/` —— opencode 源码（provider/LLM 复用依据）
+- `reference/vscode-1.132.0/`、`reference/vscode-1.136.1/` —— VSCode 源码（历史核对基准，本项目已剥离）
 
 ## 快速上手
 
@@ -178,8 +178,8 @@ shell 内可交互：直接输入对话；`/new` 创建实例、`/agents` 查看
 
 ## 关键前提
 
-1. **VSCode**：1.132.0（本地源码核对基准），Proposed API 需 **Insiders** + `--enable-proposed-api=stem`。
-2. **Proposals**：`["chatSessionsProvider", "chatParticipantAdditions"]`。
-3. **opencode**：仅复用 Provider/LLM 能力（vendored `@opencode-ai/llm` + `@opencode-ai/schema`，或阶段 1 裸 fetch），不引入其 Session/Agent 引擎。
-4. **effect**：引入 vendored llm 后锁定 `effect@4.0.0-beta`，且只存在于 gateway 层内部。
-5. **Agent 系统自研**：AgentClass/实例/族谱/工具访问全部自研（VSCode 无原生 agent 工具）。
+1. **Node**：`>= 23.4`（`node:sqlite` 免 flag）；运行依赖 `tsx` / `jsonc-parser` / `yaml`（飞书 shell 另用官方 SDK）。
+2. **无平台绑定**：已从 VSCode 剥离——无 VSCode/Proposed API 依赖，core 零平台依赖，一切平台能力经端口由宿主注入。
+3. **模型接入**：OpenAI 兼容端点一段 config 即接入（`config.providers`）；provider 路由在 shell 门面，密钥只走 env。
+4. **Agent 系统自研**：AgentClass / 实例 / 族谱 / 工具访问 / 上下文策略全部自研。
+5. **发布形态**：Docker（`node:24-bookworm-slim` + 非 root + `/data` volume + `/api/health` HEALTHCHECK）。

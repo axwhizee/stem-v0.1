@@ -1,34 +1,36 @@
 // ============================================================
-// core/init/agentParse.ts —— 用户 agent 文件解析（.md + YAML 头）
+// core/config/agentFile.ts —— `.stem/agent/<name>.md` 用户文件契约
 //
-// 文件形式（**自由式 frontmatter**——对齐主流 harness 惯例：仅文件名即
-// 类名这一格式约束，字段可扩展）：
+// 用户主权文件（类模板）的解析与序列化同源：parseAgentFile（读）×
+// serializeAgentClass（写，agentParse 的逆函数）。**用户文件契约与配置同源**，
+// 故随 config 模块（而非装载管线）——装载管线只负责 IO 与注册。
+//
+// 文件形式（自由式 frontmatter：仅文件名即类名这一格式约束，字段可扩展）：
 //   ---
 //   description: ...           # 可选（缺省 = 文件名）
-//   permission:                # 融合的工具清单（工具=键、动作=值，键即白名单）
+//   tools:                     # 融合的工具清单（工具=键、动作=值，键即白名单）
 //     read: allow
-//     edit: ask
 //     bash: deny
 //   send_countdown: 1000       # 可选送信倒计时
-//   max_steps: 12                # 可选单轮工具步数上限（≤0/缺省 = 无限制）
-//   context_strategy: classic  # 可选上下文管理策略（strategies 注册表校验）
+//   max_steps: 12              # 可选单轮工具步数上限（≤0/缺省 = 无限制）
+//   context_strategy: classic  # 可选上下文管理策略
 //   model: provider/id         # 可选模型偏好
 //   <任意其它字段>             # 透传进 AgentClass.custom（自定义扩展位）
 //   ---
 //   <system_prompt 正文>
 //
-// 设计要点：
-//   - **不要求 id/name**：文件名即 agent 类 id 与 name（实例化时才命名）。
-//   - **工具与权限融合**：`tools` 的键即工具白名单，避免
-//     "有权限无工具 / 有工具无权限" 的尴尬；白名单为本地封闭（键即白名单），
-//     祖先显式 deny/ask 仍取严（见 lineage/AccessLedger）。
-//   - **未知字段不丢弃**：全部透传 custom——用户模板与内置类配置面齐平，
-//     也是 agent 类自我进化的可承载扩展位。
+// **红线**（D6/D7）：
+//   - `panel === true` 的模块扮演类（策略 role 等机制类）**永不回写**
+//     ——系统机制类与用户主权基因分界，`.stem/agent/` 只装后者；
+//   - 类名即文件名：字符集守卫（拒路径穿越；模型可控输入参与文件路径）。
 // ============================================================
 
-import { parse as parseYaml } from 'yaml'
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import type { ModelRef } from '../gateway'
 import type { ToolAccess } from '../tools'
+import type { AgentClass } from '../kernel'
+
+// ---------- 解析（读侧） ----------
 
 /** YAML 头（已归一化；未知字段透传 custom）。 */
 export interface AgentFrontmatter {
@@ -55,7 +57,7 @@ export interface ParsedAgentFile {
   readonly description: string
   /** 融合的工具访问（工具 → 动作）。 */
   readonly toolAccess: Readonly<Record<string, ToolAccess>>
-  /** 工具白名单（= permission 的键，缺省空）。 */
+  /** 工具白名单（= tools 的键，缺省空）。 */
   readonly tools: readonly string[]
   readonly sendCountdown?: number
   readonly maxSteps?: number
@@ -117,7 +119,7 @@ export function parseFrontmatter(text: string): Record<string, unknown> {
 }
 
 /** 已知键（其余透传 custom）。 */
-const KNOWN_KEYS: ReadonlySet<string> = new Set(['description', 'tools', 'send_countdown', 'context_strategy', 'model'])
+const PARSE_KNOWN_KEYS: ReadonlySet<string> = new Set(['description', 'tools', 'send_countdown', 'context_strategy', 'model'])
 
 /** 归一化 YAML 头为 AgentFrontmatter（校验字段类型；未知键收进 extra）。 */
 export function normalizeHead(raw: Record<string, unknown>, fail: (message: string) => never): AgentFrontmatter {
@@ -139,7 +141,7 @@ export function normalizeHead(raw: Record<string, unknown>, fail: (message: stri
   if (raw.model !== undefined && typeof raw.model !== 'string') fail('model 必须是字符串（提供商/模型）')
   const extra: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(raw)) {
-    if (!KNOWN_KEYS.has(key)) extra[key] = value
+    if (!PARSE_KNOWN_KEYS.has(key)) extra[key] = value
   }
 
   return {
@@ -179,4 +181,60 @@ function normalizePermissions(
     result[tool] = action as ToolAccess
   }
   return result
+}
+
+// ---------- 序列化（写侧；parse 的逆） ----------
+
+/** frontmatter 已知键（与解析侧 KNOWN_KEYS 同步——custom 冲突校验共用）。 */
+export const AGENT_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  'description',
+  'tools',
+  'send_countdown',
+  'max_steps',
+  'context_strategy',
+  'model',
+])
+
+/** 类名字符集（= 文件名安全）：字母数字开头，允许字母数字 . _ -。 */
+const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/
+
+/** 类名 → 落盘文件名（含注入守卫）。 */
+export function agentFileName(name: string): string {
+  if (!NAME_RE.test(name) || name.includes('..')) {
+    throw new Error(`类名不可作为文件名落盘（仅允许字母数字与 . _ -，不得含路径分隔）：${JSON.stringify(name)}`)
+  }
+  return `${name}.md`
+}
+
+/** 目录 + 类名 → 文件路径（core 零平台依赖：不做平台 join，约定 '/' 拼接与 ConfigPaths 同源）。 */
+export function agentFileOf(dir: string, name: string): string {
+  return `${dir.replace(/\/+$/, '')}/${agentFileName(name)}`
+}
+
+/**
+ * AgentClass → `.stem/agent/<name>.md` 全文（frontmatter + 正文）。
+ * @throws panel 类回写（红线）/ custom 键与已知键冲突 / 类名非法。
+ */
+export function serializeAgentClass(cls: AgentClass): string {
+  if (cls.panel === true) {
+    throw new Error(`panel 类 ${cls.name} 为系统机制承载，永不回写 .stem/agent/（红线）`)
+  }
+  const head: Record<string, unknown> = {
+    description: cls.description,
+    tools: { ...cls.tools },
+    ...(cls.sendCountdown !== undefined ? { send_countdown: cls.sendCountdown } : {}),
+    ...(cls.maxSteps !== undefined ? { max_steps: cls.maxSteps } : {}),
+    ...(cls.contextStrategy !== undefined ? { context_strategy: cls.contextStrategy } : {}),
+    ...(cls.model !== undefined ? { model: `${cls.model.provider}/${cls.model.id}` } : {}),
+  }
+  // custom 自由键透传（进化基因承载位）：与已知键冲突 = 歧义，拒绝落盘；undefined 值剔除。
+  for (const [key, value] of Object.entries(cls.custom ?? {})) {
+    if (AGENT_KNOWN_KEYS.has(key)) {
+      throw new Error(`custom 键 "${key}" 与 frontmatter 已知键冲突，无法无损往返（请改用标准字段）`)
+    }
+    if (value === undefined) continue
+    head[key] = value
+  }
+  const yaml = stringifyYaml(head)
+  return `---\n${yaml}---\n\n${cls.systemPrompt}\n`
 }

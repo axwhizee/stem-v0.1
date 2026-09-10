@@ -1,5 +1,5 @@
 // ============================================================
-// core/init/classRestart.test.ts —— 进化跨重启 e2e（S5.2 验收件）
+// core/main/classRestart.test.ts —— 进化跨重启 e2e（S5.2 验收件）
 //
 // 目录即真相的兑现链：createStemSystem 注入 classFs（内存 map 版 node fs
 // 替身）→ 工具写类（create 新名 → update 收敛覆盖）→ 序列化落 `.stem/agent/`

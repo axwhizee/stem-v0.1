@@ -36,3 +36,11 @@ id = 出生路径全托管：根 `0`、子 `<父id>-<序号>`（纯推导：代�
 ## 2026-09-10 · cot-watch 四：实例终身累计 token + WebUI 三件套拆分与布局精修
 
 ## 2026-09-10 · WebUI 交互精修：发送者全名/来源标记/布局规则/工具名首行/1M 上下文
+
+## 2026-09-11 · tools 模块收口（DIP 端口倒置）+ 组合根抽离（main/RuntimePort/SystemFacade）
+
+工具子系统分层收口：`kind=internal` 工具统一 `tools/internal/`（`systemTools.ts` 20 枚 + `bash.ts`），唯一出入口 `createInternalTools({host, bash?})`；新增 `ports.ts` 按域拆窄端口 `AgentPort/ContextPort/TelemetryPort/AccessPort` + 中性 DTO，**消除 tools→kernel 源码依赖**（tools 只 import gateway/logging + 自持端口）。kernel 侧 `toolHost.ts` 实现 `SystemToolHost` 适配器，组合根接线。统一输出新增 `tools/output.ts`：`formatToolOutput(result|error,{outputLimit})` 成功/失败同一入口，runtime 会话回填与工具记录 sink 同走一个函数（消除两处重复的错误渲染/窗口裁剪）；配置升级 `config.tools={outputLimit?}`（字符口径，0/未设 = 不启用 = 默认零行为变更；历史数组形态 = 可行动迁移错误）。
+
+组合根抽离：`init/`→`main/`（`runInit`→`main/loader.ts`、`createStemSystem`→`main/system.ts`、类型→`main/types.ts`）；`kernel/Runtime.ts`→`main/runtime.ts`，Kernel 只认 `RuntimePort` 接口（经 `KernelOptions.runtime` 工厂注入，`createRuntime` 兑现），执行器不再住 kernel；`agentParse+agentSerialize`→`config/agentFile.ts`（`.stem/agent` 用户文件契约与配置同源）；pilot 门面化：`SystemFacade` 接口（kernel 声明）+ `main/systemFacade.ts` 适配实现，pilot 不再依赖具体 Kernel。文档分层：新增 `src/core/{tools,main,kernel,config,context,lineage,gateway,pilot,events,logging}/README.md`，architecture 顶部加模块自述导航并同步移动路径，删除 `docs/dev-guide.md`（内容归模块 README），contributor/AGENTS/README 指针同步。
+
+门槛：typecheck 0 + 442/442 + 离线双档 29/9。行为零变更（`config.tools` 缺省不启用窗口限制）；依赖方向立为单向 DAG：main 依赖一切，无模块依赖 main。

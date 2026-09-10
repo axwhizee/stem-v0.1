@@ -34,7 +34,7 @@ const { makeAgentClassID, ROOT_ID } = await import('../../src/core/kernel')
 const { makeAgentID } = await import('../../src/core/kernel/types')
 const { parseConfigText } = await import('../../src/core/config')
 import type { Pilot } from '../../src/core/pilot'
-import type { StemSystem } from '../../src/core/init'
+import type { StemSystem } from '../../src/core/main'
 
 if (!process.env.OPENCODE_API_KEY) {
   console.log('跳过：OPENCODE_API_KEY 未注入（在线档需真网关；注入法见 contributor §8）')

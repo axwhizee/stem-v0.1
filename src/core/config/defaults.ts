@@ -66,6 +66,8 @@ export const DEFAULT_CONFIG_TEXT = `{
   "context": { "window": 1000000, "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 } },
   // bash 工具（缺省内置：120s 超时 / 50k 截断 / 项目根目录）。
   // "bash": { "defaultTimeoutMs": 120000, "maxOutputChars": 50000 },
+  // 工具结果窗口（进入上下文的字符上限；缺省/0 = 不启用）。
+  // "tools": { "outputLimit": 50000 },
   // 资源点名（装载与出生一句话说完）：tools = {名: 权限词}——名字在
   //   extension/tools/ 或 .stem/tools/ 解析不到 = 拒启；未点名的工具不存在于
   //   世界（.stem/tools/ 目录自动扫描已废止，注入面闭合）。缺省 = 纯 bash 最小系统。

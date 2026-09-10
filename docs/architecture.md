@@ -2,7 +2,10 @@
 
 > 本文档记录**实际开发过程中明确的系统架构**与各模块内部的实现逻辑（落地后的真实形态，与规划冲突时以本文档为准，并会同步修订）。
 
-**日期**：2026-08-22 · 最后同步 2026-09-08（身份代数落地：路径 id `0`/全局 name/信件戳 name#id+分钟时刻/存储 v3 拒载——本卷两处实现漏网已修：agentId 随机描述行、agent_update displayName 行）
+**日期**：2026-08-22 · 最后同步 2026-09-11（tools 模块收口：internal 工具统一 `tools/internal/` + DIP 窄端口；组合根 `init/`→`main/`、`kernel/Runtime.ts`→`main/runtime.ts`（RuntimePort）；`agentParse/Serialize`→`config/agentFile.ts`；pilot 门面化 SystemFacade；统一输出 `tools/output.ts` + `config.tools.outputLimit`；模块自述拆入 `src/core/*/README.md`）
+
+> **模块自述导航**：`src/core/{tools,main,kernel,config,context,lineage,gateway,pilot,events,logging}/README.md`
+> 承载各模块实现细节；本卷承载架构总览与跨模块机制。`api.md` 为交付产物（发布前可能滞后）。
 
 ---
 
@@ -17,13 +20,13 @@
 │ feishu/ 飞书长连接 shell（免公网远程宿主；router 纯逻辑+SDK 适配） │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 2 core/（纯 TS，零平台依赖，自治最小系统） │
-│ init/ createStemSystem（组合根）· runInit（目录即真相，不回写） │
+│ main/ createStemSystem（组合根）· runInit 装载管线 · runtime 执行器 │
 │ kernel/ Kernel · TemplateRegistry · InstanceManager · SpaceManager │
-│ Runtime（被动驱动）· builtin/agents（内置类表） │
-│ pilot/ Pilot（根扮演接口）· events/（PilotEvent + EventHub） │
+│  · RuntimePort/SystemFacade 端口 · builtin/agents（内置类表） │
+│ pilot/ Pilot（根扮演接口，依赖 SystemFacade）· events/（PilotEvent + EventHub） │
 │ lineage/ LineageTree（族谱树：拓扑+能力+可见域）· context/（重建邮局）│
 │ tools/ ToolCapabilityRegistry（出生声明+init）· access · accessRequest│
-│ · bash 工具（ShellRunner 端口） │
+│  · output（统一输出）· internal/（系统工具 + bash / ShellRunner 端口） │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 1 Model Gateway (core/gateway/) ← 纯 TS（OpenAI 兼容泛化） │
 │ ModelGateway · providers/(openaiCompatible) · FakeGateway │
@@ -32,7 +35,7 @@
  横切 Logging (core/logging/) —— 各模块 LogEvent 经注入 LogSink 直达记录器（无总线）
 ```
 
-依赖方向（单向）：`shell → core(kernel/pilot/context/tools) → gateway`。core 目录零平台依赖（禁止 `import 'vscode'` 与平台全局）；平台能力（fs/网络/动态 import）全部以接口注入。
+依赖方向（单向）：`shell → core(main/kernel/pilot/context/tools) → gateway`。core 目录零平台依赖（禁止 `import 'vscode'` 与平台全局）；平台能力（fs/网络/动态 import）全部以接口注入。组合根 `main` 依赖一切，**没有任何模块依赖 `main`**。
 
 ## 二、核心概念模型
 
@@ -43,7 +46,7 @@
 - **id（路径形）**：根 = `0`；子 = `<父id>-<出生序号>`（`0-3-2-7`）。序号 1 起、**永不回收**（terminate 留空洞；出生计数含归档墓碑——地址复用 = 历史信件指错实体，绝对禁止；重启扫描全库立计数器地板）。纯推导零查询：代际 = 段数、父 = 去尾段、祖先链 = 前缀。分隔符 `-`（URL/文件名/shell 三安全；id 段只含数字，与含 `-` 的类名一眼可辨）。`前缀 ⇔ isAncestorOf` 是审计断言（Ledger 与字符串互验），**权限裁决权威仍是物化，编码不是旁路**。`instantiate` 显式指定 id 的通道不存在（出生即路径）。
 - **name（全局唯一，可变）**：出生 = 显式指定（**撞全局名 = 拒绝并明示**，绝不自动加后缀）或缺省确定性推导 `类名-下一号`（扫描含墓碑，可复现无随机）。根 name 缺省 `"user"` → **全名 `user#0`**（验收空间配置 `name: "船长"` 则全名 `船长#0`——名字是 config 实值不是系统定义）。可变面 `agent_update.name`（撞名拒）；DB 装载期唯一性校验（手改撞名 = boot 硬错）。role/worker 等机制实例同规——不造第二等公民。
 - **呈现与解析**：一切对人/对模型的呈现（信件戳/agent_list/审批卡/错误 message）统一 **`name#id`**；写面解析三形态：**name 优先**（全局唯一无歧义，模型的认知舒适区），`name#id` 精确制导，裸 id 兼容（精确 → 唯一前缀 → name 反查）。
-- **根实例（全名 `user#0`）= `user` 类的普通实例**：内置根模板在 `core/kernel/builtin/agents.ts` 统一类表，类配置 = **`config.user` 完整对象**（name/systemPrompt/tools/contextStrategy/model/sendCountdown 全可配——元 agent 人格进配置文件；**tools = 纯收敛清单**（A2 链的第一环，值集见 defaults.ts 首启模板实值——模板是写好的 config 不是兜底机制）；`access_reply` 生效 allow 由 **boot 校验律**保证，缺位拒启）。在 **pilot 初始化流程内**实例化（`createPilot → kernel.registerRootAgent`），与其它 agent 走完全相同的 `instantiate` 路径，无任何权限/流程特判；挂**真实项目空间**。
+- **根实例（全名 `user#0`）= `user` 类的普通实例**：内置根模板在 `core/kernel/builtin/agents.ts` 统一类表，类配置 = **`config.user` 完整对象**（name/systemPrompt/tools/contextStrategy/model/sendCountdown 全可配——元 agent 人格进配置文件；**tools = 纯收敛清单**（A2 链的第一环，值集见 defaults.ts 首启模板实值——模板是写好的 config 不是兜底机制）；`access_reply` 生效 allow 由 **boot 校验律**保证，缺位拒启）。在 **pilot 初始化流程内**实例化（`createPilot → SystemFacade.registerRootAgent`），与其它 agent 走完全相同的 `instantiate` 路径，无任何权限/流程特判；挂**真实项目空间**。
 - **AgentClass（模板）**：`name（类名即标识）/ description / systemPrompt / tools（收敛清单：键即白名单 + 逐键沿 ignore→allow→ask→deny 只紧不松，见 2.2）/ contextStrategy / model / sendCountdown / panel（模块扮演面板）/ custom（自由扩展位）`。
 - **AgentInstance**：`id（路径）/ name / classRef / parentId / spaceId / status / turnCount / totalCost / totalTokens（终身累计 token，recordTurnEnd 每轮 usage in+out 累加，不受 compact 影响——与 ctxTokens 现占量两本账）/ userPrompt / toolOverride / model（显式层）/ modelSnapshot（出生快照）`；`parentId` 即族谱父（= 创建者，根为 null），创建时确定、不可变——**拓扑永不入任何写通道**（这条既有律恰是路径 id 成立的守护：无 reparent 则地址永不腐化；**法与编码互保**）。
 - **LineageTree 族谱树门面**（`core/lineage/`，实例层派生事实唯一面）：三相——**拓扑**（getParent/getChildren/getAncestors/getDescendants/getRoot/isAncestorOf，parentId 单一事实源，实时推导）、**能力**（attach/detach/replay + effectiveAccess/profileOf + 模型相 modelOf/setModel/nodeConfigOf，全参数统一解析律见 2.2 末）、**可见域**（canReach = 自身∨祖先）。红线：纯派生不入库、零运行时状态、零类层依赖。
@@ -92,7 +95,7 @@
 
 - `core/pilot/Pilot.ts`：`identity`（恒根，未来 `as(agentId)` 可扮演任意 agent）+ `subscribe(PilotEvent)` + 命令（sendMessage / instantiate（可带 name 显式出生名、model 显式出生；**id 恒系统按路径生成，无指定通道**）/ **setModel**（扮演通道）/ terminate / interrupt / replyAccess / contextOverview / exportContext / **runContextAction**（策略动作，如 compact）/ listAgents / inspect / activeAgents）。
 - **扮演 = 根的 action**：`sendMessage` 记录人类输出为根的 assistant 消息（根完整 transcript），同一文本作为 user 消息投递给目标。
-- `createPilot({ kernel })`：pilot 初始化流程内实例化根（若未注册）。
+- `createPilot({ facade })`：pilot 初始化流程内实例化根（若未注册）。
 - **不做抽象层**：外部（shell/webui）与 core 的一切交互经模块接口直连（日志导出、上下文数据库导出等不在 Pilot 内）。
 
 ### 2.4 事件流：PilotEvent + EventHub（多订阅者）
@@ -226,14 +229,14 @@
 
 - 各模块经注入 `LogSink` 发日志 → 组合根接到 `Logger`（无总线）。
 - `LogEvent`：`tool.invoked` / `gateway.apiRequest` / `context.assembled` / `context.compacted`（compact 结果：compacted/skipped/failed） / `mailbox.countdown|delivered` / `access.asked|replied` / `kernel.*`（class.registered / instance.created / status.changed / instance.terminated / instance.interrupted / message.sent）。
-- `InMemoryLogger`：留档 + `query({agentId, type})` 过滤。
+- `InMemoryLogger`：留档 + `query({agentId, type})` 过滤。**运行时边界（现状）**：唯一实现即内存留档——日志不落 DB、不跨重启，`telemetry_query` 的观测域 = 当前进程生命周期；跨重启长程观测若需要则走后续 `LogStore` 端口（见 `prompts.md` 优化台账），1.0 前保持运行时形态。
 
-### 4.12 全局配置 + 初始化（`core/config/` + `core/init/`）
+### 4.12 全局配置 + 组合根（`core/config/` + `core/main/`）
 
 **唯一配置文件**：`<projectRoot>/.stem/stem.jsonc`（或 `.stem/stem.json`）。
 
 - 配置项（/ 全量有效原则：**未知顶层键 boot fail-fast**，`custom` 为唯一扩展位；历史键 model/tools/agents/strategies 出现即报错并给迁移指路——静默丢弃兼容已废除）：**`providers`（模型提供商注册表：`base_url` 必填 http(s) / `key_env` 密钥环境变量名（**配置文件永不承载明文密钥**；缺省 = 匿名端点）/ `models` 启用白名单；一切模型引用的 provider 必须在此注册）**、`autoApprove`、**`user`（根 agent 类完整对象：description/systemPrompt/tools（纯收敛清单，见 2.2）/contextStrategy/**model（家学锚点，boot 必填硬校验——全链缺省的本体）**/sendCountdown/**name（根出生名，缺省 `user`）**）、`maxSteps`、**`context`（window/compact：threshold/keepRecentTurns/summarizeModel（摘要 worker 类基因位，已接线）/instruction/replyTimeoutMs）**、**`bash`（path/defaultTimeoutMs/maxOutputChars/cwd）**、**`extensions`（分键对象：`{tools?, agent?, context?}` = `extension/<键>/` 下启用的目录形态条目名；tools 缺省 = fs 五件套，agent/context 缺省 = 不启用；旧数组形态 fail-fast 指路）**、`sendCountdown`。**目录即真相**（agent 类/策略层）+ **config 即全部配置**；首启模板 = `config/defaults.ts` 的 `DEFAULT_CONFIG_TEXT`（唯一预设 opencode-go 以模板数据存在；文件缺失时 `defaultStemConfig` 兼作内存等效——首启装配必有锚）。
-- **系统装配**（`core/init/system.ts`，`createStemSystem(deps)` 组合根）：
+- **系统装配**（`core/main/system.ts`，`createStemSystem(deps)` 组合根；agent 执行器住 `main/runtime.ts`，Kernel 经 `RuntimePort` 消费）：
  0. （可选 `stateStore` 注入）Kernel 构造内：内存核建好后先从 store 恢复（实例/消息/空间 + 状态归一化 + id 计数器续接 + 族谱树能力相 replay 重放），再套 write-through 装饰器，恢复出的实例在构造末尾统一接线上下文——装配顺序不变，恢复收敛在 Kernel 内；
  1. 读取配置（不存在 = `defaultStemConfig` 内存等效；**家学硬校验 config.user.model**）→ 工具注册表 + Kernel（user 类 = config.user 对象，`contextSettings`/`maxSteps`/**`project`（项目空间身份，根挂真实空间）**注入；策略注册表内置 classic/none）；
  2. 系统工具（agent_*/bus_*/context_* + telemetry_query + context_apply + access_reply）→ bash 工具（注入 `shellRunner` 才装配）→ 类回写通道（注入 `classFs` 才建 `ClassStore`：create/update 授权后 serialize → .stem/agent/<name>.md`）；
@@ -256,14 +259,14 @@
 - **feishu**（飞书 shell）：第三远程宿主——官方 SDK `@larksuiteoapi/node-sdk` **长连接模式**（程序拨出 WebSocket，免公网 IP/域名/回调服务，NAT 后主机仅需出网）。**会话模型 = CLI 式显式目标**：每个 chat 有当前目标 agent，`/new <类> [任务]`（创建并绑定）、`/use <name|id>`（切换，直接吃三形态寻址 `resolveAgent`）、`/exit`（解绑）、`/agents`（选人面板）；目标解析优先级 = 显式会话 > 静态绑定表（`chatBindings`，把群变成子 agent 的移动窗口）> 接待员秘书（**可选项**——`secretaryClass` 配了才有，'' = 关闭中转，未绑定会话回指令指引）。会话状态（`sessions`/`ownerChatId`/`lastSeenAt`）**回写 `.stem/feishu.jsonc`**（jsonc applyEdits 定点编辑，保用户注释——机器写用户手编文件的纪律）。**上下线与补偿**：连接就绪向主人会话发"上线"、SIGTERM/SIGINT 优雅发"离线"；启动后按会话从 `lastSeenAt` 增量拉取 `im.v1.message.list` 重放（`planReplay` 纯函数：真人∧owner∧未见、时间升序——离线期间的信不丢，根的答复义务不因链路中断豁免）。飞书消息经 pilot 以根身份投递 = "船长的话"，目标回根的信从根信箱 letter 事件反查 `StoredMessage.from` 后**读 aloud** 给主人。三文件分工：`router.ts` 纯逻辑全决策面（owner 白名单闸门/会话路由/`/help /new /use /exit /agents /tree /status /logs /watch /unwatch /stop`/`<access_request>` XML 解析/`card.action.trigger` value 判别/message_id LRU 去重/补偿重放计划/长文分箱/formatTree——零 SDK 全单测）+ `feishu.ts` 协议翻译（SDK 具名导入、`msg_type/message_type` 双形兼容、REST 发送与历史拉取）+ `main.ts` 接线（凭证只 env、watch 节流聚合、审批三键卡 once/always/reject → pilot.replyAccess → 卡原地更新留档、jsonc 回写钩子）。配置 `.stem/feishu.jsonc` = **shell 层自治理文件**（不进 core StemConfig——平台配置不入 core 铁律；ownerOpenIds 空时回打印来话 open_id 供认领）。**权限不由聊天渠道定义**——白名单外的飞书身份在 shell 收敛为零服务，agent 能干什么仍全是族谱树的函数。
 ### 4.14 extension/：矩阵 extension 层（三类资源目录形态）
 
-- 仓库级可选扩展的家：`extension/tools/<名>/<名>.ts`、`extension/agent/<名>/<名>.md`、`extension/context/<名>/<名>.ts`——**一资源一目录、入口与目录同名**，附属脚本/资源同目录自由放置；由 `config.extensions.{tools,agent,context}` 分键点名启用（装载与覆盖律见 §4.12 init 管线；）。
+- 仓库级可选扩展的家：`extension/tools/<名>/<名>.ts`、`extension/agent/<名>/<名>.md`、`extension/context/<名>/<名>.ts`——**一资源一目录、入口与目录同名**，附属脚本/资源同目录自由放置；由 `config.extensions.{tools,agent,context}` 分键点名启用（装载与覆盖律见 §4.12 `main/loader` 管线）。
 - 首住户：fs 五件套（tools/read…glob）+ web 两件（tools/websearch：百炼 WebSearch MCP，密钥 `ALIBABA_API_KEY` 走 env；tools/webfetch：零依赖抓取转换，无密钥）+ `agent/creator/`（调度者示例类——父子调度 dogfood）；`_lib/` 前缀目录 = 共享辅助代码不参与扫描。
-- 与 custom 层的差别只在**启用方式**（点名 vs 目录即真相）与**归属**（仓库发布物 vs 用户空间），装载管线同构（core/init 统一 loader）。
-- ** 起无系统级 skill 子系统**：SKILL.md 生态兼容降为 custom 工具约定（`.stem/tools/skill/skill.ts` 装载器 + `<技能名>/SKILL.md` 资产，见 dev-guide 食谱）；MCP 类外部能力同样走工具三分类落位，不设第二通道。
+- 与 custom 层的差别只在**启用方式**（点名 vs 目录即真相）与**归属**（仓库发布物 vs 用户空间），装载管线同构（`main/loader` 统一 loader）。
+- ** 起无系统级 skill 子系统**：SKILL.md 生态兼容降为 custom 工具约定（`.stem/tools/skill/skill.ts` 装载器 + `<技能名>/SKILL.md` 资产）；MCP 类外部能力同样走工具三分类落位，不设第二通道。
 
 ### 4.15 持久化（个体层 SQLite，write-through）
 
-**分层边界**：类层持久 = 文件（`.stem/agent/*.md`，目录即真相，用户主权可审；**兑现回写侧**：agent_class_create/update 经 `ClassStore` 端口落盘——core 序列化 `agentSerialize`（往返律，panel 机制类永不回写红线）+ 宿主 `ClassFs` IO，进化跨重启唯一通道）；**个体层持久 = SQLite**（实例/消息/空间）。核心思想：**内存为准 + write-through（DB 为影）**——同步读接口（list/listValid/getState）零破坏，写操作内存生效后同步落行（单进程 + DatabaseSync，崩溃窗口为零）。
+**分层边界**：类层持久 = 文件（`.stem/agent/*.md`，目录即真相，用户主权可审；**兑现回写侧**：agent_class_create/update 经 `ClassStore` 端口落盘——config 序列化 `agentFile.serializeAgentClass`（往返律，panel 机制类永不回写红线）+ 宿主 `ClassFs` IO，进化跨重启唯一通道）；**个体层持久 = SQLite**（实例/消息/空间）。核心思想：**内存为准 + write-through（DB 为影）**——同步读接口（list/listValid/getState）零破坏，写操作内存生效后同步落行（单进程 + DatabaseSync，崩溃窗口为零）。
 
 - **端口（core，零平台依赖）**：`context/store.ts` `MessageStore`（upsert/archiveAgent/loadBoxes/maxMessageSeq）；`kernel/store.ts` `InstanceStore`（实例 upsert/delete/loadAll + 空间 upsertSpace/deleteSpace/loadSpaces）。接口与默认内存实现同文件（`MemoryMessageStore`/`MemoryInstanceStore`，测试即用它观测持久化）。
 - **装饰器（core）**：`context/persisted.ts` `PersistedRepository`；`kernel/persisted.ts` `PersistedInstanceManager` / `PersistedSpaceManager`——全部委托内层内存实现 + 写穿。**terminate = 个体消亡**：实例/空间行删除，**消息行归档**（archived 标记，进化语料保留，恢复不加载、id 计数器避开历史序号）。

@@ -1,5 +1,5 @@
 // ============================================================
-// core/init/restart.test.ts —— 持久化恢复 e2e（系统级重启语义）
+// core/main/restart.test.ts —— 持久化恢复 e2e（系统级重启语义）
 //
 // 复用 system.test 的 createStemSystem 装配（FakeGateway + 内存 store），
 // 用同一对 MemoryStore 跨"三个生命周期"验证：
