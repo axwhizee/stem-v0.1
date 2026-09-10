@@ -17,6 +17,7 @@ const full: AgentClass = {
   systemPrompt: '你是审查者。\n输出三点结论：\n- 正确性\n- 风险\n- 建议',
   tools: { read: 'allow', edit: 'ask', bash: 'deny', skill: 'ignore' },
   sendCountdown: 1500,
+  maxSteps: 8,
   contextStrategy: 'classic',
   model: { provider: 'opencode-go', id: 'deepseek-v4-flash' },
   custom: { gen: 2, tags: ['review', 'v2'], dream: { everyMs: 60000, idleOnly: true } },
@@ -30,6 +31,7 @@ describe('serializeAgentClass（往返律：parse ∘ serialize ≡ id）', () =
     assert.equal(parsed.description, full.description)
     assert.deepEqual(parsed.toolAccess, full.tools, '四态工具清单原样往返')
     assert.equal(parsed.sendCountdown, 1500)
+    assert.equal(parsed.maxSteps, 8)
     assert.equal(parsed.contextStrategy, 'classic')
     assert.deepEqual(parsed.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
     assert.deepEqual(parsed.custom, full.custom, 'custom 自由键（对象/数组）透传往返')
@@ -58,6 +60,7 @@ describe('serializeAgentClass（往返律：parse ∘ serialize ≡ id）', () =
       systemPrompt: reparsed.systemPrompt,
       tools: reparsed.toolAccess,
       ...(reparsed.sendCountdown !== undefined ? { sendCountdown: reparsed.sendCountdown } : {}),
+      ...(reparsed.maxSteps !== undefined ? { maxSteps: reparsed.maxSteps } : {}),
       ...(reparsed.contextStrategy !== undefined ? { contextStrategy: reparsed.contextStrategy } : {}),
       ...(reparsed.model !== undefined ? { model: reparsed.model } : {}),
       ...(Object.keys(reparsed.custom).length > 0 ? { custom: reparsed.custom } : {}),

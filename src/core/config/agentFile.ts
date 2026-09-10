@@ -118,8 +118,15 @@ export function parseFrontmatter(text: string): Record<string, unknown> {
   return yaml as Record<string, unknown>
 }
 
-/** 已知键（其余透传 custom）。 */
-const PARSE_KNOWN_KEYS: ReadonlySet<string> = new Set(['description', 'tools', 'send_countdown', 'context_strategy', 'model'])
+/** frontmatter 已知键（解析与序列化**共用**同一集合，防两侧漂移；其余透传 custom）。 */
+export const AGENT_KNOWN_KEYS: ReadonlySet<string> = new Set([
+  'description',
+  'tools',
+  'send_countdown',
+  'max_steps',
+  'context_strategy',
+  'model',
+])
 
 /** 归一化 YAML 头为 AgentFrontmatter（校验字段类型；未知键收进 extra）。 */
 export function normalizeHead(raw: Record<string, unknown>, fail: (message: string) => never): AgentFrontmatter {
@@ -129,6 +136,9 @@ export function normalizeHead(raw: Record<string, unknown>, fail: (message: stri
     (typeof raw.send_countdown !== 'number' || raw.send_countdown < 0)
   ) {
     fail('send_countdown 必须是非负数字（毫秒）')
+  }
+  if (raw.max_steps !== undefined && (typeof raw.max_steps !== 'number' || !Number.isFinite(raw.max_steps))) {
+    fail('max_steps 必须是数字（≤0/缺省 = 无限制）')
   }
   if (raw.tools !== undefined) {
     if (raw.tools === null || typeof raw.tools !== 'object' || Array.isArray(raw.tools)) {
@@ -141,7 +151,7 @@ export function normalizeHead(raw: Record<string, unknown>, fail: (message: stri
   if (raw.model !== undefined && typeof raw.model !== 'string') fail('model 必须是字符串（提供商/模型）')
   const extra: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(raw)) {
-    if (!PARSE_KNOWN_KEYS.has(key)) extra[key] = value
+    if (!AGENT_KNOWN_KEYS.has(key)) extra[key] = value
   }
 
   return {
@@ -150,6 +160,7 @@ export function normalizeHead(raw: Record<string, unknown>, fail: (message: stri
       ? { tools: raw.tools as Readonly<Record<string, string>> }
       : {}),
     ...(raw.send_countdown !== undefined ? { send_countdown: raw.send_countdown as number } : {}),
+    ...(raw.max_steps !== undefined ? { max_steps: raw.max_steps as number } : {}),
     ...(raw.context_strategy !== undefined ? { context_strategy: raw.context_strategy as string } : {}),
     ...(raw.model !== undefined ? { model: raw.model as string } : {}),
     extra,
@@ -184,16 +195,6 @@ function normalizePermissions(
 }
 
 // ---------- 序列化（写侧；parse 的逆） ----------
-
-/** frontmatter 已知键（与解析侧 KNOWN_KEYS 同步——custom 冲突校验共用）。 */
-export const AGENT_KNOWN_KEYS: ReadonlySet<string> = new Set([
-  'description',
-  'tools',
-  'send_countdown',
-  'max_steps',
-  'context_strategy',
-  'model',
-])
 
 /** 类名字符集（= 文件名安全）：字母数字开头，允许字母数字 . _ -。 */
 const NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._-]*$/

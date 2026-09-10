@@ -100,6 +100,14 @@ test('context_strategy 类型非法抛错', () => {
   assert.throws(() => parseAgentFile('---\ncontext_strategy: 42\n---\nbody', 'bad'), /context_strategy/)
 })
 
+test('max_steps 已知键提取（0 = 无限制合法；类型非法抛错；不进 custom）', () => {
+  const parsed = parseAgentFile('---\ndescription: x\nmax_steps: 12\n---\nbody', 'agent-s')
+  assert.equal(parsed.maxSteps, 12)
+  assert.deepEqual(parsed.custom, {})
+  assert.equal(parseAgentFile('---\nmax_steps: 0\n---\nbody', 'agent-s0').maxSteps, 0)
+  assert.throws(() => parseAgentFile('---\nmax_steps: fast\n---\nbody', 'bad'), /max_steps/)
+})
+
 test('完整样例：SAMPLE 的 metadata 进 custom（旧"忽略"→新"透传"）', () => {
   const parsed = parseAgentFile(SAMPLE, 'user-reviewer')
   assert.deepEqual(parsed.custom, { metadata: { author: 'someone' } })
