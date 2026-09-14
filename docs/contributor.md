@@ -17,19 +17,19 @@
 |---|---|---|
 | **实况卷** | AGENTS.md · docs/architecture.md · 本卷 · 各模块 README（`src/core/*/README.md`、`shell/*/README.md`、`extension/README.md`）（api.md 为交付产物，见下注） | 承载"当前系统是什么"。内容过时 = bug，**整节系统性重写**，禁止局部打补丁 |
 
-**沿革（"当时发生了什么/定了什么"）由 git 提交历史承载**——每批行为变化写进 commit message，`git log` 即完整时间线；不再另设日志卷（log 文件已删除，git 历史足够充分）。`docs/prompts.md`（需求与优化台账，不提交）仍是需求记录面，但不承载实况。
+**沿革（"当时发生了什么/定了什么"）由 git 提交历史承载**——每批行为变化写进 commit message，`git log` 即完整时间线；不另设日志卷。`docs/prompts.md`（需求与优化台账，不提交）仍是需求记录面，但不承载实况。
 
-> **交付产物标记（2026-09-10）**：`docs/api.md` 是面向 1.0 交付的接口参考，**正式发布前可能滞后于代码**——实现以 `architecture.md`、各模块 README 与代码为准，v1.0 冻结时统一重定稿（见 `prompts.md` 优化台账）。
+> **交付产物**：`docs/api.md` 是面向 1.0 交付的接口参考，**正式发布前可能滞后于代码**——实现以 `architecture.md`、各模块 README 与代码为准，v1.0 冻结时统一重定稿。
 
 **plan 卷生命周期**（用户裁决）：阶段计划卷是实施期的执行依据，落**仓库根 `plan.md`**（gitignore 临时档，**不入 `docs/`**——避免污染实况卷）；**实施完成即删除**——全部裁决与沿革由 git 提交历史承载，残留计划只会长成过时指路牌。写 plan 时即按此契约：plan 卷只承载"将要做什么 + 为什么这么定"，不承载实况描述（实况永远归 architecture/api/模块 README）。
 
-### 1.2 为什么（历史教训实录）
+### 1.2 为什么（病灶模式）
 
 补丁式更新是本项目文档的头号病灶——只写增量、不清旧账，过时内容沉底不被审视：
 
-- `docs/code-style.md`（已于本卷合并后退役删除）：正文停留在 VSCode 时代愿景——`ContextAssetPool/KVStore/MessageBus/adapters/extension.ts` 组合根、`oc_*` 工具前缀、`normal/advanced/admin` 权限三级、`'idle'|'running'|'waiting'` 状态机。这些概念**全部已被废除**，直到有人拿它当契约才会中毒。
-- AGENTS.md 曾长期表述「panel……如 user0」——暗示根的类携带 `panel: true` 字段；实况是 **根（user#0）的面板性来自根接线**（`Kernel` 对 `parentId=null` 的 `assemble:false`），`panel` 字段是策略 role 的泛化形态。一字之差会让人去 userClass.ts 找不存在的字段。
-- `shell/cli/main.ts` 头注释残留「bus.send → 邮局 → 自动寄信」旧叙事（bus 早已工具化，`bus_*` 又已更名 `mail_*`）。
+- 描述**已不存在的类型/字段/目录**（如旧状态机、旧总线命名、已拆模块）的段落，一旦有人当契约就会中毒。
+- **行内改一句、旁路留旧账**（字段改名后正文仍写旧名）——禁止；对拍表要求整节重写。
+- **把沿革写进实况**（"X 已删除 / 曾经是 Y"）——实况卷只写"现在是什么"；沿革归 git。
 
 **判定标准：一段文字如果描述的是已经不存在的机制，它就是死文字。死文字零容忍——删掉或重写成活的事实，二者必居其一。**
 
@@ -85,7 +85,7 @@
 - **core 错误 = 判别联合对象（`{ kind: ... }`），不是 Error 实例**；测试断言用 `assert.throws(rejects)` 谓词而非正则。宿主层（shell）例外可 Error。
 - 高频通道 fail-soft：extension 工具缺依赖（密钥未配）回**可行动文本**给模型，不抛栈炸轮（websearch 是范本）；装载期问题进 `init.issues`（fail-soft 不炸启动，dashboard 可见）。
 - 流式一律 `AsyncIterable`（`ModelGateway.chat`），消费方 `for await` + AbortSignal。
-- Runtime 主循环必须有显式退出条件（maxSteps **每轮**归零 / 无 tool_call / finish）；策略 `process` 契约 = 重入 guard + 失败兜底，**绝不抛出到送信链路**。
+- Runtime 主循环必须有显式退出条件（无 tool_call / finish）；策略 `process` 契约 = 重入 guard + 失败兜底，**绝不抛出到送信链路**。
 - 持久化端口是**同步**接口（对齐 node:sqlite DatabaseSync 与仓库同步读）；写穿在内存生效后落行。
 
 ## 5. 工具与权限纪律（改动敏感区）
@@ -94,8 +94,8 @@
 - 改 `ToolKind`/工具 shape（含 `birth`）/`AgentClass.tools`/`ToolContext` 时全量对拍：`src/core/tools/`、`extension/tools/`、注册表出生面（birthTable/收敛链 fold）、系统工具 schema、族谱台账、config parse+defaults 模板、webui/dashboard 展示面。
 - 权限与模型**一律走族谱树门面**（attach/detach/replay + effectiveAccess/modelOf/canReach）；禁止 kernel/tools 再拼第二套判定链（AccessLedger 是内部实现，禁止直连）。
 - 严格度**总序** `deny ≺ ask ≺ allow ≺ ignore`（按监督度：ignore=看不见的执行最宽）：一切权限书写面（类文件 update / 实例 agent_update / 台账物化）同一把尺，只许顺链收缩；藏匿（allow→ignore）判扩张被拒。
-- `grant` = 清单形整表替换 + 逐键祖先显式**封顶**（无扩张面）：`InstantiateOptions.accessMode` 仍为策略/宿主专用；模型侧清单便利走 `agent_update.grantTools`（受限语义使其安全等价于逐键填表）。
-- 运行期实例参数写面唯一 = `kernel.updateAgent`（agent_update 工具 / pilot 共用；改后全树 replay），禁止新增散点 setter。
+- `grant` = 清单形整表替换 + 逐键祖先显式**封顶**（无扩张面）：仅 `InstantiateOptions.accessMode`（策略 spawn）使用。
+- 运行期实例参数写面唯一 = `kernel.updateAgent`（name/model/temperature/effort；无全树 replay），禁止新增散点 setter。
 - ask 是消息交换不是系统通道：改审批流程 = 改 `<access_request>` 消息形状，考虑根信箱可读性（实参披露是待裁决项，见 git 历史）。
 
 ## 6. 测试规范
@@ -115,7 +115,7 @@
 1. **自造 mock 会精确隐藏它没见过的形状**——dashscope tool_calls 尾分片带 `id:""` 覆盖真 id → 真网关工具链整体静默失效，单测全绿掩盖至今（修复见 git 历史）。真端点冒烟不可省；抓真 SSE 原文写回归用例是标准流程。
 2. **假阳性断言自查**：marker 别出现在 prompt 里（否则 user 行命中）；断言要指到 `role:"tool"` 行级证据。
 3. **时序与口径陷阱**：等 LLM 轮先等进 `thinking` 再等离开（固定 sleep 竞态）；compact 检查点在"下一封 user 信抵达"，测试需要第三轮做触发探针；mock `prompt_tokens` 给**固定值**会命中负差回落护栏（Δ≤0 回落估算）——用量阶梯递增让真实归位通道保持畅通。
-4. **手动计时器的时间坍缩**（kernelHarness `manualTimers` 实录教训）：`flushAll` 不看 ms 全量触发 = 同时炸掉"回信等待超时（60s）"与"0ms 发送倒计时"——凡被测链含 `waitForReply` 类长超时，先 pump microtask、久无进展才 flush（FakeGateway 链不经计时器）；harness 已修 0ms 档走真定时器（setTimeout(0)），worker 类 0 倒计时不再永滞 cooling 态。配对类通道改语义时守"**先登记等待者、后投递触发信**"（instantiate 的创建配对原子性同款纪律，纠错循环曾栽在反序上）。
+4. **手动计时器的时间坍缩**（kernelHarness `manualTimers`）：`flushAll` 不看 ms 全量触发 = 同时炸掉"回信等待超时（60s）"与"0ms 发送倒计时"——凡被测链含 `waitForReply` 类长超时，先 pump microtask、久无进展才 flush（FakeGateway 链不经计时器）；0ms 档走真定时器（setTimeout(0)），worker 类 0 倒计时不进 cooling 滞留。配对类通道守"**先登记等待者、后投递触发信**"（instantiate 创建配对原子性同款纪律）。
 
 ## 7. 提交规范
 

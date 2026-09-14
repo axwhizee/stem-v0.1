@@ -1,8 +1,6 @@
 # stem 实际架构
 
-> 本文档记录**实际开发过程中明确的系统架构**（落地后的真实形态，与规划冲突时以本文档为准，并会同步修订）。**模块内部实现住各模块 README**（见下「模块自述导航」与「四、模块导航」）；本卷只承载总览、跨模块机制与导航。
-
-**日期**：2026-08-22 · 最后同步 2026-09-11（tools 模块收口：internal 工具统一 `tools/internal/` + DIP 窄端口；组合根 `init/`→`main/`、`kernel/Runtime.ts`→`main/runtime.ts`（RuntimePort）；`agentParse/Serialize`→`config/agentFile.ts`；pilot 门面化 SystemFacade；统一输出 `tools/output.ts` + `config.tools.outputLimit`；工具装配上移 `main/toolWiring.ts`（internal 工具 + 记录 sink，Kernel 不再认识 bash）+ internal 端口收口（只留 `tools/internal/ports.ts`，kernel 适配器具名直取）；**分层文档**：本卷收窄为「总览 + 跨模块机制 + 模块导航」，各模块内部实现迁入 core/shell/extension README）
+> 本文档记录**当前系统架构**（落地后的真实形态；与规划冲突时以本文档与代码为准）。**模块内部实现住各模块 README**（见下「模块自述导航」）；本卷只承载总览、跨模块机制与导航。
 
 > **模块自述导航**：
 > - **core**：`src/core/{main,kernel,lineage,context,tools,gateway,config,pilot,events,logging}/README.md`
@@ -23,10 +21,10 @@
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 2 core/（纯 TS，零平台依赖，自治最小系统） │
 │ main/ createStemSystem（组合根）· runInit 装载管线 · runtime 执行器 │
-│ kernel/ Kernel · TemplateRegistry · InstanceManager · SpaceManager │
+│ kernel/ Kernel · TemplateRegistry · InstanceManager │
 │  · RuntimePort/SystemFacade 端口 · builtin/agents（内置类表） │
 │ pilot/ Pilot（根扮演接口，依赖 SystemFacade）· events/（PilotEvent + EventHub） │
-│ lineage/ LineageTree（族谱树：拓扑+能力+可见域）· context/（重建邮局）│
+│ lineage/ LineageTree（族谱树：拓扑+能力+可见域）· context/（重建邮局 + wait）│
 │ tools/ ToolCapabilityRegistry（出生声明+init）· access · accessRequest│
 │  · output（统一输出）· internal/（系统工具 + bash / ShellRunner 端口） │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -45,13 +43,13 @@
 
 **一句话**：所有 agent（含根）是同一套机制的实例；**id = 出生路径（系统全托管），name = 可变称呼（全局唯一）**——根没有任何字段级特殊性，它只是族谱链上唯一没有"接收父表"的那次收敛。
 
-- **id（路径形）**：根 = `0`；子 = `<父id>-<出生序号>`（`0-3-2-7`）。序号 1 起、**永不回收**（terminate 留空洞；出生计数含归档墓碑——地址复用 = 历史信件指错实体，绝对禁止；重启扫描全库立计数器地板）。纯推导零查询：代际 = 段数、父 = 去尾段、祖先链 = 前缀。分隔符 `-`（URL/文件名/shell 三安全；id 段只含数字，与含 `-` 的类名一眼可辨）。`前缀 ⇔ isAncestorOf` 是审计断言（Ledger 与字符串互验），**权限裁决权威仍是物化，编码不是旁路**。`instantiate` 显式指定 id 的通道不存在（出生即路径）。
+- **id（路径形 `x.x`）**：根 = `0`；root 第 N 子 = `N`；子 = `<父id>.<出生序号>`（`1.3.2`）。序号 1 起、**永不回收**（terminate 留空洞；出生计数含归档墓碑——地址复用 = 历史信件指错实体，绝对禁止；重启扫描全库立计数器地板）。纯推导零查询：代际 = 段数、父 = `parentIdOf`（`1.3`→`1`；`3`→`0`；`0`→null）、祖先链 = 前缀。分隔符 `.`。`前缀 ⇔ isAncestorOf` 是审计断言（Ledger 与字符串互验），**权限裁决权威仍是物化，编码不是旁路**。`instantiate` 显式指定 id 的通道不存在（出生即路径）。
 - **name（全局唯一，可变）**：出生 = 显式指定（**撞全局名 = 拒绝并明示**，绝不自动加后缀）或缺省确定性推导 `类名-下一号`（扫描含墓碑，可复现无随机）。根 name 缺省 `"user"` → **全名 `user#0`**（验收空间配置 `name: "船长"` 则全名 `船长#0`——名字是 config 实值不是系统定义）。可变面 `agent_update.name`（撞名拒）；DB 装载期唯一性校验（手改撞名 = boot 硬错）。role/worker 等机制实例同规——不造第二等公民。
 - **呈现与解析**：一切对人/对模型的呈现（信件戳/agent_list/审批卡/错误 message）统一 **`name#id`**；写面解析三形态：**name 优先**（全局唯一无歧义，模型的认知舒适区），`name#id` 精确制导，裸 id 兼容（精确 → 唯一前缀 → name 反查）。
-- **根实例（全名 `user#0`）= `user` 类的普通实例**：内置根模板在 `core/kernel/builtin/agents.ts` 统一类表，类配置 = **`config.user` 完整对象**（name/systemPrompt/tools/contextStrategy/model/sendCountdown 全可配——元 agent 人格进配置文件；**tools = 纯收敛清单**（A2 链的第一环，值集见 defaults.ts 首启模板实值——模板是写好的 config 不是兜底机制）；`access_reply` 生效 allow 由 **boot 校验律**保证，缺位拒启）。在 **pilot 初始化流程内**实例化（`createPilot → SystemFacade.registerRootAgent`），与其它 agent 走完全相同的 `instantiate` 路径，无任何权限/流程特判；挂**真实项目空间**。
-- **AgentClass（模板）**：`name（类名即标识）/ description / systemPrompt / tools（收敛清单：键即白名单 + 逐键沿 ignore→allow→ask→deny 只紧不松，见 2.2）/ contextStrategy / model / sendCountdown / panel（模块扮演面板）/ custom（自由扩展位）`。
-- **AgentInstance**：`id（路径）/ name / classRef / parentId / spaceId / status / turnCount / totalCost / totalTokens（终身累计 token，recordTurnEnd 每轮 usage in+out 累加，不受 compact 影响——与 ctxTokens 现占量两本账）/ userPrompt / toolOverride / model（显式层）/ modelSnapshot（出生快照）`；`parentId` 即族谱父（= 创建者，根为 null），创建时确定、不可变——**拓扑永不入任何写通道**（这条既有律恰是路径 id 成立的守护：无 reparent 则地址永不腐化；**法与编码互保**）。
-- **LineageTree 族谱树门面**（`core/lineage/`，实例层派生事实唯一面）：三相——**拓扑**（getParent/getChildren/getAncestors/getDescendants/getRoot/isAncestorOf，parentId 单一事实源，实时推导）、**能力**（attach/detach/replay + effectiveAccess/profileOf + 模型相 modelOf/setModel/nodeConfigOf，全参数统一解析律见 2.2 末）、**可见域**（canReach = 自身∨祖先）。红线：纯派生不入库、零运行时状态、零类层依赖。
+- **根实例（全名 `user#0`）= `user` 类的普通实例**：内置根模板在 `core/kernel/builtin/agents.ts` 统一类表，类配置 = **`config.user` 完整对象**（name/systemPrompt/tools/contextStrategy/model/sendCountdown/temperature/effort 全可配——元 agent 人格进配置文件；**tools = 纯收敛清单**（A2 链的第一环，值集见 defaults.ts 首启模板实值——模板是写好的 config 不是兜底机制）；`access_reply` 生效 allow 由 **boot 校验律**保证，缺位拒启）。在 **pilot 初始化流程内**实例化（`createPilot → SystemFacade.registerRootAgent`），与其它 agent 走完全相同的 `instantiate` 路径，无任何权限/流程特判；挂**真实项目空间**。
+- **AgentClass（模板）**：`name（类名即标识）/ description / systemPrompt / tools（收敛清单：键即白名单 + 逐键只紧不松，见 2.2）/ contextStrategy / model / sendCountdown / temperature / effort`。面板性 = 实例 `assemble:false`；策略参数住策略模块公式。
+- **AgentInstance**：`id（路径 `x.x`）/ name / classRef / assemble?（false=被外部扮演）/ status / turnCount / totalCost / totalTokens（终身累计）/ ctxTokens?（最近 prompt_tokens 反馈）/ toolOverride / model（显式层）/ modelBinding（出生落地）/ temperature / effort`。**父 = `parentIdOf(id)` 纯推导，不落库**；**userPrompt 不落实例**（只走 `InstantiateOptions.userPrompt` 首信投递）。拓扑永不入任何写通道（无 reparent 则地址永不腐化；**法与编码互保**）。
+- **LineageTree 族谱树门面**（`core/lineage/`，实例层派生事实唯一面）：三相——**拓扑**（getParent/getChildren/getAncestors/getDescendants/getRoot/isAncestorOf，父 = `parentIdOf(id)` 纯推导）、**能力**（attach/detach/replay + effectiveAccess/profileOf + 模型相 modelOf/nodeConfigOf，出生落地无运行期全树 replay）、**可见域**（canReach = 自身∨祖先）。红线：权限/模型档案可启动重放重建；**节点全属性与运行时在实例行**；零类层依赖。
 - **销毁权（fail-closed）**：仅目标的**祖先**可销毁（根天然不可销毁）；有活跃子默认拒，`recursive: true` 级联。
 - **父子 = 所有权/责任关系，能力无关**：消息互通无方向限制、各自独立上下文与类。
 
@@ -73,13 +71,13 @@
  - **收敛链**：`注册表 ─根清单─▶ 根生效表 ─交付─▶ 类清单 ─▶ 策略声明清单* ─▶ 实例化清单 ─▶ 生效表`。清单语义同一把尺：写了 = 键即白名单（未列出局）+ 逐键沿链只紧不松（扩张即拒，错误带归因）；**整表缺席 = 完整继承接收表**（"缺席≠否决"）；空表 = 表态全关；
  - **两步独立**：类收敛与实例收敛分步套用（不预合并）——零合并逻辑，免费失败归因（"类收敛被拒"≠"实例收敛被锁"）；
  - **策略声明清单 = raise 步**（契约字段 `ContextStrategyModule.tools?`）：插在类清单后、实例清单前执行——**只抬不封**（逐键提升表内键，表外键与本地封闭面不动，纯 raise 链继承父封闭形）；封顶公式与白名单步同一把尺（出生 ∧ 链上显式），声明宽即违例 → 写入面**实例化拒绝**、物化面静默钳制——复用收敛检查，"策略与类配置矛盾"由法则自然宣判，零特判；
- - **grant 双门面**（spawn 受限 / `agent_update.grantTools`）：清单形整表替换 + 逐键父面封顶取严——本质是"白名单自限 + 收紧"的组合便利形，语义不变；
+ - **grant**（仅策略 spawn 通道 `InstantiateOptions.accessMode`）：清单形整表替换 + 逐键父面封顶取严——本质是"白名单自限 + 收紧"的组合便利形，语义不变；
 - **模型可见清单 = allow ∪ ask**（Runtime 组装工具定义时过滤）；`kind` 三分类**降为纯 provenance 元数据**（装载源/信级/审计展示），不参与任何权限推断——审计测试表驱动断言之。
 - **能力物化（算法 = `lineage/AccessLedger.ts`）**：生效权限 = 族谱位置的函数，注册期两步物化 `{explicit, fallback}`（replay 按拓扑序重放，纯派生不入库）；查询 `effectiveAccess(agentId, key)`；`tools` 侧只认注入端口 `AccessResolver`（`ToolContext = {agentId, spaceId, signal?, callId?, parent?}`）。
 - **boot 校验律（替代一切代码兜底）**：① 根生效表 `access_reply ≠ allow` → 拒启（明示 ask 消息化死锁理由——主权归 config，法只做审判）；② config.extensions.tools 键在装载源解析不到 → 拒启（未知键 fail-fast 同律）；③ 未知 config 顶层键照旧拒启。
 - **ask 消息化**：命中 ask 时 `AccessAskBus` 把申请投递到**申请者族谱根信箱**（`<access_request>` 消息）并挂起；根经 `access_reply` 回复（once/always/reject+feedback）。**无 agent 特判**——根的 ask 发给自己，由扮演它的 shell 确认。
 - **session 豁免备忘**：`always` = 该 `(agentId, accessKey)` 后续 ask 免询问（仅当前实例、不传播）；ask 环节备忘，**非权限层**（不参与收敛单调，绝不豁免 deny/ignore）。
-- **全参数统一解析律（/ 保留）**：模型与权限同门面——生效模型 = 显式（实例行）> 类基因 > 父继承 > 家学（`config.user.model` 全链锚点）；改父不级联子女（`modelSnapshot` 出生快照）；运行期改写唯一通道 = `kernel.updateAgent`（写实例行 → 全树 replay）。
+- **全参数统一解析律（/ 保留）**：模型与权限同门面——生效模型 = 显式（实例行）> 类基因 > 父继承 > 家学（`config.user.model` 全链锚点）；**出生解析落地**（`modelBinding` 随行持久，改父不级联子女）；运行期可写面 = `name`/`model`/`temperature`/`effort`（`kernel.updateAgent` → `updateNode` 语义，无全树 replay）。
 
 ### 2.2b 上下文管理策略（`core/context/strategies/`）
 
@@ -119,14 +117,14 @@
 
 - **仓库（Repository）**：上下文本体的唯一存储（`message / agentId / at / tokens / valid / from / tag? / turn / indexInTurn`）；任何消息先入库，触发 onChange。两标记分工：**tag = 是什么**（合成消息出处，strategy 写），**tokens = 多大**（计量：网关真实值优先、估算兜底，来源不设第二标记）。
 - **token 真实计量（累积差分归位）**：gateway `usage` 事件（openaiCompatible 流式 `include_usage`）→ Runtime 双通道——① assistant 行 append 时**直记** `outputTokens`；② `contextManager.attributeUsage` 把**相邻请求 inputTokens 差分**（扣除上轮 output）按估算占比归位到两轮之间新入库的 tool/user 行（`Repository.setTokens` 静默修订不触发 onChange，persisted 写穿零 schema 迁移）。护栏：首轮只记基线（整段 prompt 含 schemas 无行级可分性）、差分非负（compact 跳变回落估算）、基线纯内存（重启/compact 自愈）。compact 阈值与 totalCost 随真实口径自动升级。
-- **管理员（ContextManager）**：打发送者戳（user 消息用 from 生成 `<sender id="name#id" at="yymmdd.hhmm">`——时间+身份一枚戳，分钟精度，打戳器一处收口）、挂起等待判定（instantiate.wait 命中挂起 → 作为 tool 结果填充；可配超时自回填）、**策略 process（异步，user_prompt 抵达触发）→ 就绪后唤醒快递员**、组装（按 agent 策略分发 + **legalize**；组装权归管理员——快递员只发不组装）；信箱配对 `waitForReply`（模块扮演 agent 的程序化等待原语）。
+- **管理员（ContextManager）**：打发送者戳（user 消息用 from 生成 `<sender id="name#id" at="yymmdd.hhmm">`——时间+身份一枚戳，分钟精度，打戳器一处收口）、统一挂起（`Waiter`：instantiate.wait / waitForReply / agent_pause）、**策略 process（异步，user_prompt 抵达触发）→ 就绪后唤醒快递员**、组装（按 agent 策略分发 + **legalize**；组装权归管理员——快递员只发不组装）。
 - **快递员（Courier）**：按 agentId 维护发送倒计时（初始 0 立即送；发送后开始；来信重置）；agent 送信快照经管理员委托（`buildAgentDelivery`）构造，面板（`assemble:false`）信件 diff 自持。
 - **消息 ≠ 上下文**：通信消息直接投递；上下文由管理员按模式组装。
 
 ### 唤醒语义（重要）
 
 - **只有外部来信唤醒快递员**：`deposit`（外部消息投递）才触发 `courier.notifyReady`；agent 自身的 `appendHistory`（assistant/tool 入库）**不**触发重投递——否则 agent 自回复会无限循环。
-- **挂起等待填充（挂起面）**：`agent_instantiate{wait}` 的回信命中挂起 → 作为 tool 结果填充到等待者 + 唤醒（hold 随实例化**先于首信注册** = 竞态从时序上根除；context_wait 工具已退役）；hold 可配 timeoutMs 超时自回填不永悬；`agent_pause` 到点自唤醒回填（期间来信照常进仓库堆积，醒后一次组装全见，无时长上限）；实例注销清全部挂起 timer 防孤儿。runtime 见 `contextWait` 标记**收束轮循环**（不空转）。
+- **统一挂起（`context/wait.ts` Waiter）**：`wait({key, owner, timeoutMs?, signal?}) → event|timeout|aborted`；`emit(key,payload)`；`cancelOwner(owner)` 挂 unregister/terminate。映射：`ask` = `ask:<requestId>`；`instantiate.wait` / `waitForReply` = hold 表 + `reply:<from>`；`agent_pause` = `timer:<toolCallId>` 纯倒计时。hold 随实例化**先于首信注册**（竞态从时序上根除）；hold 可配 timeoutMs 超时自回填；runtime 见 `contextWait` 标记**收束轮循环**（不空转）。默认计时器单点 `defaultTimer`。
 
 ### 送信倒计时（快递员维护的局部量）
 
@@ -182,5 +180,5 @@
 - 发布形态：Docker（`node:24-slim` + 非 root + `/data` volume + HEALTHCHECK `/api/health`）——**容器即 bash 的安全边界**，挂载 volume = 爆炸半径。
 - 个体层存储：SQLite（`node:sqlite` DatabaseSync）write-through，经 core 端口注入（见 `src/core/context/README.md`、`src/core/kernel/README.md`）；缺省纯内存（测试 harness 不受影响）。
 - 运行时数据文件：`.stem/mem/<agentId>/`（cortex 笔记正文 + `.memory.json` 镜像）——**派生/外挂文件不进 DB**（记忆真相在仓库行，镜像单向永不回灌；笔记文件由策略 fs 口读写，磁盘 = 正文真相）。
-- 族谱存储：无独立存储（parentId 挂在实例上，LineageTree 实时推导；实例行本身持久化即族谱持久）。
+- 族谱存储：无独立存储（父 = `parentIdOf(id)` 纯推导；实例行本身持久化即族谱持久）。
 - LLM 端点：真实 go/zen（`https://opencode.ai/zen/go/v1/chat/completions`）或 mock SSE 兜底。

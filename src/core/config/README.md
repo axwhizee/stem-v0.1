@@ -11,8 +11,8 @@
 
 - **全量有效原则**：非已知顶层键 **boot fail-fast**；`custom` 是唯一合法扩展位。历史键 `model`/`agents`/`strategies` 与数组形态 `tools` 出现即报可行动迁移错误（静默丢弃兼容已废除）。
 - `providers`：模型提供商注册表——`base_url`（必填 http(s)）/`key_env`（密钥**环境变量名**，配置文件永不承载明文；缺省 = 匿名端点）/`models`（启用白名单）；一切模型引用的 provider 必须在此注册。
-- `user`：根的完整类对象——`description`/`systemPrompt`/`tools`（纯收敛清单）/`contextStrategy`/`model`（**家学锚点，boot 必填硬校验**——全链缺省的本体）/`sendCountdown`/`name`（根出生名，缺省 `user`）。
-- `autoApprove`、`maxSteps`、`sendCountdown`：运行策略参数。
+- `user`：根的完整类对象——`description`/`systemPrompt`/`tools`（纯收敛清单）/`contextStrategy`/`model`（**家学锚点，boot 必填硬校验**——全链缺省的本体）/`sendCountdown`/`temperature`/`effort`/`name`（根出生名，缺省 `user`）。
+- `autoApprove`、`sendCountdown`：运行策略参数。
 - `context`：`window`、`compact{threshold, keepRecentTurns, summarizeModel, instruction, replyTimeoutMs}`。
 - `bash`：`path`/`defaultTimeoutMs`/`maxOutputChars`/`cwd`。
 - `tools`：`{outputLimit?}`（结果落上下文的字符窗口；0/未设 = 不启用 = 零行为变更）。
@@ -31,10 +31,10 @@
 
 ## `.stem/agent` 文件契约
 
-- 自由式 YAML frontmatter：`description` / `tools`（键即白名单，四态动作）/ `send_countdown` / `max_steps` / `context_strategy` / `model`；未知字段透传 `AgentClass.custom`；正文 = systemPrompt。
+- 自由式 YAML frontmatter：`description` / `tools`（键即白名单，四态动作）/ `send_countdown` / `context_strategy` / `model` / `temperature` / `effort`；**未知字段拒收**；正文 = systemPrompt。
 - 文件名即类名（id/name 均取文件名）。
 - **往返律**：`parse(serialize(cls), name) ≡ normalize(cls)`。
-- **红线**：`panel===true` 的机制类永不回写；类名字符集守卫（拒路径穿越）。
+- **红线**：系统机制类永不回写；类名字符集守卫（拒路径穿越）。
 
 ## 依赖
 

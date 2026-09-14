@@ -4,7 +4,7 @@
 > 干细胞之意：如同原始 Agent 类，可分化出任意角色与能力。
 > 抛弃会话概念：以**原子化 Agent 类 + Agent 实例**为核心，配合**族谱树**与模块化 harness 系统，构建可自我进化的多智能体集群。
 
-**状态**：架构定稿，v1.0 发布前逐模块收敛（核心骨架 + 个体层持久化（schema v3）+ 上下文策略框架 classic/cortex + 族谱权限台账与出生声明 + 根配置对象化 + 身份代数（路径 id + 全局 name + 带时戳信件）+ bash 最小操作面 + extensions 点名装载）。发布进展与验证证据以 **git 提交历史** 为准（本文不再承载用例数/日期等易漂移数字）。
+**状态**：架构定稿，v1.0 发布前逐模块收敛（核心骨架 + 个体层持久化（schema v4）+ 上下文策略框架 classic/cortex + 族谱权限台账与出生声明 + 根配置对象化 + 身份代数（路径 id `x.x` + 全局 name + 带时戳信件）+ bash 最小操作面 + extensions 点名装载）。发布进展与验证证据以 **git 提交历史** 为准（本文不承载用例数/日期等易漂移数字）。
 
 ---
 
@@ -13,13 +13,13 @@
 - **用户主权的 Agent 系统**：
   - 一切 Agent 来自 **AgentClass（模板）**，用户自由创建/修改/删除/实例化，**绝不固定任何角色**。
   - 简单对话 = 简单类 + 空上下文实例；复杂任务 = 调度器类再创建子实例并传递上下文。
-  - **族谱树**：所有 agent 一律平等（同地位独立个体），唯一区别是 `parentId`——根（`user` 类实例，全名 `user#0`，出生路径 id `0`）是原点（`parentId=null`）；父可销毁/中断子（`agent_terminate` 等 + 祖先校验）。
+  - **族谱树**：所有 agent 一律平等（同地位独立个体），唯一区别是**出生路径 id**——根（`user` 类实例，全名 `user#0`，id `0`）是原点；父 = `parentIdOf(id)` 纯推导；父可销毁/中断子（`agent_terminate` 等 + 祖先校验）。
   - **工具访问四态**：allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`AccessLedger` 注册期物化）——**键即白名单**（未列 = 本地 deny），祖先显式 deny/ask 锁子孙（不可撤销），session 批准仅为 ask 免询问备忘。
   - **元能力工具**（`agent_class_create` / `agent_inspect` / `agent_ancestry` / `agent_descendants` …）让 AI 自己管理 Agent 信息，实现自我进化（特修斯之船）。
   - **消息库 tag + 双索引**：为上下文管理策略（压缩/印象/记忆）提供定位，引导从经典组装走向自聚焦/记忆分层。
   - **Logging** 贯穿全系统，记录工具调用/API 请求/上下文组装，驱动评估与进化闭环。
 - **Core 完全解耦**：core 层为纯 TS 领域逻辑，零平台依赖，所有平台能力经接口由宿主注入——已从 VSCode 剥离的独立项目。
-- **AgentSpace**：按项目/工作区划分 agent 列表，UI 复用 session 模式但一条目 = 一个 Agent 实例，用户可实时观察与接管任何 Agent。
+- **单项目空间**：一个进程一个 project root（`ToolContext.spaceId` = 项目路径）；UI 复用 session 模式但一条目 = 一个 Agent 实例，用户可实时观察与接管任何 Agent。
 
 ## 架构一图流
 
@@ -30,9 +30,9 @@
 │   webui/（HTTP + SSE；三件套分文件；流式思维链/监督抽屉/占用条；/api/health） │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 2  core/（纯 TS，零平台依赖，自治最小系统）                     │
-│   main/（createStemSystem 组合根 + runInit 装载）· kernel/（Kernel/实例/空间 │
+│   main/（createStemSystem 组合根 + runInit 装载）· kernel/（Kernel/实例 │
 │   pilot/（根 user#0 扮演接口）· events/（PilotEvent + EventHub）      │
-│   lineage/（族谱纯关系视图）· context/（邮局 + legalize + 持久化端口）│
+│   lineage/（族谱门面：拓扑+能力+可见域）· context/（邮局 + Waiter + legalize）│
 │   tools/（注册表 + access 四态 + accessRequest + bash 端口）          │
 ├───────────────────────────────────────────────────────────────────────┤
 │ Layer 1  Model Gateway (core/gateway/)   ← 纯 TS（opencode 隔离）    │
@@ -48,12 +48,12 @@
 
 | 概念 | 说明 |
 |---|---|
-| **AgentClass（模板）** | 角色设定：name（即 id）/ description / systemPrompt / **tools**（四态 Record，键即白名单）/ contextStrategy / model / sendCountdown / panel / custom——全量参数速查见下表。用户主权载体。 |
-| **AgentInstance** | 运行时原子单位：**id**（出生路径，系统全托管：根 `0`，子 `<父id>-<序号>`，永不复用）/ classRef / **parentId**（=创建者，族谱）/ **name**（全局唯一称呼，呈现 `name#id`）/ status / turnCount / totalCost / totalTokens（终身累计，不受 compact 影响）。 |
-| **族谱树 LineageTree** | 无状态关系视图：parentId 挂实例上，实时推导 children/ancestors/descendants；销毁权判定。 |
-| **根（user#0）** | `user` 类普通实例（`parentId=null` 即根，无任何特判）；`config.user` = 其类配置完整对象（人格/权限/模型声明式可配 + `name` 出生称呼，缺省 'user'）。 |
-| **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`lineage/AccessLedger` 注册期物化：继承→收敛，键即白名单；grant 双门面：spawn 受限 / `agent_update.grantTools`），tools 经 `AccessResolver` 端口查询。 |
-| **邮局** | 无集中式总线：仓库（存储）→ 管理员（打戳/策略处理/组装 + legalize）→ 快递员（倒计时+发送，只发不组装）。个体层经 MessageStore/InstanceStore 端口 write-through 落 SQLite（宿主注入），缺省纯内存。 |
+| **AgentClass（模板）** | 角色设定：name（即 id）/ description / systemPrompt / **tools**（四态 Record，键即白名单）/ contextStrategy / model / sendCountdown / temperature / effort——全量参数速查见下表。用户主权载体。 |
+| **AgentInstance** | 运行时原子单位：**id**（出生路径 `x.x`，系统全托管：根 `0`，root 子 `N`，子 `<父>.<序>`，永不复用）/ classRef / **name**（全局唯一称呼，呈现 `name#id`）/ assemble? / status / turnCount / totalCost / totalTokens / ctxTokens?。**父 = parentIdOf(id) 纯推导，不落库**。 |
+| **族谱树 LineageTree** | 门面：parentIdOf 拓扑 + 能力物化 + canReach；销毁权判定。 |
+| **根（user#0）** | `user` 类普通实例（id `0` 即根，无任何特判）；`config.user` = 其类配置完整对象（人格/权限/模型声明式可配 + `name` 出生称呼，缺省 'user'）。 |
+| **工具访问 ToolAccess** | 四态 allow/ask/deny/ignore；生效权限 = 族谱位置的函数（`lineage/AccessLedger` 注册期物化：继承→收敛，键即白名单；grant 仅 spawn 通道），tools 经 `AccessResolver` 端口查询。 |
+| **邮局** | 无集中式总线：仓库（存储）→ 管理员（打戳/策略处理/组装 + legalize）→ 快递员（倒计时+发送，只发不组装）；挂起经统一 Waiter。个体层经 MessageStore/InstanceStore 端口 write-through 落 SQLite（宿主注入），缺省纯内存。 |
 | **上下文策略** | `context/strategies/` 独立子模块（契约：note/role/tools/assemble/process/actions/init；tools = 收敛链 raise 声明清单；process 触发=user_prompt 抵达、终点=就绪唤醒快递员）。classic = 全量直出 + compact（markInvalid 归档可逆）；cortex = 三层外挂记忆（LTM/笔记/STM）+ 阈值做梦二段事务（dreamer 回信交付、记忆组轮替、`.stem/mem/` 单向镜像）；`.stem/context/*.ts` 可加载用户策略（自我进化承载之一）。 |
 | **ask 消息化** | ask 审批 = 消息交换：`access_request` 投递根信箱 → 根经 `access_reply` 回复（once/always/reject；always = per-agent 免询问备忘）。 |
 | **PilotEvent** | 统一事件流（stream/letter/status/tool/notice）+ EventHub 多订阅者；外部（shell/webui）订阅。 |
@@ -61,7 +61,7 @@
 
 ## AgentClass 参数速查
 
-**类参数**（AgentClass 全字段——四个产生通道同形：`.stem/agent/*.md` / `config.user` / 策略 spec / `agent_class_create/update`；S9 起类定义统一为唯一形状，加字段全通道自动生效）：
+**类参数**（AgentClass 全字段——四个产生通道同形：`.stem/agent/*.md` / `config.user` / 策略 spec / `agent_class_create/update`；类定义统一为唯一形状，加字段全通道自动生效）：
 
 | 参数 | 必填 | 语义 | 生效点 |
 |---|---|---|---|
@@ -72,13 +72,12 @@
 | `contextStrategy` | – | 策略名（缺省 classic；未知类注册期 fail-fast；实例化固化为上下文属性） | ContextManager 注册 |
 | `model` | – | 类基因（四级律第 2 层：显式实例行 > **类基因** > 父继承 > 家学锚点） | lineage ModelBinding |
 | `sendCountdown` | – | 送信倒计时 ms（缺省 = 全局 config.sendCountdown） | 快递员 |
-| `panel` | – | true = 模块扮演面板（不组装、不跑 LLM 轮；策略 role 承载）。根的面板性不经此字段（kernel 根接线的结构性事实） | 注册接线 |
-| `custom` | – | 自由槽（`.stem/agent` 未知字段全透传于此；策略基因如 `custom.cortex={dreamAt?,consolidateModel?}` 住这里） | 策略经 `StrategyApi.custom` 消费 |
-| `maxSteps` | – | 单轮工具步数上限；**≤0/未设 = 无限制**（长程工作默认放开）；解析 = 类基因 > 全局 config.maxSteps > 无限。资源上限而非权限，不进族谱律不继承不封顶 | Runtime 轮循环 |
+| `temperature` | – | 采样温度（类基因；实例可覆盖；出生落地） | lineage / LLMRequest |
+| `effort` | – | 思考强度 `none|low|medium|high`（类基因；实例可覆盖；写 reasoning_effort） | lineage / gateway |
 
-**实例侧参数**（不在类上；运行期唯一写面 `agent_update`，缺省目标=自身，canReach）：`name`（全局唯一称呼，撞名拒；根的出生名 = `config.user.name`）/ `model` 显式行（四级律顶层）/ `tools` 收敛 patch / `grantTools` 清单整表（逐键祖先封顶）。
+**实例侧参数**（不在类上；运行期唯一写面 `agent_update`，缺省目标=自身，canReach）：`name`（全局唯一称呼，撞名拒；根的出生名 = `config.user.name`）/ `model` 显式行（四级律顶层）/ `temperature` / `effort`。
 
-**根的全部特殊性**（皆为接线/结构事实非类特权）：`parentId=null`、出生路径 id 恒 `0`、`assemble:false`（面板性=pilot 扮演）、家学锚点（`config.user.model` 必填）；类本体 = 内置类表普通条目（`kernel/builtin/agents.ts` 统一形态）。
+**根的全部特殊性**（皆为接线/结构事实非类特权）：出生路径 id 恒 `0`、`assemble:false`（面板性=pilot 扮演）、家学锚点（`config.user.model` 必填）；类本体 = 内置类表普通条目（`kernel/builtin/agents.ts` 统一形态）。
 
 ## 工具清单
 
@@ -91,12 +90,12 @@
 | 分组 | 工具 | 说明 | 根清单（模板实值） |
 |---|---|---|---|
 | agents 生态 | `agent_class_create` | 创建 agent 类并**落盘 `.stem/agent/`**（新名 = 变体并存可 A/B；tools 键即白名单）——自我进化书写面 | `ask` |
-| | `agent_class_update` | 同名覆盖更新 + 落盘（tools 增量 patch、逐键**只许收敛**；panel/user 根类拒绝；**只影响后续实例**） | `ask` |
+| | `agent_class_update` | 同名覆盖更新 + 落盘（tools 增量 patch、逐键**只许收敛**；系统机制类/user 根类拒绝；**只影响后续实例**） | `ask` |
 | | `agent_class_list` | 列出全部类与关键属性 | allow |
 | | `agent_instantiate` | 实例化类（parentId=调用者；可继承父上下文；模型路径只能收敛；**wait=true 创建并等待回信**——配对原子完成竞态绝迹，可配 waitTimeoutMs） | allow |
 | | `agent_list` | 列出空间内实例 | allow |
 | | `agent_inspect` | 实例详情：族谱链/状态/轮次/成本/**生效权限表** | allow |
-| | `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：model / name / tools 收敛 patch / grantTools 清单整表 | `ask` |
+| | `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：name / model / temperature / effort | `ask` |
 | | `agent_ancestry` | 祖先链 `[父 → … → 根]` | allow |
 | | `agent_descendants` | 后代子树（BFS） | allow |
 | | `agent_terminate` | 销毁实例（自身或祖先；recursive 级联子树） | `ask` |

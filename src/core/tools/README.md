@@ -67,12 +67,12 @@ tools/
 
 | 工具 | 作用 |
 |---|---|
-| `agent_class_create` / `agent_class_update` / `agent_class_list` | 创建（新名 = 变体并存）/ 更新（同名覆盖；tools 增量、只许收敛；panel·user 根类拒绝；**只影响后续实例**）/ 列出——均回写 `.stem/agent/`（ClassStore 注入时） |
+| `agent_class_create` / `agent_class_update` / `agent_class_list` | 创建（新名 = 变体并存）/ 更新（同名覆盖；tools 增量、只许收敛；系统机制类·user 根类拒绝；**只影响后续实例**）/ 列出——均回写 `.stem/agent/`（ClassStore 注入时） |
 | `telemetry_query` | 运行日志观测（进化闭环"观测"翼）：可见域 = 自身 + 族谱后代（canReach）；行式压缩 + 类型前缀通配 + 时间窗 + limit 截尾 |
 | `agent_instantiate` / `agent_list` / `agent_inspect` | 创建实例（父=调用者；可继承父上下文；模型路径只能收敛；**wait=true 创建并等待回信**——配对原子完成竞态绝迹，可配 waitTimeoutMs）/ 列出 / 详情（族谱链/状态/轮次/成本/生效权限表） |
 | `agent_ancestry` / `agent_descendants` / `agent_terminate` | 祖先链 / 后代子树（BFS）/ 终止（销毁权 + recursive） |
-| `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：model / name / tools 收敛 patch / grantTools 清单整表——吸收原 agent_set_model；审计双事件 |
-| `mail_send` / `mail_participants` | 发消息（自动 from 戳）/ 参与者清单（原 `bus_*` 更名，邮局叙事归位） |
+| `agent_update` | 实例参数统一写面（缺省目标=自身，canReach）：name / model / temperature / effort；审计双事件 |
+| `mail_send` / `mail_participants` | 发消息（自动 from 戳）/ 参与者清单 |
 | `agent_pause` | 自主挂起攒信（ms 到点唤醒；期间信件自然堆积。等特定子回信走 `agent_instantiate` 的 wait） |
 | `context_export` / `context_overview` / `context_remove` / `context_edit` | 导出 jsonl (只读) / 概览（role/turn/tag/token 占比）/ 删除过时消息（markInvalid）/ 重写消息（system 不可改） |
 | `context_apply` | 执行上下文策略专有动作（如 classic compact；仅自身或祖先） |
@@ -86,7 +86,7 @@ tools/
 - **治理 = 机制 + 分担，非询问**（对齐 pi）：**无 ask、无黑名单**（高频工具询问打断模型循环得不偿失）；事故半径三机制（硬超时缺省 120s / stdout·stderr 各 50k 截断 / cwd 缺省项目根，`config.bash` 可配 `path/defaultTimeoutMs/maxOutputChars/cwd`）；行为规范靠工具描述提示词（非交互式、有专职工具优先）；不想给某 agent shell → 模板白名单不列 `bash` 键（键即自我限定）。非零退出码不是工具失败（输出 + exit code 照常返回，模型自判）。
 - 出生权限 `allow`；宿主未注入 `shellRunner` 则不装配（`bootStem` 缺省注入，`shellRunner:false` 可关）。
 
-## 7. 访问确认（`accessRequest.ts`，取代 AccessManager/PanelBus）
+## 7. 访问确认（`accessRequest.ts`，取代 AccessManager）
 
 - 生效访问经注入 `AccessResolver` 向族谱台账查询（无判定 → 出生值）；`assert`（allow/ignore 通过 / deny 抛错 / ask 投递申请到根信箱并挂起）+ `reply(input, by)`（根授权校验 once/always/reject）。
 - **在途复核（总序防御）**：reply once/always 落地前重查该键现生效值——挂起期间被 `agent_update` 收敛为 deny 的，迟到的批准被铁律压死（reject 回文本带因，不写 always 备忘；复用 resolvePort，零新依赖）。
