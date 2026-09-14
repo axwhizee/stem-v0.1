@@ -122,6 +122,8 @@ export type ToolError =
   | { readonly kind: 'tool_already_registered'; readonly tool: string }
   | { readonly kind: 'access_denied'; readonly tool: string; readonly accessKey: string }
   | { readonly kind: 'access_rejected'; readonly tool: string; readonly accessKey: string; readonly feedback?: string }
+  | { readonly kind: 'access_timeout'; readonly tool: string; readonly accessKey: string }
+  | { readonly kind: 'access_aborted'; readonly tool: string; readonly accessKey: string }
   | { readonly kind: 'invalid_arguments'; readonly tool: string; readonly message: string }
   | { readonly kind: 'execution_failed'; readonly tool: string; readonly message: string; readonly cause?: unknown }
 
@@ -165,6 +167,8 @@ export interface AccessAssertInput {
   /** 该访问键的出生权限（注册表供给；族谱链无显式判定时即生效值——出生即封顶，无兜底推导）。 */
   readonly birth?: ToolAccess
   readonly metadata?: Readonly<Record<string, unknown>>
+  /** 中断信号（runtime 轮中断 → 未决 ask 一并 aborted）。 */
+  readonly signal?: AbortSignal
 }
 
 /** 访问错误（判别联合）。 */
@@ -173,6 +177,8 @@ export type AccessError =
   | { readonly kind: 'access_reply_not_root'; readonly accessKey: string; readonly agentId: string; readonly message?: string }
   | { readonly kind: 'access_rejected'; readonly message?: string; readonly accessKey: string; readonly requestId: string; readonly feedback?: string }
   | { readonly kind: 'access_request_not_found'; readonly requestId: string; readonly message?: string }
+  | { readonly kind: 'access_timeout'; readonly accessKey: string; readonly agentId: string; readonly message?: string }
+  | { readonly kind: 'access_aborted'; readonly accessKey: string; readonly agentId: string; readonly message?: string }
 
 /** 工具调用审计记录（触发/反馈时由工具模块自动产生）。 */
 export interface ToolRecord {

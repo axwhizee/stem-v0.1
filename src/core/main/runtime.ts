@@ -14,6 +14,7 @@
 import type { ChatMessage, LLMEvent, LLMRequest, ToolCallEvent, UsageEvent } from '../gateway'
 import { isAbortError, isGatewayError } from '../gateway'
 import type { AgentDelivery } from '../context'
+import { defaultTimer } from '../context/wait'
 import type { ToolContext, ToolError } from '../tools'
 import { formatToolOutput } from '../tools'
 import type { AgentID, AgentStatus, RuntimePort, RuntimePortDeps } from '../kernel'
@@ -69,7 +70,7 @@ export class DefaultRuntime implements RuntimePort {
     let timer: { cancel: () => void } | undefined
     const deadline = new Promise<void>((res) => {
       settle = res
-      timer = (this.deps.timer ?? ((fn: () => void, ms: number) => { const h = setTimeout(fn, ms); return { cancel: () => clearTimeout(h) } }))(res, timeoutMs)
+      timer = (this.deps.timer ?? defaultTimer)(res, timeoutMs)
     })
     await Promise.race([Promise.allSettled(pending), deadline])
     timer?.cancel()
@@ -196,6 +197,7 @@ export class DefaultRuntime implements RuntimePort {
         const ctx: ToolContext = {
           agentId: instance.id,
           spaceId: this.deps.projectRoot ?? '',
+          signal: ctl.signal,
         }
         // 挂起语义（S9）：instantiate.wait / agent_pause 命中 contextWait 标记——
         // 该调用本轮**不回填**（等 deposit/到点正规填充仓库行），轮循环收束为

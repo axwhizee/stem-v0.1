@@ -16,17 +16,10 @@
 import type { LogEvent } from '../logging'
 import type { Repository } from './Repository'
 import type { AgentDelivery, MailDelivery, UserDelivery } from './types'
+import type { TimerFactory, TimerHandle } from './wait'
+import { DEFAULT_SEND_COUNTDOWN_MS, defaultTimer } from './wait'
 
-export interface TimerHandle {
-  readonly cancel: () => void
-}
-
-export type TimerFactory = (fn: () => void, ms: number) => TimerHandle
-
-const defaultTimer: TimerFactory = (fn, ms) => {
-  const handle = setTimeout(fn, ms)
-  return { cancel: () => clearTimeout(handle) }
-}
+export type { TimerFactory, TimerHandle }
 
 export interface CourierRegistration {
   readonly agentId: string
@@ -111,7 +104,7 @@ export class DefaultCourier implements Courier {
   buildAgentDelivery: (agentId: string) => AgentDelivery | undefined = () => undefined
 
   constructor(options: CourierOptions) {
-    this.defaultCountdownMs = options.defaultCountdownMs ?? 1000
+    this.defaultCountdownMs = options.defaultCountdownMs ?? DEFAULT_SEND_COUNTDOWN_MS
     this.timer = options.timer ?? defaultTimer
     this.repository = options.repository
     this.onLog = options.onLog

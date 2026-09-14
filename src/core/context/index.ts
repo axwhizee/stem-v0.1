@@ -11,7 +11,6 @@ export type {
   AgentDelivery,
   UserDelivery,
   MailDelivery,
-  PendingHold,
 } from './types'
 export { legalize } from './legalize'
 // 信件戳代数（B4：身份全名 + 分钟时刻，打戳/格式断言唯一收口）。
@@ -54,6 +53,9 @@ export type {
   Courier,
 } from './Courier'
 export { DefaultCourier } from './Courier'
+
+export type { WaitResult, WaitOptions, Waiter } from './wait'
+export { DefaultWaiter, defaultTimer, waitKeys, DEFAULT_SEND_COUNTDOWN_MS } from './wait'
 
 export type { ContextRegistration, ContextManagerOptions, ContextManager } from './ContextManager'
 export { DefaultContextManager } from './ContextManager'

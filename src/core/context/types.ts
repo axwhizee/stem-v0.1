@@ -93,11 +93,4 @@ export interface UserDelivery {
 
 export type MailDelivery = AgentDelivery | UserDelivery
 
-/** 挂起等待：hold 注册后，等待指定 agent 的回复作为 tool 结果填充（S9 instantiate.wait）。 */
-export interface PendingHold {
-  readonly waitFor: string
-  readonly ownerId: string
-  readonly toolCallId: string
-}
-
 export type { ToolRecord }

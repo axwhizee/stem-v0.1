@@ -1,32 +1,25 @@
 // ============================================================
-// core/tools/accessRequest.ts —— ask 权限消息化（取代 AccessManager 耦合通道）
+// core/tools/accessRequest.ts -- ask permission messaging
 //
-// 扁平化设计：ask 审批是**消息交换**，不是系统耦合通道。
-//   - 工具权限评估命中 ask → assert 自动触发「投递申请消息到申请者的
-//     族谱根 agent 信箱」（机制同向模型发消息），并挂起等待回复；
-//   - 根 agent（一般即根）经 access_reply 工具批准/拒绝
-//     （once/always/reject），bus.reply 解析挂起。
-//   - 无任何 agent 特判：user#0 也是普通 agent，其自身 ask 同样发给自己
-//     的根（= 自己），由扮演它的 shell 经 pilot 确认。
+// Flattened design: ask approval is a message exchange.
+//   - tool access hit ask -> assert delivers request to root mailbox
+//     and suspends waiting for reply via Waiter;
+//   - root agent replies via access_reply (once/always/reject);
+//   - no agent special-case: user#0 is a normal agent.
 //
-// 权限评估（查询反转）：生效访问经注入的 AccessResolver 端口向族谱台账
-//   （lineage/AccessLedger）查询，本模块不再接收/拼装任何权限层；
-//   族谱无判定时落出生值（tool.birth——注册即出生声明，无 kind 推导、无兜底表）。
+// Access evaluation: effective access queried via AccessResolver port
+// (lineage/AccessLedger); falls back to birth value when lineage has no judgment.
 //
-// session 豁免备忘（once/always 的正确语义）：
-//   - always 批准 = 该 (agent, accessKey) 后续**免于询问**（ask 静默放行），
-//     仅当前实例生效、不传播后代；它是 ask 环节的备忘，**不是权限层**——
-//     不参与单调收敛，绝不豁免 deny/ignore（旧实现把 allow 规则混进分层
-//     取严，ask 永远压不掉，且跨 agent 泄漏）。
+// session exemption memo (always): subsequent asks skip dialog for that
+// (agent, accessKey); never overrides deny/ignore.
 //
-// 依赖注入（组合根装配）：
-//   - resolve：族谱权限查询端口（kernel 接线 AccessLedger）；
-//   - askRoot：投递申请消息到根信箱（contextManager.deposit）；
-//   - getRoot：解析申请者的族谱根（lineage.getRoot），用于 reply 授权校验。
+// Injected: resolve / askRoot / getRoot / waiter / onLog.
 // ============================================================
 
 import { forget } from '../logging'
 import type { LogSink } from '../logging'
+import type { Waiter } from '../context/wait'
+import { DefaultWaiter, waitKeys } from '../context/wait'
 import type {
   AccessAssertInput,
   AccessError,
@@ -36,49 +29,52 @@ import type {
 } from './types'
 
 export interface AccessAskOptions {
-  /** 投递访问申请消息到根 agent 信箱（组合根注入：contextManager.deposit + from=申请者）。 */
+  /** Deliver access request to root agent mailbox. */
   readonly askRoot: (request: AccessRequest) => Promise<void> | void
-  /** 解析申请者的族谱根（注入 lineage.getRoot；用于 access_reply 授权校验）。 */
+  /** Resolve applicant lineage root (for reply authorization). */
   readonly getRoot: (agentId: string) => string
-  /** 族谱权限查询端口（kernel 接线 AccessLedger；缺省 = 全部走出生值）。 */
+  /** Lineage access query port (kernel wires AccessLedger). */
   readonly resolve?: AccessResolver
-  /** 访问自动批准（配置 `autoApprove`）：true 时 ask 直接放行。 */
+  /** Auto-approve ask (config autoApprove). */
   readonly autoApprove?: boolean
-  /** 可注入请求 id 生成器（测试用）。 */
+  /** ask wait timeout ms (default infinite; cleaned by terminate/abort). */
+  readonly askTimeoutMs?: number
+  /** Unified wait primitive (timeout/abort/cancelOwner; default DefaultWaiter). */
+  readonly waiter?: Waiter
+  /** Injectable request id generator (tests). */
   readonly nextRequestId?: () => string
-  /** 日志出口（组合根注入 → core/logging）。 */
+  /** Log sink (composition root). */
   readonly onLog?: LogSink
 }
 
 export interface AccessAskBus {
-  /** 断言访问：allow/ignore 通过 / deny 抛错 / ask 投递申请到根信箱并挂起。 */
   readonly assert: (input: AccessAssertInput) => Promise<void>
-  /** 根 agent 回复（by = access_reply 调用者；须是申请者的族谱根）。 */
   readonly reply: (input: AccessReplyInput, by: string) => Promise<void>
-  /** 列出挂起中的请求。 */
   readonly list: () => readonly AccessRequest[]
-  /** session 已豁免的 (agent, accessKey) 备忘（always 累积；仅 ask 环节生效）。 */
   readonly listApprovals: () => readonly { agentId: string; accessKey: string }[]
 }
 
-interface PendingEntry {
-  readonly info: AccessRequest
-  readonly resolve: () => void
-  readonly reject: (error: AccessError) => void
+/** Exemption memo key (agent-isolated). */
+function memoKey(agentId: string, accessKey: string): string {
+  return agentId + '\u0000' + accessKey
 }
 
-/** 豁免备忘键（agent 隔离：不同实例同键互不影响）。 */
-function memoKey(agentId: string, accessKey: string): string {
-  return `${agentId}\u0000${accessKey}`
+interface AskPayload {
+  readonly reply: 'once' | 'always' | 'reject'
+  readonly message?: string
+  readonly feedback?: string
 }
 
 export class DefaultAccessAskBus implements AccessAskBus {
   private readonly approvals = new Map<string, { agentId: string; accessKey: string }>()
-  private readonly pending = new Map<string, PendingEntry>()
+  /** In-flight request info (list / reply auth); wait body lives in Waiter. */
+  private readonly pending = new Map<string, AccessRequest>()
   private readonly askRoot: (request: AccessRequest) => Promise<void> | void
   private readonly getRoot: (agentId: string) => string
   private readonly resolvePort: AccessResolver | undefined
   private readonly autoApprove: boolean
+  private readonly askTimeoutMs: number | undefined
+  private readonly waiter: Waiter
   private readonly nextRequestId?: () => string
   private readonly onLog?: LogSink
   private counter = 0
@@ -88,12 +84,13 @@ export class DefaultAccessAskBus implements AccessAskBus {
     this.getRoot = options.getRoot
     this.resolvePort = options.resolve
     this.autoApprove = options.autoApprove ?? false
+    this.askTimeoutMs = options.askTimeoutMs
+    this.waiter = options.waiter ?? new DefaultWaiter()
     this.nextRequestId = options.nextRequestId
     this.onLog = options.onLog
   }
 
   async assert(input: AccessAssertInput): Promise<void> {
-    // 族谱台账查询（生效权限 = 族谱位置的函数）；链上无判定 → 出生值（无兜底表）。
     const action =
       this.resolvePort?.accessOf(input.agentId, input.accessKey) ?? input.birth ?? 'ask'
     this.onLog?.log({
@@ -107,90 +104,108 @@ export class DefaultAccessAskBus implements AccessAskBus {
     if (action === 'deny') {
       throw { kind: 'access_denied', accessKey: input.accessKey, agentId: input.agentId } satisfies AccessError
     }
-    // ask：autoApprove 放行；已被 always 豁免（同 agent 同键）静默通过；
-    // 否则投递申请到根信箱并挂起等根回复。
     if (this.autoApprove) return
     if (this.approvals.has(memoKey(input.agentId, input.accessKey))) return
     const info: AccessRequest = {
-      id: this.nextRequestId?.() ?? `access_${++this.counter}`,
+      id: this.nextRequestId?.() ?? 'access_' + String(++this.counter),
       accessKey: input.accessKey,
       agentId: input.agentId,
       metadata: input.metadata,
       at: Date.now(),
     }
-    await new Promise<void>((resolve, reject) => {
-      this.pending.set(info.id, { info, resolve, reject })
-      forget(Promise.resolve(this.askRoot(info)), 'ask:askRoot', this.onLog)
-    })
+    this.pending.set(info.id, info)
+    forget(Promise.resolve(this.askRoot(info)), 'ask:askRoot', this.onLog)
+    try {
+      const result = await this.waiter.wait<AskPayload>({
+        key: waitKeys.ask(info.id),
+        owner: input.agentId,
+        ...(this.askTimeoutMs !== undefined ? { timeoutMs: this.askTimeoutMs } : {}),
+        ...(input.signal !== undefined ? { signal: input.signal } : {}),
+      })
+      if (result.kind === 'event') {
+        if (result.payload.reply === 'reject') {
+          throw {
+            kind: 'access_rejected',
+            accessKey: input.accessKey,
+            requestId: info.id,
+            feedback: result.payload.feedback ?? result.payload.message,
+          } satisfies AccessError
+        }
+        return
+      }
+      if (result.kind === 'timeout') {
+        throw {
+          kind: 'access_timeout',
+          accessKey: input.accessKey,
+          agentId: input.agentId,
+          message: `等待 access_reply 超时（requestId=${info.id}）——根未在时限内答复`,
+        } satisfies AccessError
+      }
+      throw {
+        kind: 'access_aborted',
+        accessKey: input.accessKey,
+        agentId: input.agentId,
+        message: `申请已中断（requestId=${info.id}）——发起方被 abort/终止`,
+      } satisfies AccessError
+    } finally {
+      this.pending.delete(info.id)
+    }
   }
 
   async reply(input: AccessReplyInput, by: string): Promise<void> {
-    const entry = this.pending.get(input.requestId)
-    if (!entry) {
+    const info = this.pending.get(input.requestId)
+    if (!info) {
       throw {
         kind: 'access_request_not_found',
         requestId: input.requestId,
         message: `无此待批申请（requestId=${input.requestId}）——可能已被答复或申请者已注销；用 telemetry 查 access.asked 事件核对在场申请`,
       } satisfies AccessError
     }
-    // 授权校验：仅申请者的族谱根可回复（一般即根）。
-    if (by !== this.getRoot(entry.info.agentId)) {
+    if (by !== this.getRoot(info.agentId)) {
       throw {
         kind: 'access_reply_not_root',
-        accessKey: entry.info.accessKey,
-        agentId: entry.info.agentId,
+        accessKey: info.accessKey,
+        agentId: info.agentId,
         message: '答复权专属申请者的族谱根（一般是 user#0）——你不是根，请停止重试并等待根的答复（申请者此刻正挂起等待）',
       } satisfies AccessError
     }
-    this.pending.delete(input.requestId)
-    // 总序防御：挂起期间该键被运行期收敛改严为 deny——迟到的批准被铁律压死
-    // （不写 always 备忘；复核即台账现值查询，无新端口）。
-    if (input.reply !== 'reject' && this.resolvePort?.accessOf(entry.info.agentId, entry.info.accessKey) === 'deny') {
+    if (input.reply !== 'reject' && this.resolvePort?.accessOf(info.agentId, info.accessKey) === 'deny') {
       this.onLog?.log({
         type: 'access.replied',
         at: Date.now(),
-        agentId: entry.info.agentId,
-        accessKey: entry.info.accessKey,
-        requestId: entry.info.id,
+        agentId: info.agentId,
+        accessKey: info.accessKey,
+        requestId: info.id,
         reply: 'reject',
       })
-      entry.reject({
-        kind: 'access_rejected',
-        accessKey: entry.info.accessKey,
-        requestId: entry.info.id,
+      this.waiter.emit(waitKeys.ask(info.id), {
+        reply: 'reject',
         feedback: '该工具在申请挂起期间已被族谱权限收敛为 deny——批准不得盖过铁律',
-      })
+      } satisfies AskPayload)
       return
     }
     this.onLog?.log({
       type: 'access.replied',
       at: Date.now(),
-      agentId: entry.info.agentId,
-      accessKey: entry.info.accessKey,
-      requestId: entry.info.id,
+      agentId: info.agentId,
+      accessKey: info.accessKey,
+      requestId: info.id,
       reply: input.reply,
     })
-    if (input.reply === 'reject') {
-      entry.reject({
-        kind: 'access_rejected',
-        accessKey: entry.info.accessKey,
-        requestId: entry.info.id,
-        feedback: input.message,
-      })
-      return
-    }
     if (input.reply === 'always') {
-      // 豁免备忘（仅该 agent 该键）：后续 ask 免询问放行，deny/ignore 不受影响。
-      this.approvals.set(memoKey(entry.info.agentId, entry.info.accessKey), {
-        agentId: entry.info.agentId,
-        accessKey: entry.info.accessKey,
+      this.approvals.set(memoKey(info.agentId, info.accessKey), {
+        agentId: info.agentId,
+        accessKey: info.accessKey,
       })
     }
-    entry.resolve()
+    this.waiter.emit(waitKeys.ask(info.id), {
+      reply: input.reply,
+      ...(input.message !== undefined ? { message: input.message } : {}),
+    } satisfies AskPayload)
   }
 
   list(): readonly AccessRequest[] {
-    return [...this.pending.values()].map((entry) => entry.info)
+    return [...this.pending.values()]
   }
 
   listApprovals(): readonly { agentId: string; accessKey: string }[] {
@@ -199,8 +214,7 @@ export class DefaultAccessAskBus implements AccessAskBus {
 }
 
 /**
- * 格式化访问申请消息（投递到根信箱的 user 消息内容；带请求 id 供 access_reply 答复）。
- * 呈现面 B3 统一 `name#id`（display 注入；缺省回落裸 id）——审批卡可读、可直接回 address。
+ * Format access request message for root mailbox (with requestId for access_reply).
  */
 export function formatAccessRequest(request: AccessRequest, display?: (agentId: string) => string): string {
   const meta = request.metadata ? `（${JSON.stringify(request.metadata)}）` : ''

@@ -30,6 +30,8 @@ import type {
 } from '../context'
 import { DefaultRepository, DefaultCourier, DefaultContextManager, PersistedRepository } from '../context'
 import type { ContextManager, MessageStore } from '../context'
+import type { Waiter } from '../context/wait'
+import { DefaultWaiter, defaultTimer } from '../context/wait'
 import type { Logger } from '../logging'
 import { forget, InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
@@ -145,6 +147,8 @@ export class Kernel {
   readonly tools?: ToolCapabilityRegistry
   /** 访问确认（ask 消息化：投递申请到根信箱 + access_reply 解析）。 */
   readonly access: AccessAskBus
+  /** 统一挂起原语（ask / hold / reply / pause）。 */
+  readonly waiter: Waiter
   /** 统一事件流（PilotEvent：stream/letter/status/notice；多订阅者）。 */
   readonly events: EventHub
   /** 日志记录器。 */
@@ -207,6 +211,8 @@ export class Kernel {
     }
 
     // 工具访问确认（ask 消息化）：投递申请到申请者的族谱根信箱；根经 access_reply 回复。
+    // 统一挂起原语（ask / instantiate.wait / waitForReply / agent_pause 共用）。
+    this.waiter = new DefaultWaiter(options.timer ?? defaultTimer)
     this.access = new DefaultAccessAskBus({
       askRoot: (request) =>
         this.contextManager.deposit(
@@ -218,6 +224,7 @@ export class Kernel {
       resolve: accessResolver,
       onLog: { log: (event) => this.emitLog(event) },
       autoApprove: options.autoApprove,
+      waiter: this.waiter,
     })
 
     // 重建邮局：仓库（存储，已在持久化装配段创建）→ 管理员（策略处理 + 组装权）
@@ -233,6 +240,7 @@ export class Kernel {
       strategies: options.strategies,
       settings: options.contextSettings,
       timer: options.timer,
+      waiter: this.waiter,
       defaultCountdownMs: options.defaultCountdownMs,
       repository: this.repository,
       courier: this.courier,
@@ -628,6 +636,8 @@ export class Kernel {
       recursive: opts?.recursive,
     })
     for (const id of subtree) {
+      // ask/hold/pause 等待一并 aborted（防悬挂；contextManager.unregister 亦 cancelOwner）。
+      this.waiter.cancelOwner(id)
       await this.contextManager.unregister(id)
       this.lineage.detach(id as string)
     }

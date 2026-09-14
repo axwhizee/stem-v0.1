@@ -201,6 +201,7 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
         agentId: ctx.agentId,
         birth: tool.birth,
         metadata: { tool: tool.id },
+        ...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
       })
     } catch (cause) {
       const error = cause as { kind?: string; accessKey?: string; feedback?: string }
@@ -214,6 +215,12 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
           accessKey,
           ...(typeof error.feedback === 'string' ? { feedback: error.feedback } : {}),
         })
+      }
+      if (error?.kind === 'access_timeout') {
+        throw toolError({ kind: 'access_timeout', tool: tool.id, accessKey })
+      }
+      if (error?.kind === 'access_aborted') {
+        throw toolError({ kind: 'access_aborted', tool: tool.id, accessKey })
       }
       throw cause
     }
