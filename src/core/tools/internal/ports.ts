@@ -58,7 +58,6 @@ export interface AgentInstanceView {
   readonly name: string
   readonly classRef: string
   readonly parentId: string | null
-  readonly spaceId: string
   readonly status: string
   readonly turnCount: number
   readonly totalCost: number
@@ -135,11 +134,11 @@ export interface AgentPort {
   ) => Promise<{ readonly persisted: boolean }>
   readonly hasClassStore: () => boolean
 
-  readonly instantiate: (req: InstantiateRequest, spaceId: string) => Promise<string>
+  readonly instantiate: (req: InstantiateRequest) => Promise<string>
   readonly updateAgent: (req: AgentUpdateRequest) => Promise<void>
   readonly terminateAgent: (agentId: string, opts?: { readonly by?: string; readonly recursive?: boolean }) => Promise<void>
 
-  readonly listInstances: (spaceId: string) => Promise<readonly AgentInstanceView[]>
+  readonly listInstances: () => Promise<readonly AgentInstanceView[]>
   readonly getInstance: (agentId: string) => Promise<AgentInstanceView>
   readonly getInstanceSync: (agentId: string) => AgentInstanceView | undefined
   readonly getChildren: (agentId: string) => readonly string[]

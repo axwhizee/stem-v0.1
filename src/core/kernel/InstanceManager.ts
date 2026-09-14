@@ -12,7 +12,7 @@
 // ============================================================
 
 import type { TemplateRegistry } from './TemplateRegistry'
-import type { AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, AgentStatus, ModelBinding } from './types'
+import type { AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentStatus, ModelBinding } from './types'
 import { formatFull, makeAgentID, ROOT_ID } from './types'
 import type { ToolAccess } from '../tools'
 import type { ModelRef } from '../gateway'
@@ -24,7 +24,6 @@ export interface InstantiateOptions {
   readonly parentId: AgentID | null
   /** 实例化必填的 user prompt（首封信）。 */
   readonly userPrompt: string
-  readonly spaceId: AgentSpaceID
   /**
    * 出生称呼（缺省确定性推导 `类名-N`）。撞全局名 = 拒绝（绝不自动后缀）。
    * id 不接受显式指定（出生路径全托管；旧 agentId 参数已退役）。
@@ -53,6 +52,8 @@ export interface InstantiateOptions {
    * 竞态从时序上根除。toolCallId = 父本次工具调用（回信正规填充为 tool 行）。
    */
   readonly hold?: { readonly toolCallId: string; readonly timeoutMs?: number }
+  /** 出生模型绑定（kernel 解析后传入；自包含持久）。 */
+  readonly modelBinding?: ModelBinding
 }
 
 /** 寻址解析结果（B3 三形态）。 */
@@ -66,7 +67,6 @@ export interface InstanceManager {
   /** 终止：销毁权校验（by 是目标的祖先；根 parentId=null 无祖先 → 不可销毁）+ 有活跃子时默认拒绝，recursive 级联。活体面移除、留下占用（墓碑）。 */
   readonly terminate: (agentId: AgentID, opts?: { by?: AgentID; recursive?: boolean }) => Promise<void>
   readonly get: (agentId: AgentID) => Promise<AgentInstance>
-  readonly listBySpace: (spaceId: AgentSpaceID) => Promise<AgentInstance[]>
   /** 全部活体实例（供 LineageTree 实时推导 children/descendants；墓碑不在场）。 */
   readonly listAll: () => Promise<readonly AgentInstance[]>
   /** 同步读取（供 LineageTree/materialize 在同步路径解析访问层）。 */
@@ -85,10 +85,10 @@ export interface InstanceManager {
    */
   readonly update: (agentId: AgentID, patch: Partial<AgentInstancePatch>) => Promise<void>
   /**
-   * 写出生快照（kernel attach 后调用；仅落在父继承/家学层的实例）：
-   * 族规"改父不动子"的持久载体，replay 时优先于父现值。
+   * 写出生模型绑定（kernel attach 后调用）：自包含持久载体，
+   * 重启不需类模板恢复运行模型；改父不动子由已落地绑定保证。
    */
-  readonly setModelSnapshot: (agentId: AgentID, snapshot: ModelBinding) => Promise<void>
+  readonly setModelBinding: (agentId: AgentID, binding: ModelBinding) => Promise<void>
   /**
    * 持久化恢复专用（绕过模板校验，仅由组合根启动期调用）：
    * 直接装载实例行；活跃状态归一化——thinking/holding → interrupted
@@ -156,7 +156,6 @@ export class DefaultInstanceManager implements InstanceManager {
       classRef: template.name,
       parentId: opts.parentId,
       name,
-      spaceId: opts.spaceId,
       status: 'idle',
       turnCount: 0,
       totalCost: 0,
@@ -164,6 +163,7 @@ export class DefaultInstanceManager implements InstanceManager {
       userPrompt: opts.userPrompt,
       ...(opts.tools !== undefined ? { toolOverride: opts.tools } : {}),
       ...(opts.model !== undefined ? { model: opts.model } : {}),
+      ...(opts.modelBinding !== undefined ? { modelBinding: opts.modelBinding } : {}),
     }
     this.agents.set(id, instance)
     return instance
@@ -201,10 +201,6 @@ export class DefaultInstanceManager implements InstanceManager {
     return instance
   }
 
-  async listBySpace(spaceId: AgentSpaceID): Promise<AgentInstance[]> {
-    return [...this.agents.values()].filter((a) => a.spaceId === spaceId)
-  }
-
   async listAll(): Promise<readonly AgentInstance[]> {
     return [...this.agents.values()]
   }
@@ -237,6 +233,7 @@ export class DefaultInstanceManager implements InstanceManager {
       name?: string
       toolOverride?: Readonly<Record<string, ToolAccess>>
       model?: ModelRef
+      modelBinding?: ModelBinding
     }
     if (patch.name !== undefined && patch.name !== instance.name) {
       // 改名撞名拒（全局唯一执法面含墓碑）；旧名释放占用。
@@ -248,12 +245,16 @@ export class DefaultInstanceManager implements InstanceManager {
       mutable.name = patch.name
     }
     if (patch.toolOverride !== undefined) mutable.toolOverride = patch.toolOverride
-    if (patch.model !== undefined) mutable.model = patch.model
+    if (patch.model !== undefined) {
+      mutable.model = patch.model
+      // 显式层改写 = 绑定同步为 explicit（改自身，不碰子女）。
+      mutable.modelBinding = { ref: patch.model, origin: 'explicit' }
+    }
   }
 
-  async setModelSnapshot(agentId: AgentID, snapshot: ModelBinding): Promise<void> {
+  async setModelBinding(agentId: AgentID, binding: ModelBinding): Promise<void> {
     const instance = await this.get(agentId)
-    ;(instance as { modelSnapshot?: ModelBinding }).modelSnapshot = snapshot
+    ;(instance as { modelBinding?: ModelBinding }).modelBinding = binding
   }
 
   restore(instance: AgentInstance): void {
@@ -266,7 +267,16 @@ export class DefaultInstanceManager implements InstanceManager {
     this.reserveIdentity(instance)
     const status: AgentStatus =
       instance.status === 'thinking' || instance.status === 'holding' ? 'interrupted' : instance.status
-    this.agents.set(instance.id, { ...instance, status, totalTokens: instance.totalTokens ?? 0 })
+    // 旧库缺 modelBinding：用显式 model 兜底为 explicit（类基因/父链由上层 attach 补）。
+    const modelBinding =
+      instance.modelBinding ??
+      (instance.model !== undefined ? ({ ref: instance.model, origin: 'explicit' } as ModelBinding) : undefined)
+    this.agents.set(instance.id, {
+      ...instance,
+      status,
+      totalTokens: instance.totalTokens ?? 0,
+      ...(modelBinding !== undefined ? { modelBinding } : {}),
+    })
   }
 
   resolve(ref: string): ResolveResult {

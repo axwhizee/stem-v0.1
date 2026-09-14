@@ -24,21 +24,21 @@ const cls: AgentClass = {
 async function makeTree() {
   const registry = new DefaultTemplateRegistry([cls])
   const manager = new DefaultInstanceManager(registry)
-  const spaceId = 'space-1' as never
-  await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '', spaceId })
+  
+  await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '' })
   const lineage = new DefaultLineageTree({
     getInstance: (id) => manager.getSync(id),
     getAllInstances: () => manager.listAllSync(),
   })
-  return { manager, lineage, spaceId, registry }
+  return { manager, lineage, registry }
 }
 
 describe('LineageTree（无状态查询视图，纯关系）', () => {
   test('祖先链：根无祖先；子 agent 链到根', async () => {
-    const { manager, lineage, spaceId } = await makeTree()
-    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi', spaceId })
-    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId })
-    const grand = await manager.instantiate({ className: cls.name, parentId: child.id, userPrompt: 'hi', spaceId })
+    const { manager, lineage } = await makeTree()
+    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
+    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
+    const grand = await manager.instantiate({ className: cls.name, parentId: child.id, userPrompt: 'hi' })
 
     assert.equal(root.id, '0-1')
     assert.deepEqual(lineage.getAncestors(ROOT_ID), [])
@@ -48,11 +48,11 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
   })
 
   test('children / descendants：BFS 子树', async () => {
-    const { manager, lineage, spaceId } = await makeTree()
-    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi', spaceId })
-    const c1 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId })
-    const c2 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId })
-    const c1a = await manager.instantiate({ className: cls.name, parentId: c1.id, userPrompt: 'hi', spaceId })
+    const { manager, lineage } = await makeTree()
+    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
+    const c1 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
+    const c2 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
+    const c1a = await manager.instantiate({ className: cls.name, parentId: c1.id, userPrompt: 'hi' })
 
     assert.deepEqual([...lineage.getChildren(root.id)].sort(), [c1.id, c2.id])
     assert.deepEqual([...lineage.getDescendants(root.id)].sort(), [c1.id, c1a.id, c2.id])
@@ -62,9 +62,9 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
   })
 
   test('isAncestorOf：销毁权判定（根恒 true）', async () => {
-    const { manager, lineage, spaceId } = await makeTree()
-    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi', spaceId })
-    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId })
+    const { manager, lineage } = await makeTree()
+    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
+    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
 
     assert.equal(lineage.isAncestorOf(ROOT_ID, child.id), true)
     assert.equal(lineage.isAncestorOf(root.id, child.id), true)
@@ -73,9 +73,9 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
   })
 
   test('getRoot：祖先链末端为根；自身即根时返回自身', async () => {
-    const { manager, lineage, spaceId } = await makeTree()
-    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi', spaceId })
-    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId })
+    const { manager, lineage } = await makeTree()
+    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
+    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
 
     assert.equal(lineage.getRoot(ROOT_ID), ROOT_ID)
     assert.equal(lineage.getRoot(root.id), ROOT_ID)
@@ -83,12 +83,12 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
   })
 
   test('销毁权：非祖先调用者被拒；有活跃子默认拒绝；recursive 级联', async () => {
-    const { manager, spaceId } = await makeTree()
-    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi', spaceId })
-    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId })
+    const { manager } = await makeTree()
+    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
+    const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
 
     // 非祖先（另一个兄弟实例）销毁 → denied。
-    const outsider = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi', spaceId })
+    const outsider = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
     await assert.rejects(
       () => manager.terminate(child.id, { by: outsider.id }),
       (e: unknown) => (e as { kind: string }).kind === 'agent_terminate_denied',
@@ -98,14 +98,14 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
     await manager.terminate(child.id, { by: ROOT_ID })
 
     // 有活跃子默认拒绝。
-    const child2 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId })
+    const child2 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
     await assert.rejects(
       () => manager.terminate(root.id, { by: ROOT_ID }),
       (e: unknown) => (e as { kind: string }).kind === 'agent_has_children',
     )
 
     // recursive 级联销毁整棵子树。
-    const grand = await manager.instantiate({ className: cls.name, parentId: child2.id, userPrompt: 'hi', spaceId })
+    const grand = await manager.instantiate({ className: cls.name, parentId: child2.id, userPrompt: 'hi' })
     await manager.terminate(root.id, { by: ROOT_ID, recursive: true })
     for (const id of [root.id, child2.id, grand.id] as AgentID[]) {
       await assert.rejects(() => manager.get(id), (e: unknown) => (e as { kind: string }).kind === 'agent_not_found')
@@ -121,15 +121,15 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
   })
 
   test('父不存在 → agent_conflict', async () => {
-    const { manager, spaceId } = await makeTree()
+    const { manager } = await makeTree()
     await assert.rejects(
-      () => manager.instantiate({ className: cls.name, parentId: makeAgentID('ghost'), userPrompt: 'hi', spaceId }),
+      () => manager.instantiate({ className: cls.name, parentId: makeAgentID('ghost'), userPrompt: 'hi' }),
       (e: unknown) => (e as { kind: string }).kind === 'agent_conflict',
     )
   })
 
   test('审计律 B1：前缀 ⇔ isAncestorOf（含空洞/销毁随机对拍，活体面）', async () => {
-    const { manager, lineage, spaceId } = await makeTree()
+    const { manager, lineage } = await makeTree()
     // 随机生长 30 实例（每步在活体中随机挑父）+ 中途 recursive 销毁制造空洞。
     const live: AgentID[] = [ROOT_ID]
     const ever: AgentID[] = [ROOT_ID]
@@ -137,7 +137,7 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
     const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff)
     for (let i = 0; i < 30; i++) {
       const parent = live[Math.floor(rnd() * live.length)]!
-      const child = await manager.instantiate({ className: cls.name, parentId: parent, userPrompt: 'hi', spaceId })
+      const child = await manager.instantiate({ className: cls.name, parentId: parent, userPrompt: 'hi' })
       live.push(child.id)
       ever.push(child.id)
       if (rnd() > 0.8) {
@@ -232,11 +232,11 @@ describe('LineageTree 门面（能力物化：attach/effectiveAccess/replay/deta
 
 describe('LineageTree.canReach（可见域：自身 ∪ 祖先代查）', () => {
   test('矩阵：自身 true；祖先 true；后代 false；兄弟 false；根全视', async () => {
-    const { manager, lineage, spaceId } = await makeTree()
-    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi', spaceId })
-    const a = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId })
-    const a1 = await manager.instantiate({ className: cls.name, parentId: a.id, userPrompt: 'hi', spaceId })
-    const b = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi', spaceId })
+    const { manager, lineage } = await makeTree()
+    const root = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
+    const a = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
+    const a1 = await manager.instantiate({ className: cls.name, parentId: a.id, userPrompt: 'hi' })
+    const b = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
 
     // 自身
     assert.ok(lineage.canReach(a.id, a.id))
@@ -293,13 +293,13 @@ describe('LineageTree 模型配置相（显式 > 类基因 > 父继承 > 家学�
     // 出生：p 无显式落 home；oldChild 随 kernel attach 规则写快照
     lineage.attach({ agentId: '0', parentId: null, model: { classModel: M('home-m') } })
     lineage.attach({ agentId: 'p', parentId: '0' })
-    lineage.attach({ agentId: 'oldChild', parentId: 'p', model: { snapshot: SNAPSHOT } })
+    lineage.attach({ agentId: 'oldChild', parentId: 'p', model: { resolved: SNAPSHOT } })
     assert.deepEqual(lineage.modelOf('oldChild'), SNAPSHOT)
     // 运行期 p 换模型 = 实例行写显式层 → 全树 replay 重解析
     lineage.replay([
       { agentId: '0', parentId: null, model: { classModel: M('home-m') } },
       { agentId: 'p', parentId: '0', model: { instanceModel: M('new-m') } },
-      { agentId: 'oldChild', parentId: 'p', model: { snapshot: SNAPSHOT } },
+      { agentId: 'oldChild', parentId: 'p', model: { resolved: SNAPSHOT } },
     ])
     assert.deepEqual(lineage.modelOf('p'), { ref: M('new-m'), origin: 'explicit' })
     assert.deepEqual(lineage.modelOf('oldChild'), SNAPSHOT, '既有子女受快照保护，不受改父影响')
@@ -351,7 +351,7 @@ describe('LineageTree 出生快照层（S6 §5 族规跨重启）', () => {
     lineage.replay([
       { agentId: '0', parentId: null, model: { classModel: M('home-m') } },
       { agentId: 'p', parentId: '0', model: { instanceModel: M('swapped') } },
-      { agentId: 'c', parentId: 'p', model: { snapshot: { ref: M('old-p'), origin: 'inherited' } } },
+      { agentId: 'c', parentId: 'p', model: { resolved: { ref: M('old-p'), origin: 'inherited' } } },
     ])
     assert.deepEqual(lineage.modelOf('p'), { ref: M('swapped'), origin: 'explicit' })
     assert.deepEqual(lineage.modelOf('c'), { ref: M('old-p'), origin: 'inherited' }, '快照 = 出生时族谱真相')
@@ -359,7 +359,7 @@ describe('LineageTree 出生快照层（S6 §5 族规跨重启）', () => {
     lineage.attach({
       agentId: 'c',
       parentId: 'p',
-      model: { instanceModel: M('own'), snapshot: { ref: M('old-p'), origin: 'inherited' } },
+      model: { instanceModel: M('own'), resolved: { ref: M('old-p'), origin: 'inherited' } },
     })
     assert.deepEqual(lineage.modelOf('c'), { ref: M('own'), origin: 'explicit' })
   })

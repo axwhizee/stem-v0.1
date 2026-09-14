@@ -94,7 +94,8 @@ export interface ToolInitContext {
  */
 export interface ToolContext {
   readonly agentId: string
-  readonly spaceId: string
+  /** 项目根路径（单空间；cortex 笔记目录等用。缺省 = 空）。 */
+  readonly spaceId?: string
   readonly signal?: AbortSignal
   /** 本次调用 id（registry 执行时填充，供工具绑定自身 tool_call）。 */
   readonly callId?: string

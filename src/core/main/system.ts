@@ -213,10 +213,9 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     }
   }
 
-  // 恢复箱重接线（S10 时序修复）：Kernel 构造期 wireRestoredInstances 看不到
-  // runInit 才装载的空间类（模板表未载 → cortex 等类策略被静默接成 classic 兜底、
-  // custom 蒸发）。类/策略/工具全部载齐后统一补对齐（幂等，箱缺失 no-op）。
-  await kernel.realignRestoredInstances()
+  // 恢复接线（S10 根治）：类/策略/工具载齐后统一 wire（构造期不接线，
+  // 避免空间类未入表时策略/custom 落错）。
+  await kernel.wireRestoredContexts()
 
   // Pilot（根扮演接口）：pilot 初始化内实例化根 agent（user 类普通实例，id `0`）。
   const pilot = await createPilot({ facade: createSystemFacade(kernel) })

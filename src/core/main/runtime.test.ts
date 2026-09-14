@@ -13,7 +13,7 @@ import { DefaultTemplateRegistry } from '../kernel'
 import { DefaultInstanceManager } from '../kernel'
 import { DefaultRuntime } from './runtime'
 import type { AgentClass } from '../kernel'
-import { makeAgentClassID, makeAgentID, makeAgentSpaceID, ROOT_ID } from '../kernel'
+import { makeAgentClassID, makeAgentID, ROOT_ID } from '../kernel'
 
 const cls: AgentClass = {
   name: makeAgentClassID('chat'),
@@ -45,7 +45,6 @@ async function makeRuntime(
     className: (extra?.template ?? cls).name,
     parentId: null,
     userPrompt: '',
-    spaceId: makeAgentSpaceID('__meta__'),
 
   })
   const repository = new DefaultRepository()
@@ -64,7 +63,6 @@ async function makeRuntime(
     className: extra?.template !== undefined ? extra.template.name : cls.name,
     parentId: makeAgentID(ROOT_ID),
     userPrompt: 'hi',
-    spaceId: makeAgentSpaceID('space-1'),
   })
   await contextManager.register({ agentId: instance.id, systemPrompt: cls.systemPrompt, onDelivery: () => {} })
   // user#0 作为接收者注册（最终回复投递目标）。

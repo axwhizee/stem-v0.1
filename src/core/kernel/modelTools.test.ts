@@ -50,7 +50,7 @@ async function harness() {
 }
 
 const asUser = (tools: Awaited<ReturnType<typeof harness>>['tools'], name: string, input: Record<string, unknown>) =>
-  tools.execute({ id: `call_${name}`, name, input }, { agentId: ROOT_ID, spaceId: 'space-1' })
+  tools.execute({ id: `call_${name}`, name, input }, { agentId: ROOT_ID })
 
 /** 按名查活体实例（未命中 = undefined）。 */
 function manager(kernel: Awaited<ReturnType<typeof harness>>['kernel'], ref: string) {
@@ -95,12 +95,12 @@ describe('agent_update（R7）', () => {
     await asUser(tools, 'agent_instantiate', { className: 'self-model', userPrompt: 'hi', name: 'q1' })
     const q1 = kernel.resolveAgent('q1')
     // p1 名下子女（出生快照 = p1 当时值）
-    await kernel.instantiateInSpace({ className: makeAgentClassID('self-model'), parentId: p1, userPrompt: 'child' }, 'space-1')
+    await kernel.instantiateInSpace({ className: makeAgentClassID('self-model'), parentId: p1, userPrompt: 'child' })
 
     // p1 自换模型（ignore = 隐藏但可执行，无 ask 弹窗直落）
     const self = await tools.execute(
       { id: 'call_self', name: 'agent_update', input: { model: 'cfg/new-m' } },
-      { agentId: p1, spaceId: 'space-1' },
+      { agentId: p1 },
     )
     assert.match(self.text, /已更新 p1#0-1/)
     assert.deepEqual(kernel.lineage.modelOf(p1), { ref: { provider: 'cfg', id: 'new-m' }, origin: 'explicit' })
@@ -112,14 +112,14 @@ describe('agent_update（R7）', () => {
     // 兄弟互不可见：q1 改 p1 → 拒绝文案
     const deny = await tools.execute(
       { id: 'call_deny', name: 'agent_update', input: { agentId: 'p1', model: 'cfg/evil' } },
-      { agentId: q1, spaceId: 'space-1' },
+      { agentId: q1 },
     )
     assert.match(deny.text, /无权/)
     assert.deepEqual(kernel.lineage.modelOf(p1)?.ref, { provider: 'cfg', id: 'new-m' }, '被拒不得留副作用')
     // 非法格式
     const bad = await tools.execute(
       { id: 'call_bad', name: 'agent_update', input: { model: 'nope' } },
-      { agentId: p1, spaceId: 'space-1' },
+      { agentId: p1 },
     )
     assert.match(bad.text, /提供商\/模型/)
   })

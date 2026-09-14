@@ -57,16 +57,14 @@ import { DefaultTemplateRegistry } from './TemplateRegistry'
 import type { TemplateRegistry } from './TemplateRegistry'
 import { DefaultInstanceManager } from './InstanceManager'
 import type { InstanceManager, InstantiateOptions } from './InstanceManager'
-import { PersistedInstanceManager, PersistedSpaceManager } from './persisted'
+import { PersistedInstanceManager } from './persisted'
 import type { InstanceStore } from './store'
-import { DefaultSpaceManager } from './SpaceManager'
-import type { SpaceManager } from './SpaceManager'
 import type { RuntimePort, RuntimePortDeps } from './runtimePort'
 import { DefaultLineageTree } from '../lineage'
-import type { AccessProfile, LineageTree } from '../lineage'
+import type { AccessProfile, LineageBindEntry, LineageTree } from '../lineage'
 import { ASSISTANT, buildUserClass } from './builtin/agents'
 import type { UserClassConfig } from './builtin/agents'
-import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentSpaceID, ProjectRef } from './types'
+import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, ModelBinding, ProjectRef } from './types'
 import { makeAgentID, ROOT_ID, ROOT_NAME, USER_CLASS_ID } from './types'
 
 /**
@@ -137,7 +135,6 @@ export interface ClassStore {
 export class Kernel {
   readonly templates: TemplateRegistry
   readonly instances: InstanceManager
-  readonly spaces: SpaceManager
   /** 族谱树门面（拓扑实时推导 + 能力物化 + 可见域；S5.1 起台账并入）。 */
   readonly lineage: LineageTree
   /** 上下文仓库（上下文本体的唯一存储）。 */
@@ -156,9 +153,9 @@ export class Kernel {
   readonly logger: Logger
   /** 类回写端口（S5.2 进化书写面；undefined = 仅内存注册，无落盘通道）。 */
   private readonly classStore?: ClassStore
-  /** 项目空间身份（S6/R11；根挂真实空间用）。 */
-  private readonly project?: ProjectRef
-  /** 启动期从持久化端口恢复出的实例（构造末尾接线上下文用；空 = 首启/纯内存）。 */
+  /** 项目身份（单空间；ToolContext.spaceId / bash cwd 用）。 */
+  readonly project: ProjectRef
+  /** 启动期从持久化端口恢复出的实例（wireRestoredContexts 接线用；空 = 首启/纯内存）。 */
   private readonly restoredInstances: readonly AgentInstance[]
   /** 根的出生称呼（config.user.name，缺省 'user'——实例参数经配置面给）。 */
   private readonly rootName: string
@@ -168,6 +165,7 @@ export class Kernel {
   constructor(options: KernelOptions) {
     this.rootName = options.userClass?.name ?? ROOT_NAME
     this.strategies = options.strategies
+    this.project = options.project ?? ''
     this.templates = new DefaultTemplateRegistry([
       buildUserClass(options.userClass),
       ...(options.templates ?? BUILTIN_TEMPLATES),
@@ -175,31 +173,25 @@ export class Kernel {
 
     // ---------- 持久化装配（可选 stateStore 注入，core 零平台依赖：端口由宿主实现） ----------
     // 内存核 → （注入时）同一对内存核上恢复 → 套 write-through 装饰器（恢复期不反向写）。
-    // 恢复出的实例在构造末尾统一接线上下文（wireRestoredInstances）。
+    // 上下文接线推迟到 wireRestoredContexts（runInit 载齐类后调用）。
     const store = options.stateStore
     const memoryInstances = new DefaultInstanceManager(this.templates)
     const memoryRepository = new DefaultRepository({ onLog: (event) => this.emitLog(event) })
-    const memorySpaces = new DefaultSpaceManager()
     if (store) {
       const persistedInstances = new PersistedInstanceManager(memoryInstances, store.instances)
       const persistedRepository = new PersistedRepository(memoryRepository, store.messages)
       this.restoredInstances = persistedInstances.restoreFromStore()
       persistedRepository.restoreFromStore()
-      const persistedSpaces = new PersistedSpaceManager(memorySpaces, store.instances)
-      persistedSpaces.restoreFromStore()
       this.instances = persistedInstances
       this.repository = persistedRepository
-      this.spaces = persistedSpaces
     } else {
       this.restoredInstances = []
       this.instances = memoryInstances
       this.repository = memoryRepository
-      this.spaces = memorySpaces
     }
     this.tools = options.tools
     this.logger = options.logger ?? new InMemoryLogger()
     this.classStore = options.classStore
-    this.project = options.project
 
     // 统一事件流（多订阅者）：外部（shell/GUI）经 onEvent 订阅 stream/letter/status/notice。
     this.events = new DefaultEventHub()
@@ -270,6 +262,7 @@ export class Kernel {
       templates: this.templates,
       estimateCost: options.estimateCost,
       timer: options.timer,
+      projectRoot: this.project,
       onEvent: (agentId, event) => this.events.emit({ type: 'stream', agentId, event }),
       onStatus: (agentId, from, to) => this.events.emit({ type: 'status', agentId, from, to, at: Date.now() }),
       onLog: { log: (event) => this.emitLog(event) },
@@ -281,29 +274,32 @@ export class Kernel {
     this.tools?.setLogSink?.({ log: (event) => this.emitLog(event) })
     this.tools?.setAccessSink?.(this.access)
     this.tools?.setAccessResolver?.(accessResolver)
-
-    // 恢复接线：持久化实例重新挂上管理员/快递员（跳过仓库开辟，箱已恢复）。
-    this.wireRestoredInstances()
   }
 
   /**
-   * 恢复接线（构造末尾调用一次）：为启动期恢复出的每个实例注册上下文处理
-   * （restore=true：仓库箱已由 restoreFromStore 重建，只补管理员 box + 快递员注册）。
-   * 根（parentId=null，即根）沿用 registerRootAgent 的面板接线（assemble:false + letter 事件）。
+   * 恢复接线（runInit 载齐类/策略后由 createStemSystem 调用一次）：
+   * 启动 replay 族谱 + 为每个恢复实例注册上下文（restore=true：箱已重建）。
+   * 构造期不接线——类模板未载时策略/custom 会落错（S10 教训的根治）。
    */
-  private wireRestoredInstances(): void {
+  async wireRestoredContexts(): Promise<void> {
+    if (this.restoredInstances.length === 0) return
     this.replayLineage()
     for (const instance of this.restoredInstances) {
       const template = this.templates.getSync(instance.classRef)
       const isRoot = instance.parentId === null
+      if (instance.modelBinding === undefined) {
+        const binding = this.lineage.modelOf(instance.id)
+        if (binding) await this.instances.setModelBinding(instance.id, binding)
+      }
+      // 类缺失：先以兜底接线，再 realign 留痕（与旧构造期接线+补对齐同语义）。
+      const missingClass = !isRoot && !template
       forget(this.contextManager.register({
         agentId: instance.id,
         sendCountdownMs: isRoot ? template?.sendCountdown ?? 0 : template?.sendCountdown,
         assemble: !isRoot && template?.panel !== true,
-        contextStrategy: template?.contextStrategy,
+        contextStrategy: missingClass ? undefined : template?.contextStrategy,
         custom: template?.custom,
         restore: this.repository.has(instance.id),
-        // 面板 diff 基线：恢复箱内的全部消息 id（防重启后旧信当新信重放）。
         initialSentIds: this.repository.has(instance.id) ? this.repository.list(instance.id).map((m) => m.id) : [],
         ...(isRoot ? {} : { systemPrompt: template?.systemPrompt ?? '' }),
         onDelivery: isRoot
@@ -314,54 +310,30 @@ export class Kernel {
           : (delivery) => this.handleDelivery(delivery),
         ...(isRoot ? {} : { onHold: (id: string) => forget(this.runtime.notifyHold(makeAgentID(id)), 'kernel:notifyHold', (event) => this.emitLog(event)) }),
       }), 'kernel:registerContext', (event) => this.emitLog(event))
+      if (missingClass) {
+        await this.contextManager.realign(instance.id, { contextStrategy: '' })
+      }
     }
   }
 
-  /**
-   * 族谱全树重放（能力相物化的唯一重算入口，两条链路共用）：
-   * entries 由实例行 + 类档案现值派生（own = 类 tools ∪ toolOverride，
-   * model 原始层含出生快照）——启动恢复与运行期 agent_update 之后都走
-   * 这里：权限收缩沿链下传自动重算，模型显式层重解析、子女快照层稳定
-   * （"不级联"由数据结构保证，无特判逻辑）。纯派生态 = 重放幂等。
-   */
-  /**
-   * 类装载后重接线（createStemSystem 在 runInit 完成后调一次）：构造期恢复接线
-   * 时空间类尚未入模板表，箱的 strategy/custom 落为兜底（cortex 类会被静默接成
-   * classic——S10 实测抓获）。类表载齐后按模板实况补对齐；根箱（user#0）走
-   * userClass 同步构造不受此限，跳过。
-   */
-  async realignRestoredInstances(): Promise<void> {
-    for (const instance of this.restoredInstances) {
-      if (instance.parentId === null) continue
-      const template = this.templates.getSync(instance.classRef)
-      if (!template) {
-        // 类不在表（文件真相缺失）——空串触发 cm 兜底留痕后维持现状。
-        await this.contextManager.realign(instance.id, { contextStrategy: '' })
-        continue
-      }
-      await this.contextManager.realign(instance.id, {
-        contextStrategy: template.contextStrategy,
-        custom: template.custom,
-        sendCountdownMs: template.sendCountdown,
-      })
+  /** 某 agent 的族谱绑定条目（权限 steps + 模型原始层/已落地绑定）。 */
+  private bindEntryOf(instance: AgentInstance): LineageBindEntry {
+    const template = this.templates.getSync(instance.classRef)
+    return {
+      agentId: instance.id as string,
+      parentId: instance.parentId as string | null,
+      steps: this.accessStepsOf(instance.id),
+      caps: this.birthCaps(),
+      model: {
+        instanceModel: instance.model,
+        classModel: template?.model,
+        ...(instance.modelBinding !== undefined ? { resolved: instance.modelBinding } : {}),
+      },
     }
   }
 
   private replayLineage(): void {
-    this.lineage.replay(
-      this.instances.listAllSync().map((instance) => ({
-        agentId: instance.id as string,
-        parentId: instance.parentId as string | null,
-        steps: this.accessStepsOf(instance.id),
-        caps: this.birthCaps(),
-        model: {
-          instanceModel: instance.model,
-          classModel: this.templates.getSync(instance.classRef)?.model,
-          // 出生快照随行优先（族规跨重启/跨重放，S6 §5）；无快照 = 按链再解析。
-          ...(instance.modelSnapshot !== undefined ? { snapshot: instance.modelSnapshot } : {}),
-        },
-      })),
-    )
+    this.lineage.replay(this.instances.listAllSync().map((instance) => this.bindEntryOf(instance)))
   }
 
   /** 某 agent 的收敛链步序（类清单 → [策略声明清单 raise] → 实例清单；逐步独立、不做预合并）。 */
@@ -427,8 +399,6 @@ export class Kernel {
 
   async registerRootAgent(name?: string): Promise<AgentID> {
     const template = await this.templates.get(USER_CLASS_ID)
-    // 根挂**真实项目空间**（废除旧伪空间行——全体平等原则下根不需要专属空间）。
-    const rootSpace = await this.spaces.getOrCreate(this.project ?? '')
     const rootViolations = this.validateAccessSteps(undefined, this.labeledSteps([this.listStep(template.tools)], '根收敛'))
     if (rootViolations.length > 0) {
       throw { kind: 'root_config_expanded', message: `config.user.tools 越出生声明被拒：\n${rootViolations.join('\n')}` }
@@ -437,7 +407,6 @@ export class Kernel {
       className: USER_CLASS_ID,
       parentId: null,
       userPrompt: '',
-      spaceId: rootSpace.id,
     })
     // 能力绑定（根：自身清单 = user 类 tools 整表，物化生效权限；
     // 模型相：根的类基因 = 家学锚点 config.user.model，全链默认值）。
@@ -448,6 +417,8 @@ export class Kernel {
       caps: this.birthCaps(),
       model: { instanceModel: instance.model, classModel: template.model },
     })
+    const binding = this.lineage.modelOf(instance.id as string)
+    if (binding) await this.instances.setModelBinding(instance.id, binding)
     this.emitLog({
       type: 'kernel.instance.created',
       at: Date.now(),
@@ -512,13 +483,12 @@ export class Kernel {
   }
 
   /** 实例化：创建实例 + 注册上下文（仓库/管理员/快递员）+ 投递首信。 */
-  async instantiateAgent(opts: Omit<InstantiateOptions, 'spaceId'>, project: ProjectRef): Promise<AgentID> {
-    const space = await this.spaces.getOrCreate(project)
-    return this.instantiateInSpace(opts, space.id)
+  async instantiateAgent(opts: Omit<InstantiateOptions, 'spaceId' | 'modelBinding'>, project?: ProjectRef): Promise<AgentID> {
+    return this.instantiateInSpace(opts)
   }
 
-  /** 实例化（指定空间，供系统工具 agent_instantiate / 策略 spawn 使用）。 */
-  async instantiateInSpace(opts: Omit<InstantiateOptions, 'spaceId'>, spaceId: AgentSpaceID | string): Promise<AgentID> {
+  /** 实例化（系统工具 agent_instantiate / 策略 spawn 共用；单空间无 spaceId）。 */
+  async instantiateInSpace(opts: Omit<InstantiateOptions, 'spaceId' | 'modelBinding'>): Promise<AgentID> {
     const template = await this.templates.get(opts.className)
     // 写入面拒绝式校验（两步独立归因；grant = 系统通道静默钳制不拒绝）。
     if (opts.accessMode !== 'grant') {
@@ -530,9 +500,8 @@ export class Kernel {
         throw { kind: 'tools_convergence_expanded', violations }
       }
     }
-    const instance = await this.instances.instantiate({ ...opts, spaceId: spaceId as AgentSpaceID })
+    const instance = await this.instances.instantiate(opts)
     // 能力绑定（注册两步曲：继承父档案 → 自身清单收敛；grant = 系统通道加法整表）。
-    // S6/R6：模型配置相同步物化——出生链 显式(opts/实例行) > 类基因 > 父继承 > 家学。
     this.lineage.attach({
       agentId: instance.id as string,
       parentId: instance.parentId as string | null,
@@ -541,17 +510,9 @@ export class Kernel {
         : { steps: this.accessStepsOf(instance.id), caps: this.birthCaps() }),
       model: { instanceModel: instance.model, classModel: template.model },
     })
-    // §5 族规持久化：出生解析落在父继承/家学层 → 快照随实例行（"改父不动子"
-    // 跨重启不失效）。根的 home 不写快照——家学 = config 本体，编辑重启应生效。
+    // 出生解析落地：生效绑定随行持久（自包含；改父不动子由已落地绑定保证）。
     const binding = this.lineage.modelOf(instance.id as string)
-    if (
-      binding !== undefined &&
-      instance.parentId !== null &&
-      instance.modelSnapshot === undefined &&
-      (binding.origin === 'inherited' || binding.origin === 'home')
-    ) {
-      await this.instances.setModelSnapshot(instance.id, binding)
-    }
+    if (binding) await this.instances.setModelBinding(instance.id, binding)
     this.emitLog({
       type: 'kernel.instance.created',
       at: Date.now(),
@@ -619,7 +580,7 @@ export class Kernel {
     await this.ensureSystemTemplate(role)
     const hostInstance = this.instances.getSync(host)
     if (!hostInstance) throw { kind: 'agent_not_found', agentId: host }
-    return this.instantiateInSpace({ className, parentId: host, userPrompt: '', accessMode: 'grant' }, hostInstance.spaceId)
+    return this.instantiateInSpace({ className, parentId: host, userPrompt: '', accessMode: 'grant' })
   }
 
   /** 策略工具 worker 创建（父 = 扮演 agent；任务 = userPrompt 首信；回收交调用方）。 */
@@ -630,7 +591,6 @@ export class Kernel {
     if (!roleInstance) throw { kind: 'agent_not_found', agentId: role }
     return this.instantiateInSpace(
       { className: spec.name, parentId: role, userPrompt: task, accessMode: 'grant' },
-      roleInstance.spaceId,
     )
   }
 
@@ -750,7 +710,15 @@ export class Kernel {
     }
     if (fields.length === 0) return
     await this.instances.update(id, patch)
-    this.replayLineage()
+    // 定向重算：model 只重绑节点自身；tools 重算子树（收缩沿链下传，无全树 replay）。
+    if (spec.model !== undefined) this.lineage.setModel(spec.agentId, spec.model)
+    if (spec.toolsPatch !== undefined || spec.toolsGrant !== undefined) {
+      this.lineage.rebindSubtree(spec.agentId, (agentId) => {
+        const inst = this.instances.getSync(makeAgentID(agentId))
+        if (!inst) throw { kind: 'agent_not_found', agentId }
+        return this.bindEntryOf(inst)
+      })
+    }
     if (spec.model !== undefined) {
       this.emitLog({
         type: 'kernel.model.set',
@@ -787,14 +755,13 @@ export class Kernel {
     return this.runtime.activeAgents()
   }
 
-  /** Scheduler 最小直通：空间内已存在该模板实例则复用，否则创建。 */
+  /** Scheduler 最小直通：已存在该模板实例则复用，否则创建。 */
   async getOrCreateAgent(
     className: AgentClassID,
     project: ProjectRef,
     opts?: { userPrompt?: string },
   ): Promise<AgentID> {
-    const space = await this.spaces.getOrCreate(project)
-    const existing = await this.instances.listBySpace(space.id)
+    const existing = await this.instances.listAll()
     const found = existing.find((agent) => agent.classRef === className)
     if (found) return found.id
     return this.instantiateAgent(
@@ -825,13 +792,9 @@ export class Kernel {
 
   /** 参与者列表（复用实例 + 根，无独立注册表；呈现面统一 name#id——可直接作 mail to）。 */
   async listParticipants(): Promise<string[]> {
-    const spaces = await this.spaces.list()
-    const ids: string[] = [ROOT_ID]
-    for (const space of spaces) {
-      const agents = await this.instances.listBySpace(space.id)
-      ids.push(...agents.map((a) => a.id))
-    }
-    return ids.map((id) => this.instances.displayOf(id))
+    const agents = await this.instances.listAll()
+    const ids: string[] = [ROOT_ID, ...agents.map((a) => a.id)]
+    return [...new Set(ids)].map((id) => this.instances.displayOf(id))
   }
 
   private handleDelivery(delivery: MailDelivery): void {

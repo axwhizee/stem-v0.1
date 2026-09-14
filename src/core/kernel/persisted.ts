@@ -12,10 +12,8 @@
 // 发生，账目系统性滞后一整轮、强杀进程即丢；全字段快照仍随任何写操作收敛。
 // ============================================================
 
-import type { AgentID, AgentInstance, AgentInstancePatch, AgentSpace } from './types'
+import type { AgentID, AgentInstance, AgentInstancePatch, ModelBinding } from './types'
 import type { InstanceManager, InstantiateOptions, ResolveResult } from './InstanceManager'
-import type { AgentSpaceID, ProjectRef } from './types'
-import type { SpaceManager } from './SpaceManager'
 import type { InstanceStore } from './store'
 
 /** InstanceManager 装饰器：写穿 InstanceStore（内存为准）。 */
@@ -61,9 +59,6 @@ export class PersistedInstanceManager implements InstanceManager {
   get(agentId: AgentID): Promise<AgentInstance> {
     return this.inner.get(agentId)
   }
-  listBySpace(spaceId: AgentSpaceID): Promise<AgentInstance[]> {
-    return this.inner.listBySpace(spaceId)
-  }
   listAll(): Promise<readonly AgentInstance[]> {
     return this.inner.listAll()
   }
@@ -86,14 +81,12 @@ export class PersistedInstanceManager implements InstanceManager {
 
   async update(agentId: AgentID, patch: Partial<AgentInstancePatch>): Promise<void> {
     await this.inner.update(agentId, patch)
-    // 参数三件（name/toolOverride/model 显式层）全随实例行落盘
-    // （行 JSON 序列化零 schema 迁移；重启 replay 读回自然延续）。
+    // 参数三件（name/toolOverride/model 显式层）全随实例行落盘。
     this.snap(agentId)
   }
 
-  async setModelSnapshot(agentId: AgentID, snapshot: NonNullable<AgentInstance['modelSnapshot']>): Promise<void> {
-    await this.inner.setModelSnapshot(agentId, snapshot)
-    // §5 族规持久载体：出生快照随实例行落盘（replay 优先于父现值）。
+  async setModelBinding(agentId: AgentID, binding: ModelBinding): Promise<void> {
+    await this.inner.setModelBinding(agentId, binding)
     this.snap(agentId)
   }
 
@@ -116,40 +109,5 @@ export class PersistedInstanceManager implements InstanceManager {
   private snap(agentId: AgentID): void {
     const current = this.inner.getSync(agentId)
     if (current) this.store.upsert(current)
-  }
-}
-
-/** SpaceManager 装饰器：空间行 write-through（实例 spaceId 重启后可解析）。 */
-export class PersistedSpaceManager implements SpaceManager {
-  constructor(
-    private readonly inner: SpaceManager,
-    private readonly store: InstanceStore,
-  ) {}
-
-  /** 从 store 恢复空间（启动装配调用）。 */
-  restoreFromStore(): void {
-    for (const space of this.store.loadSpaces()) this.inner.restore(space)
-  }
-
-  async getOrCreate(project: ProjectRef): Promise<AgentSpace> {
-    const space = await this.inner.getOrCreate(project)
-    this.store.upsertSpace(space)
-    return space
-  }
-
-  get(spaceId: AgentSpaceID): Promise<AgentSpace> {
-    return this.inner.get(spaceId)
-  }
-  list(): Promise<AgentSpace[]> {
-    return this.inner.list()
-  }
-
-  async remove(spaceId: AgentSpaceID): Promise<void> {
-    await this.inner.remove(spaceId)
-    this.store.deleteSpace(spaceId)
-  }
-
-  restore(space: AgentSpace): void {
-    this.inner.restore(space)
   }
 }

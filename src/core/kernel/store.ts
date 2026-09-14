@@ -7,12 +7,11 @@
 // 不内置第二形制实现（内存替身住 test/support，仅供持久化装饰器测试）。
 // ============================================================
 
-import type { AgentInstance, AgentSpace } from './types'
+import type { AgentInstance } from './types'
 import type { AgentID } from './types'
 
 /**
- * 内核态持久化端口（个体层环境：实例 + 空间）。
- * 空间随实例一并持久化——重启后 spaceId 必须可解析（listAgents 按空间遍历）。
+ * 内核态持久化端口（个体层环境：实例行；单空间无 spaces 表）。
  */
 export interface InstanceStore {
   /** 落一行（INSERT OR UPDATE by id；状态/成本/name 全字段快照——含墓碑行 upsert）。 */
@@ -24,11 +23,6 @@ export interface InstanceStore {
   readonly delete: (agentId: AgentID) => void
   /** 加载全部实例行（恢复用；含墓碑——restore 内层立占用）。 */
   readonly loadAll: () => readonly AgentInstance[]
-  /** 空间行 write-through（getOrCreate/remove）。 */
-  readonly upsertSpace: (space: AgentSpace) => void
-  readonly deleteSpace: (spaceId: AgentSpace['id']) => void
-  /** 加载全部空间（恢复用）。 */
-  readonly loadSpaces: () => readonly AgentSpace[]
   /** 释放资源（可选）。 */
   readonly close?: () => void
 }

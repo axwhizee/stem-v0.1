@@ -42,6 +42,8 @@ export interface RuntimePortDeps {
   readonly onLog?: LogSink
   /** 可注入计时器（drain 超时兜底；缺省 setTimeout，与 Courier/管理员同法）。 */
   readonly timer?: (fn: () => void, ms: number) => { cancel: () => void }
+  /** 项目根（单空间；ToolContext.spaceId = 项目路径）。 */
+  readonly projectRoot?: string
 }
 
 /** agent 执行器端口（kernel 消费面）。 */

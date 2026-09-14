@@ -10,6 +10,7 @@ export type {
   ModelBindInput,
   ModelOrigin,
   NodeConfig,
+  AgentNodeView,
 } from './LineageTree'
 export { DefaultLineageTree } from './LineageTree'
 

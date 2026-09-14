@@ -49,7 +49,7 @@ async function harness() {
 }
 
 const as = (tools: Awaited<ReturnType<typeof harness>>['tools'], name: string, input: Record<string, unknown>) =>
-  tools.execute({ id: `call_${name}`, name, input }, { agentId: ROOT_ID, spaceId: 'space-1' })
+  tools.execute({ id: `call_${name}`, name, input }, { agentId: ROOT_ID })
 const asUser = (tools: Awaited<ReturnType<typeof harness>>['tools'], input: Record<string, unknown>) =>
   as(tools, 'agent_update', input)
 
@@ -114,7 +114,6 @@ describe('agent_update · grantTools 清单形（受限整表）', () => {
     await asUser(tools, { agentId: 'mid', tools: { web: 'deny' } })
     await kernel.instantiateInSpace(
       { className: makeAgentClassID('inherit-form'), parentId: mid, userPrompt: 'x' },
-      'space-1',
     )
     const leaf = kernel.lineage.getChildren(mid)[0]
     assert.ok(leaf !== undefined)
@@ -139,7 +138,7 @@ describe('agent_update · 族谱级联与授权', () => {
     await as(tools, 'agent_instantiate', { className: 'inherit-form', userPrompt: 'hi', name: 'm1' })
     const m1 = kernel.resolveAgent('m1')
     // agent_instantiate 的父 = 调用者（根）——手动挂到 m1 下：
-    await kernel.instantiateInSpace({ className: makeAgentClassID('listed'), parentId: m1, userPrompt: 'x' }, 'space-1')
+    await kernel.instantiateInSpace({ className: makeAgentClassID('listed'), parentId: m1, userPrompt: 'x' })
     const kids = kernel.lineage.getChildren(m1)
     const kid = kids[kids.length - 1]
     assert.ok(kid !== undefined)
@@ -158,7 +157,7 @@ describe('agent_update · 族谱级联与授权', () => {
     // s1 视角改 s2 → 无权。需以 s1 身份执行工具：
     const res = await tools.execute(
       { id: 'x', name: 'agent_update', input: { agentId: 's2', tools: { bash: 'deny' } } },
-      { agentId: kernel.resolveAgent('s1'), spaceId: 'space-1' },
+      { agentId: kernel.resolveAgent('s1') },
     )
     assert.match(res.text, /无权/)
     assert.equal(kernel.lineage.effectiveAccess(kernel.resolveAgent('s2'), 'bash'), 'allow', '被拒不得留副作用')
@@ -168,10 +167,10 @@ describe('agent_update · 族谱级联与授权', () => {
     const { kernel, tools } = await harness()
     await as(tools, 'agent_instantiate', { className: 'inherit-form', userPrompt: 'hi', name: 'f1' })
     const f1 = kernel.resolveAgent('f1')
-    await kernel.instantiateInSpace({ className: makeAgentClassID('inherit-form'), parentId: f1, userPrompt: 'x' }, 'space-1')
+    await kernel.instantiateInSpace({ className: makeAgentClassID('inherit-form'), parentId: f1, userPrompt: 'x' })
     const child = kernel.lineage.getChildren(f1)[0]
     assert.ok(child !== undefined)
-    const childSnapshot = kernel.instances.getSync(child)?.modelSnapshot
+    const childSnapshot = kernel.instances.getSync(child)?.modelBinding
     assert.ok(childSnapshot !== undefined, '出生继承层子女必有快照（kernel attach 规则）')
     await asUser(tools, { agentId: 'f1', model: 'cfg/new-m', name: '甲' })
     assert.deepEqual(kernel.lineage.modelOf(f1), { ref: { provider: 'cfg', id: 'new-m' }, origin: 'explicit' })

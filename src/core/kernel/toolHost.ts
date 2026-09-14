@@ -27,7 +27,6 @@ function toInstanceView(instance: {
   readonly name: string
   readonly classRef: string
   readonly parentId: string | null
-  readonly spaceId: string
   readonly status: string
   readonly turnCount: number
   readonly totalCost: number
@@ -38,7 +37,6 @@ function toInstanceView(instance: {
     name: instance.name,
     classRef: instance.classRef,
     parentId: instance.parentId,
-    spaceId: instance.spaceId,
     status: instance.status,
     turnCount: instance.turnCount,
     totalCost: instance.totalCost,
@@ -86,24 +84,21 @@ export function createSystemToolHost(kernel: Kernel): SystemToolHost {
     updateAgentClass: (name, patch, opts) => kernel.updateAgentClass(makeAgentClassID(name), patch, opts),
     hasClassStore: () => kernel.hasClassStore(),
 
-    instantiate: (req, spaceId) =>
-      kernel.instantiateInSpace(
-        {
-          className: makeAgentClassID(req.className),
-          userPrompt: req.userPrompt,
-          parentId: req.parentId === null ? null : makeAgentID(req.parentId),
-          ...(req.name !== undefined ? { name: req.name } : {}),
-          ...(req.model !== undefined ? { model: req.model } : {}),
-          ...(req.contextRefs !== undefined ? { contextRefs: req.contextRefs } : {}),
-          ...(req.tools !== undefined ? { tools: req.tools } : {}),
-          ...(req.hold !== undefined ? { hold: req.hold } : {}),
-        },
-        spaceId,
-      ),
+    instantiate: (req) =>
+      kernel.instantiateInSpace({
+        className: makeAgentClassID(req.className),
+        userPrompt: req.userPrompt,
+        parentId: req.parentId === null ? null : makeAgentID(req.parentId),
+        ...(req.name !== undefined ? { name: req.name } : {}),
+        ...(req.model !== undefined ? { model: req.model } : {}),
+        ...(req.contextRefs !== undefined ? { contextRefs: req.contextRefs } : {}),
+        ...(req.tools !== undefined ? { tools: req.tools } : {}),
+        ...(req.hold !== undefined ? { hold: req.hold } : {}),
+      }),
     updateAgent: (req) => kernel.updateAgent(req),
     terminateAgent: (agentId, opts) => kernel.terminateAgent(agentId, opts),
 
-    listInstances: async (spaceId) => (await kernel.instances.listBySpace(spaceId as never)).map(toInstanceView),
+    listInstances: async () => (await kernel.instances.listAll()).map(toInstanceView),
     getInstance: async (agentId) => toInstanceView(await kernel.instances.get(makeAgentID(agentId))),
     getInstanceSync: (agentId) => {
       const instance = kernel.instances.getSync(makeAgentID(agentId))

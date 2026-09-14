@@ -10,7 +10,7 @@ import type { ChatMessage, ModelRef } from '../gateway'
 import type { AccessReplyInput } from '../tools'
 import type { PilotEvent } from '../events'
 import type { InstantiateOptions } from './InstanceManager'
-import type { AgentID, AgentInstance, AgentSpace, AgentSpaceID, ProjectRef } from './types'
+import type { AgentID, AgentInstance, ProjectRef } from './types'
 
 export interface SystemFacade {
   /** 订阅统一事件流（PilotEvent：stream/letter/status/notice）。 */
@@ -19,10 +19,8 @@ export interface SystemFacade {
   readonly appendHistory: (agentId: string, message: ChatMessage) => Promise<void>
   /** 以根身份向目标 agent 发消息。 */
   readonly sendUserMessage: (agentId: string, text: string) => Promise<void>
-  /** 取或建空间（返回空间 id）。 */
-  readonly getOrCreateSpace: (project: ProjectRef) => Promise<AgentSpaceID>
-  /** 指定空间实例化（parentId 等由 opts 承载）。 */
-  readonly instantiate: (opts: Omit<InstantiateOptions, 'spaceId'>, spaceId: AgentSpaceID | string) => Promise<AgentID>
+  /** 实例化（单空间；parentId 等由 opts 承载）。 */
+  readonly instantiate: (opts: Omit<InstantiateOptions, 'spaceId' | 'modelBinding'>) => Promise<AgentID>
   /** 运行期换模型（可见域由调用层负责；by 记审计）。 */
   readonly setAgentModel: (agentId: string, model: ModelRef, opts?: { readonly by?: string }) => Promise<void>
   /** 终止 agent。 */
@@ -32,8 +30,7 @@ export interface SystemFacade {
   /** 回复访问申请（by 缺省根）。 */
   readonly replyAccess: (input: AccessReplyInput, by: string) => Promise<void>
 
-  readonly listInstancesInSpace: (spaceId: string) => Promise<readonly AgentInstance[]>
-  readonly listSpaces: () => Promise<readonly AgentSpace[]>
+  readonly listInstances: () => Promise<readonly AgentInstance[]>
   readonly getInstance: (agentId: AgentID) => Promise<AgentInstance>
   readonly getInstanceSync: (agentId: string) => AgentInstance | undefined
 

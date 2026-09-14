@@ -49,8 +49,8 @@ export interface Pilot {
   readonly interrupt: (agentId: string) => Promise<void>
   /** 回复访问申请（access_reply 的扮演层入口；by=根答复授权）。 */
   readonly replyAccess: (input: AccessReplyInput) => Promise<void>
-  /** 列表（可选按空间；缺省全部空间）。 */
-  readonly listAgents: (spaceId?: string) => Promise<AgentInstance[]>
+  /** 列表（单空间全量）。 */
+  readonly listAgents: () => Promise<AgentInstance[]>
   /** 查看实例详情。 */
   readonly inspect: (agentId: string) => Promise<AgentInstance>
   /** 当前活跃（thinking/进行中）的 agent id 列表。 */
@@ -104,19 +104,15 @@ export class DefaultPilot implements Pilot {
     },
     project: ProjectRef,
   ): Promise<AgentID> {
-    const spaceId = await this.facade.getOrCreateSpace(project)
-    return this.facade.instantiate(
-      {
-        className: makeAgentClassID(opts.className),
-        parentId: this.identity,
-        userPrompt: opts.userPrompt,
-        ...(opts.name !== undefined ? { name: opts.name } : {}),
-        contextRefs: opts.contextRefs,
-        tools: opts.tools,
-        ...(opts.model !== undefined ? { model: opts.model } : {}),
-      },
-      spaceId,
-    )
+    return this.facade.instantiate({
+      className: makeAgentClassID(opts.className),
+      parentId: this.identity,
+      userPrompt: opts.userPrompt,
+      ...(opts.name !== undefined ? { name: opts.name } : {}),
+      contextRefs: opts.contextRefs,
+      tools: opts.tools,
+      ...(opts.model !== undefined ? { model: opts.model } : {}),
+    })
   }
 
   async setModel(agentId: string, model: ModelRef): Promise<void> {
@@ -136,16 +132,8 @@ export class DefaultPilot implements Pilot {
     await this.facade.replyAccess(input, this.identity)
   }
 
-  async listAgents(spaceId?: string): Promise<AgentInstance[]> {
-    if (spaceId !== undefined) {
-      return [...(await this.facade.listInstancesInSpace(spaceId))]
-    }
-    const spaces = await this.facade.listSpaces()
-    const result: AgentInstance[] = []
-    for (const space of spaces) {
-      result.push(...(await this.facade.listInstancesInSpace(space.id)))
-    }
-    return result
+  async listAgents(): Promise<AgentInstance[]> {
+    return [...(await this.facade.listInstances())]
   }
 
   async inspect(agentId: string): Promise<AgentInstance> {

@@ -16,10 +16,7 @@ export type AgentClassID = string & { readonly [agentClassId]: 'AgentClassID' }
 declare const agentId: unique symbol
 export type AgentID = string & { readonly [agentId]: 'AgentID' }
 
-declare const agentSpaceId: unique symbol
-export type AgentSpaceID = string & { readonly [agentSpaceId]: 'AgentSpaceID' }
-
-/** 项目/工作区引用（本阶段用字符串路径，后续可升级为 WorkspaceRef）。 */
+/** 项目/工作区引用（本阶段用字符串路径；单空间——不再有多 space 实体）。 */
 export type ProjectRef = string
 
 /** user 类 id（内置根模板；根实例采用此类。name 即 id 的类表世界）。 */
@@ -55,10 +52,6 @@ export function makeAgentClassID(id: string): AgentClassID {
 
 export function makeAgentID(id: string): AgentID {
   return id as AgentID
-}
-
-export function makeAgentSpaceID(id: string): AgentSpaceID {
-  return id as AgentSpaceID
 }
 
 // ---------- 状态 ----------
@@ -136,10 +129,10 @@ export interface ModelBinding {
 // ---------- AgentInstance（运行时原子单位） ----------
 
 /**
- * AgentInstance（运行时原子单位）。
+ * AgentInstance（运行时原子单位）。**自包含**：模型生效绑定随行持久，
+ * 重启不需类模板即可恢复运行模型（类仍负责 systemPrompt/策略/工具基因）。
  * **id = 出生路径**（B1 系统全托管：根 `0`，子 `<父id>-<序号>`；不可变、不复用）。
  * **parentId 即 creatorId 合并**：谁创建实例，谁就是族谱父（根为 null 即根）。
- * 运行时属性多于工具调用参数（status/turnCount/totalCost 等由内核维护）。
  */
 export interface AgentInstance {
   readonly id: AgentID
@@ -152,7 +145,6 @@ export interface AgentInstance {
    * 运行期可经 agent_update.name 改（撞名拒）；呈现面统一 `name#id`。
    */
   name: string
-  readonly spaceId: AgentSpaceID
   status: AgentStatus
   turnCount: number
   totalCost: number
@@ -164,18 +156,17 @@ export interface AgentInstance {
   /** 实例化时传入的工具清单补充（对模板表的收敛，可临时收紧；运行时仅用于组装）。 */
   readonly toolOverride?: Readonly<Record<string, ToolAccess>>
   /**
-   * **模型显式层**（S6/R14）：agent_instantiate 显式指定或 set_model 运行改写
-   * 的落盘载体（族谱树配置相据此物化 explicit 绑定；随实例行 JSON 持久，
-   * 零 schema 迁移）。缺省 = 无显式值，解析链上溯类基因/父继承/家学。
+   * **模型显式层**：agent_instantiate 显式指定或 agent_update 运行改写
+   * 的落盘载体。缺省 = 无显式值，解析链上溯类基因/父继承/家学。
    */
   readonly model?: ModelRef
   /**
-   * **出生快照**（S6 §5"改父不动子（族规=出生快照）"的持久载体）：
-   * 无自身显式/类基因、解析落在父继承或家学层时由 kernel 随附写入——
-   * 重启 replay 族规不失效（父亲行后续改变不动已出生子女快照；
-   * 显式层 model 一旦存在则本快照被遮蔽，语义同树内优先级）。
+   * **出生解析落地**（实例化一次性求解：显式 > 类基因 > 父继承 > 家学）：
+   * 生效模型 + origin 随行持久，重启不需类模板恢复运行模型。
+   * 「改父不动子」由本字段天然保证——改的是节点自身显式层，子女绑定已落地。
+   * 出生后必有；旧库缺字段 = restore 期按 model/类基因回填。
    */
-  readonly modelSnapshot?: ModelBinding
+  readonly modelBinding?: ModelBinding
 }
 
 /** 用户接管/微调可更新的字段。 */
@@ -187,13 +178,6 @@ export interface AgentInstancePatch {
   model?: ModelRef
 }
 
-// ---------- AgentSpace（项目级 agent 空间，最小） ----------
-
-export interface AgentSpace {
-  readonly id: AgentSpaceID
-  readonly project: ProjectRef
-}
-
 // ---------- 错误（判别联合，code-style §4.1） ----------
 
 export type KernelError =
@@ -203,7 +187,6 @@ export type KernelError =
   | { readonly kind: 'agent_not_found'; readonly agentId: AgentID }
   /** 寻址歧义（唯一前缀律被破：多活体共享前缀；candidates = name#id 列表）。 */
   | { readonly kind: 'agent_ref_ambiguous'; readonly ref: string; readonly candidates: readonly string[] }
-  | { readonly kind: 'space_not_found'; readonly spaceId: AgentSpaceID }
   | { readonly kind: 'agent_conflict'; readonly message: string }
   /** 称呼冲突（全局唯一执法面含墓碑；出生撞名/改名撞名/装载撞名三级共用）。 */
   | { readonly kind: 'agent_name_conflict'; readonly name: string; readonly message: string }

@@ -297,7 +297,6 @@ function agentInstantiate(host: SystemToolHost): ToolCapability {
               ? { hold: { toolCallId: ctx.callId ?? '', ...(args.waitTimeoutMs !== undefined ? { timeoutMs: args.waitTimeoutMs } : {}) } }
               : {}),
           },
-          ctx.spaceId,
         )
       } catch (cause) {
         const err = cause as { kind?: string; violations?: string[]; message?: string }
@@ -406,24 +405,23 @@ function agentUpdate(host: SystemToolHost): ToolCapability {
   }
 }
 
-/** 列出 agent 实例（缺省列出调用者所在空间）。 */
+/** 列出 agent 实例（单空间全量）。 */
 function agentList(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_list',
-    description: '列出 agent 实例（可选指定空间，缺省为调用者所在空间）。',
+    description: '列出全部 agent 实例。',
     accessKey: 'agent_list',
     birth: 'ignore', // 出生声明（agent_list）
     kind: 'internal',
     category: 'system',
     parameters: {
       type: 'object',
-      properties: { spaceId: { type: 'string', description: '空间 id（可选）' } },
+      properties: {},
     },
-    execute: async (input, ctx) => {
-      const spaceId = (input as { spaceId?: string }).spaceId ?? ctx.spaceId
-      const agents = await host.agents.listInstances(spaceId)
+    execute: async () => {
+      const agents = await host.agents.listInstances()
       const lines = agents.map((a) => `${a.name}#${a.id} <${a.classRef}> parent=${a.parentId ?? '-'} [${a.status}]`)
-      return { text: lines.length > 0 ? `agent 列表:\n${lines.join('\n')}` : '（当前空间无 agent）' }
+      return { text: lines.length > 0 ? `agent 列表:\n${lines.join('\n')}` : '（无 agent）' }
     },
   }
 }

@@ -176,8 +176,7 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     const parentInstance = systemA.kernel.instances.getSync(makeAgentID(parentId))!
     const childId = await systemA.kernel.instantiateInSpace(
       { className: makeAgentClassID('assistant'), parentId: parentInstance.id, userPrompt: '子' },
-      parentInstance.spaceId,
-    )
+          )
     // 子女出生快照：继承父的显式层。
     assert.deepEqual(systemA.kernel.lineage.modelOf(childId), { ref: { provider: 'fake', id: 'birth-p' }, origin: 'inherited' })
     // 运行改写（pilot 通道）→ 不级联既有子女。

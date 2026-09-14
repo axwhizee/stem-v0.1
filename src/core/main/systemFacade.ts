@@ -15,15 +15,13 @@ export function createSystemFacade(kernel: Kernel): SystemFacade {
     subscribe: (listener) => kernel.events.subscribe(listener),
     appendHistory: (agentId, message) => kernel.contextManager.appendHistory(agentId, message),
     sendUserMessage: (agentId, text) => kernel.sendUserMessage(agentId, text),
-    getOrCreateSpace: async (project) => (await kernel.spaces.getOrCreate(project)).id,
-    instantiate: (opts, spaceId) => kernel.instantiateInSpace(opts, spaceId),
+    instantiate: (opts) => kernel.instantiateInSpace(opts),
     setAgentModel: (agentId, model, opts) => kernel.setAgentModel(agentId, model, opts),
     terminateAgent: (agentId, opts) => kernel.terminateAgent(agentId, opts),
     interruptAgent: (agentId, opts) => kernel.interruptAgent(agentId, opts),
     replyAccess: (input, by) => kernel.access.reply(input, by),
 
-    listInstancesInSpace: (spaceId) => kernel.instances.listBySpace(spaceId as never),
-    listSpaces: () => kernel.spaces.list(),
+    listInstances: () => kernel.instances.listAll(),
     getInstance: (agentId) => kernel.instances.get(agentId),
     getInstanceSync: (agentId) => kernel.instances.getSync(makeAgentID(agentId)),
 

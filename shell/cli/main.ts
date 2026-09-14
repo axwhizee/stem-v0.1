@@ -29,7 +29,6 @@ import {
   Kernel,
   makeAgentClassID,
   makeAgentID,
-  makeAgentSpaceID,
   BUILTIN_TEMPLATES,
   ROOT_ID,
   type AgentID,
@@ -236,8 +235,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       return false
     }
     case '/agents': {
-      const space = await state.kernel.spaces.getOrCreate(DEFAULT_PROJECT)
-      const agents = await state.kernel.instances.listBySpace(space.id)
+      const agents = await state.kernel.instances.listAll()
       for (const a of agents) {
         const marker = a.id === state.currentAgentId ? '*' : ' '
         console.log(` ${marker} ${a.name}#${a.id}  <${a.classRef}>  parent=${a.parentId ?? '-'}  ${a.status}  turns=${a.turnCount}`)

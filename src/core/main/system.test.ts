@@ -73,11 +73,9 @@ describe('createStemSystem（系统装配组合根）', () => {
     assert.ok(rootInst)
     assert.equal(rootInst!.classRef, makeAgentClassID('user'))
     assert.equal(rootInst!.parentId, null)
-    // S6/R11：根挂真实项目空间（伪空间行已废除；kernel project = paths.projectRoot）。
-    const spaces = await system.kernel.spaces.list()
-    assert.equal(spaces.length, 1)
-    assert.equal(spaces[0]?.project, '/proj', 'user#0 与后代共享项目空间')
-    assert.equal(rootInst!.spaceId, spaces[0]?.id)
+    // S6/R11：单空间——kernel.project = paths.projectRoot，无 spaces 表。
+    assert.equal(system.kernel.project, '/proj', 'user#0 与后代共享项目身份')
+    assert.equal(rootInst!.parentId, null)
     // S6/R6：根绑定即家学层。
     assert.deepEqual(system.kernel.lineage.modelOf(ROOT_ID), {
       ref: { provider: 'fake', id: 'home-model' },
@@ -110,7 +108,7 @@ describe('createStemSystem（系统装配组合根）', () => {
     })
     const bash = await system.tools.get('bash')
     assert.ok(bash)
-    await bash!.execute({ command: 'echo hi' }, { agentId: 'a1', spaceId: 's1' })
+    await bash!.execute({ command: 'echo hi' }, { agentId: 'a1' })
     assert.deepEqual(calls[0], { command: 'echo hi', cwd: '/proj/sub', timeoutMs: 2000, shell: '/bin/dash' })
     await system.dispose()
   })

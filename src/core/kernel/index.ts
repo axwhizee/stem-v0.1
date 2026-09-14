@@ -6,18 +6,16 @@
 export type {
   AgentClassID,
   AgentID,
-  AgentSpaceID,
   ProjectRef,
   AgentStatus,
   AgentClass,
   AgentInstance,
   AgentInstancePatch,
-  AgentSpace,
   KernelError,
   ModelBinding,
   ModelOrigin,
 } from './types'
-export { makeAgentClassID, makeAgentID, makeAgentSpaceID } from './types'
+export { makeAgentClassID, makeAgentID } from './types'
 
 // 模板注册表
 export type { TemplateRegistry } from './TemplateRegistry'
@@ -27,11 +25,8 @@ export { DefaultTemplateRegistry } from './TemplateRegistry'
 export type { InstantiateOptions, InstanceManager, ResolveResult } from './InstanceManager'
 export { DefaultInstanceManager } from './InstanceManager'
 export type { InstanceStore } from './store'
-export { PersistedInstanceManager, PersistedSpaceManager } from './persisted'
+export { PersistedInstanceManager } from './persisted'
 
-// 空间管理
-export type { SpaceManager } from './SpaceManager'
-export { DefaultSpaceManager } from './SpaceManager'
 // 运行时端口（调用方拥有；实现住 main/runtime.ts，组合根注入）
 export type { RuntimePort, RuntimePortDeps } from './runtimePort'
 

@@ -15,7 +15,6 @@ import {
   PersistedInstanceManager,
   makeAgentClassID,
   makeAgentID,
-  makeAgentSpaceID,
 } from '../../src/core/kernel'
 import type { AgentClass } from '../../src/core/kernel'
 import { cleanupPreview, runCleanup } from './cleanup'
@@ -46,8 +45,8 @@ async function seedSpace(): Promise<{ dir: string; file: string }> {
   await repository.append('a2', { message: { role: 'user', content: '干活' }, from: '0', tokens: 3 })
 
   // 路径 id 标本：根实例 `0`（箱同名）+ 子 `0-1` = ghost（terminated）；a2 为孤儿箱（无实例行）。
-  await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '你好世界', spaceId: makeAgentSpaceID('sp'), name: 'root-probe' })
-  await manager.instantiate({ className: cls.name, parentId: makeAgentID('0'), userPrompt: 'go', spaceId: makeAgentSpaceID('sp'), name: 'ghost' })
+  await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '你好世界', name: 'root-probe' })
+  await manager.instantiate({ className: cls.name, parentId: makeAgentID('0'), userPrompt: 'go', name: 'ghost' })
   await manager.updateStatus('0-1' as never, 'interrupted')
   // SQL 直改为 terminated（updateStatus 状态机不含该迁移，测试造终态行）。
   const db = openDb(file, { readonly: false })!

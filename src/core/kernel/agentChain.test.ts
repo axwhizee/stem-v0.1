@@ -107,7 +107,7 @@ describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
     assert.equal(creatorRounds(), 2, '创造者只跑两轮（创建即等待轮 + 醒来报告轮）——无 contextWait 空转轮')
 
     const creator = await kernel.instances.get(creatorId)
-    const sub = (await kernel.instances.listBySpace(creator.spaceId)).find((a) => a.parentId === creatorId)
+    const sub = (await kernel.instances.listAll()).find((a) => a.parentId === creatorId)
     assert.ok(sub, '应存在由创造者创建的子 agent')
     assert.equal(sub.parentId, creatorId)
 

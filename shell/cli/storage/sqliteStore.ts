@@ -23,7 +23,7 @@ import { DatabaseSync } from 'node:sqlite'
 import type { MessageStore, RestoredBox, StoredMessage } from '../../../src/core/context'
 import { messageSeqOf } from '../../../src/core/context'
 import type { InstanceStore } from '../../../src/core/kernel'
-import type { AgentID, AgentInstance, AgentSpace, AgentSpaceID } from '../../../src/core/kernel'
+import type { AgentID, AgentInstance } from '../../../src/core/kernel'
 
 /** 当前 schema 版本（PRAGMA user_version；任何非零不符版本 = 拒载）。 */
 const SCHEMA_VERSION = 3
@@ -92,23 +92,6 @@ export class SqliteStateStore {
     return rows.map((row) => JSON.parse(row.instance) as AgentInstance)
   }
 
-  // ---------- 空间 ----------
-
-  upsertSpace(space: AgentSpace): void {
-    this.db
-      .prepare('INSERT INTO spaces (id, space) VALUES (?, ?) ON CONFLICT(id) DO UPDATE SET space = excluded.space')
-      .run(space.id, JSON.stringify(space))
-  }
-
-  deleteSpace(spaceId: AgentSpaceID): void {
-    this.db.prepare('DELETE FROM spaces WHERE id = ?').run(spaceId)
-  }
-
-  loadSpaces(): readonly AgentSpace[] {
-    const rows = this.db.prepare('SELECT space FROM spaces ORDER BY rowid').all() as Array<{ space: string }>
-    return rows.map((row) => JSON.parse(row.space) as AgentSpace)
-  }
-
   // ---------- 资源 ----------
 
   close(): void {
@@ -142,14 +125,10 @@ export class SqliteStateStore {
         archived INTEGER NOT NULL DEFAULT 0
       );
       CREATE INDEX IF NOT EXISTS idx_messages_agent ON messages (agent_id, seq);
-  CREATE TABLE IF NOT EXISTS instances (
-    id       TEXT PRIMARY KEY,
-    instance TEXT NOT NULL
-  );
-  CREATE TABLE IF NOT EXISTS spaces (
-    id    TEXT PRIMARY KEY,
-    space TEXT NOT NULL
-  );
+      CREATE TABLE IF NOT EXISTS instances (
+        id       TEXT PRIMARY KEY,
+        instance TEXT NOT NULL
+      );
     `)
     this.db.exec(`PRAGMA user_version = ${SCHEMA_VERSION};`)
   }
@@ -176,9 +155,6 @@ export function createSqliteStateStore(
     upsert: (i) => db.upsertInstance(i),
     delete: (id) => db.deleteInstance(id),
     loadAll: () => db.loadAllInstances(),
-    upsertSpace: (s) => db.upsertSpace(s),
-    deleteSpace: (id) => db.deleteSpace(id),
-    loadSpaces: () => db.loadSpaces(),
   }
   return { messages, instances, close: () => db.close() }
 }

@@ -17,7 +17,7 @@ import {
   DefaultInstanceManager,
   PersistedInstanceManager,
 } from '../../../src/core/kernel'
-import { makeAgentClassID, makeAgentID, makeAgentSpaceID, ROOT_ID } from '../../../src/core/kernel'
+import { makeAgentClassID, makeAgentID, ROOT_ID } from '../../../src/core/kernel'
 import type { AgentClass } from '../../../src/core/kernel'
 
 const cls: AgentClass = {
@@ -48,8 +48,8 @@ async function seedLifecycle(file: string): Promise<{ ids: string[]; agentId: st
   const invalidTarget = await repository.append('a1', { message: { role: 'tool', content: 'r', toolCallId: 'c1' } })
   await repository.markInvalid('a1', [invalidTarget.id])
 
-  await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '', spaceId: makeAgentSpaceID('s') })
-  await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'go', spaceId: makeAgentSpaceID('s') })
+  await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '' })
+  await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'go' })
   await manager.updateStatus(makeAgentID('0-1'), 'thinking')
 
   const ids = repository.list('a1').map((m) => m.id)
@@ -99,8 +99,8 @@ describe('SqliteStateStore（真库 round-trip）', () => {
 
       await repository.register('a1', 'sys')
       await repository.append('a1', { message: { role: 'user', content: 'hi' }, from: ROOT_ID })
-      await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '', spaceId: makeAgentSpaceID('s') })
-      await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'go', spaceId: makeAgentSpaceID('s') })
+      await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '' })
+      await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'go' })
       const archivedId = repository.list('a1')[0]!.id
 
       // 销毁 0-1：实例行转墓碑；其消息箱归档（此处 a1 即被销毁者的箱，模拟 unregister 路径）。
@@ -116,7 +116,7 @@ describe('SqliteStateStore（真库 round-trip）', () => {
       const memory = new DefaultInstanceManager(new DefaultTemplateRegistry([cls]))
       const instances = new PersistedInstanceManager(memory, store2.instances)
       assert.equal(instances.restoreFromStore().length, 1, '墓碑不进恢复接线名单')
-      const next = await instances.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'go2', spaceId: makeAgentSpaceID('s') })
+      const next = await instances.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'go2' })
       assert.equal(next.id, '0-2', '墓碑 0-1 占位：新出生跳号')
       assert.equal(store2.messages.loadBoxes().some((b) => b.agentId === 'a1'), false)
       assert.equal(store2.messages.maxMessageSeq(), seq)
@@ -151,7 +151,6 @@ async function seedOld(file: string, version: number): Promise<void> {
     'bso2',
     JSON.stringify({
       id: 'bso2', classRef: 'user', parentId: null, displayName: '0',
-      spaceId: 'space-1', status: 'idle', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '',
     }),
   )
   db.prepare('INSERT INTO spaces VALUES (?, ?)').run('space-1', JSON.stringify({ id: 'space-1', project: '/old' }))
