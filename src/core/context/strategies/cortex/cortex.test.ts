@@ -29,7 +29,7 @@ import type { ToolCapability } from '../../../tools'
 import type { StoredMessage } from '../../types'
 import { createKernelHarness } from '../../../../../test/support/kernelHarness'
 import { createCortexStrategy } from './cortex'
-import { parseCortexSettings, validateLtm, validateNoteName, renderToc, firstLineSummary, renderLtm, parseDreamReport, DEFAULT_DREAM_AT } from './schema'
+import { resolveDreamAt, validateLtm, validateNoteName, renderToc, firstLineSummary, renderLtm, parseDreamReport, DEFAULT_DREAM_AT } from './schema'
 import type { LtmItem } from './schema'
 import { currentGroup, takeSnapshot, rotateGroup, ANCHOR_TEXT } from './memory'
 import { CortexRuntime } from './state'
@@ -48,18 +48,14 @@ async function pump(n: number): Promise<void> {
 
 describe('cortex schema：基因解析与校验', () => {
   test('缺省/覆盖/clamp 三态', () => {
-    assert.equal(parseCortexSettings(undefined, 600_000).dreamAt, DEFAULT_DREAM_AT)
-    assert.equal(parseCortexSettings({ cortex: { dreamAt: 5000 } }, 600_000).dreamAt, 5000)
+    assert.equal(resolveDreamAt(undefined, 600_000), DEFAULT_DREAM_AT)
+    assert.equal(resolveDreamAt(5000, 600_000), 5000)
     const warns: string[] = []
-    assert.equal(parseCortexSettings({ cortex: { dreamAt: 999_999 } }, 10_000, (m) => warns.push(m)).dreamAt, 9000)
+    assert.equal(resolveDreamAt(999_999, 10_000, (m) => warns.push(m)), 9000)
     assert.equal(warns.length, 1)
     const w2: string[] = []
-    assert.equal(parseCortexSettings({ cortex: { dreamAt: -1 } }, 600_000, (m) => w2.push(m)).dreamAt, DEFAULT_DREAM_AT)
+    assert.equal(resolveDreamAt(-1, 600_000, (m) => w2.push(m)), DEFAULT_DREAM_AT)
     assert.equal(w2.length, 1)
-    assert.deepEqual(parseCortexSettings({ cortex: { consolidateModel: { provider: 'p', id: 'q' } } }, 600_000).consolidateModel, { provider: 'p', id: 'q' })
-    const w3: string[] = []
-    assert.equal(parseCortexSettings({ cortex: { consolidateModel: 'bad' } }, 600_000, (m) => w3.push(m)).consolidateModel, undefined)
-    assert.equal(w3.length, 1)
   })
 
   test('validateLtm：provenance 铁律与上限', () => {
@@ -299,7 +295,6 @@ const cortexTemplate: AgentClass = {
   description: '挂 cortex 策略的测试 agent',
   systemPrompt: 'mem agent base',
   contextStrategy: 'cortex',
-  custom: { cortex: { dreamAt: 300 } },
 }
 
 /** 建挂 cortex 的 harness：策略经 init 注入工具（内存 fs），模板 custom 定线。 */
@@ -311,7 +306,11 @@ async function cortexHarness(workerTurns: (turn: number) => LLMEvent[]) {
     if (String(request.system).includes('宿主 agent 的睡眠整理过程')) {
       return workerTurns(dreamTurns++)
     }
-    return textEvents('普通回复')
+    // usage 随请求体量（cortex 水位 = ctxTokens 反馈账；固定 0 会永不点火）。
+    const inputTokens = Math.max(20, Math.ceil(
+      request.messages.reduce((s, m) => s + String(m.content ?? '').length, 0) / 4,
+    ))
+    return textEvents('普通回复', { inputTokens, outputTokens: 8 })
   })
   const cortex: ContextStrategyModule = createCortexStrategy()
   const registry = createBuiltinStrategyRegistry([cortex])
@@ -446,9 +445,17 @@ describe('cortex 端到端：做梦事务（回信即交付物）', () => {
     assert.ok(dreamed.some((e) => e.consolidated && e.notesTouched === 1), '笔记触碰计数进事件账')
   })
 
-  test('阈值自动点火：过线送信后背景做梦自然轮替', async () => {
+  test('阈值自动点火：ctxTokens 过线后下一封信触发背景做梦', async () => {
     const h = await cortexHarness(() => report())
+    // 首信把 ctxTokens 顶过 dreamAt（window 100k → 300）；process 看的是上一轮反馈账。
     await h.kernel.sendUserMessage(h.agentId, 'x'.repeat(2000))
+    await pump(10)
+    h.timers.flushAll()
+    await pump(15)
+    h.timers.flushAll()
+    await pump(15)
+    // 第二封信抵达 → process 读到过线 ctxTokens → 后台点火。
+    await h.kernel.sendUserMessage(h.agentId, '继续')
     await pump(10)
     h.timers.flushAll()
     await pump(15)

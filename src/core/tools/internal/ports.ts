@@ -25,8 +25,8 @@ export interface AgentClassView {
   readonly tools?: Readonly<Record<string, ToolAccess>>
   readonly contextStrategy?: string
   readonly model?: ModelRef
-  /** 模块扮演面板类（不可回写/改写的系统机制承载）。 */
-  readonly panel?: boolean
+  readonly temperature?: number
+  readonly effort?: string
 }
 
 /** 类创建入参（agent_class_create）。 */
@@ -38,7 +38,8 @@ export interface AgentClassInput {
   readonly contextStrategy?: string
   readonly model?: ModelRef
   readonly sendCountdown?: number
-  readonly maxSteps?: number
+  readonly temperature?: number
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
 }
 
 /** 类更新 patch（agent_class_update；只做增量合并）。 */
@@ -49,7 +50,8 @@ export interface AgentClassPatchInput {
   readonly contextStrategy?: string
   readonly model?: ModelRef
   readonly sendCountdown?: number
-  readonly maxSteps?: number
+  readonly temperature?: number
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
 }
 
 /** 实例视图（agent_list / agent_inspect 读取面）。 */
@@ -78,13 +80,15 @@ export interface InstantiateRequest {
   readonly hold?: { readonly toolCallId: string; readonly timeoutMs?: number }
 }
 
-/** 实例参数更新请求（agent_update；可写面 = name/model）。 */
+/** 实例参数更新请求（agent_update；可写面 = name/model/temperature/effort）。 */
 export interface AgentUpdateRequest {
   readonly agentId: string
   /** 发起者（可见域校验）；缺省 = 信任通道（跳过判定）。 */
   readonly by?: string
   readonly name?: string
   readonly model?: ModelRef
+  readonly temperature?: number
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
 }
 
 /** 生效配置视图（agent_inspect：模型四级律 + 权限物化面）。 */

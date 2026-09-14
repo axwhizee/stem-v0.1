@@ -36,6 +36,12 @@ export interface InstantiateOptions {
    * 缺省 = 不显式，落类基因/父继承/家学链。
    */
   readonly model?: ModelRef
+  /** 显式采样温度（缺省 = 类/父/家学链）。 */
+  readonly temperature?: number
+  /** 显式思考强度（缺省 = 类/父/家学链）。 */
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  /** 面板性（创建方指定；false = 被外部扮演，不组装不跑 LLM）。 */
+  readonly assemble?: boolean
   /**
    * 台账绑定模式（缺省 'inherit' 减法收敛）。'grant' 加法整表替换**仅限系统
    * 机制通道**（策略 spawn / pilot 初始化）；agent_instantiate 工具路径不可设。
@@ -158,6 +164,7 @@ export class DefaultInstanceManager implements InstanceManager {
       classRef: template.name,
       parentId: opts.parentId,
       name,
+      ...(opts.assemble !== undefined ? { assemble: opts.assemble } : {}),
       status: 'idle',
       turnCount: 0,
       totalCost: 0,
@@ -165,6 +172,8 @@ export class DefaultInstanceManager implements InstanceManager {
       userPrompt: opts.userPrompt,
       ...(opts.tools !== undefined ? { toolOverride: opts.tools } : {}),
       ...(opts.model !== undefined ? { model: opts.model } : {}),
+      ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
+      ...(opts.effort !== undefined ? { effort: opts.effort } : {}),
       ...(opts.modelBinding !== undefined ? { modelBinding: opts.modelBinding } : {}),
     }
     this.agents.set(id, instance)
@@ -236,6 +245,8 @@ export class DefaultInstanceManager implements InstanceManager {
       toolOverride?: Readonly<Record<string, ToolAccess>>
       model?: ModelRef
       modelBinding?: ModelBinding
+      temperature?: number
+      effort?: 'none' | 'low' | 'medium' | 'high'
     }
     if (patch.name !== undefined && patch.name !== instance.name) {
       // 改名撞名拒（全局唯一执法面含墓碑）；旧名释放占用。
@@ -252,6 +263,8 @@ export class DefaultInstanceManager implements InstanceManager {
       // 显式层改写 = 绑定同步为 explicit（改自身，不碰子女）。
       mutable.modelBinding = { ref: patch.model, origin: 'explicit' }
     }
+    if (patch.temperature !== undefined) mutable.temperature = patch.temperature
+    if (patch.effort !== undefined) mutable.effort = patch.effort
   }
 
   async setModelBinding(agentId: AgentID, binding: ModelBinding): Promise<void> {

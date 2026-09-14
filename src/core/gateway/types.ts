@@ -52,6 +52,8 @@ export interface LLMRequest {
   readonly tools?: readonly ToolDefinition[]
   readonly maxTokens?: number
   readonly temperature?: number
+  /** 思考强度（provider 层映射 reasoning_effort）。 */
+  readonly reasoningEffort?: 'none' | 'low' | 'medium' | 'high'
 }
 
 /** 工具调用事件（input 已解析为 JSON）。 */

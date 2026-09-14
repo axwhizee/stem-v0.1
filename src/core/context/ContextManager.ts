@@ -42,7 +42,7 @@ export interface ContextManagerOptions {
   readonly repository: Repository
   /** 快递员（组合根注入）。 */
   readonly courier: Courier
-  /** 创建策略扮演 agent（kernel 接线：grant + panel 模板 ensure + 实例化；父 = 宿主）。 */
+  /** 创建策略扮演 agent（kernel 接线：grant + 系统模板 ensure + assemble:false 实例化；父 = 宿主）。 */
   readonly spawnRole?: (hostAgentId: string, role: AgentClass) => Promise<string>
   /** 创建策略工具 worker（kernel 接线：grant + instantiate；任务 = userPrompt 首信）。 */
   readonly spawnWorker?: (roleAgentId: string, task: string, spec: AgentClass) => Promise<string>
@@ -53,6 +53,8 @@ export interface ContextManagerOptions {
    * 缺省 = 回落裸 id（纯 context 单测形态）。
    */
   readonly identityOf?: (agentId: string) => string
+  /** 最近一次请求 prompt_tokens（kernel 注入节点反馈账；策略水位判据）。 */
+  readonly ctxTokensOf?: (agentId: string) => number | undefined
   /** 日志出口（组合根注入 → core/logging）。 */
   readonly onLog?: (event: LogEvent) => void
 }
@@ -210,6 +212,7 @@ export class DefaultContextManager implements ContextManager {
   private readonly spawnWorker?: (roleAgentId: string, task: string, spec: AgentClass) => Promise<string>
   private readonly terminateWorker?: (workerId: string, by: string) => Promise<void>
   private readonly identityOf: (agentId: string) => string
+  private readonly ctxTokensOf?: (agentId: string) => number | undefined
   private readonly onLog?: (event: LogEvent) => void
 
   constructor(options: ContextManagerOptions) {
@@ -225,6 +228,7 @@ export class DefaultContextManager implements ContextManager {
     this.spawnWorker = options.spawnWorker
     this.terminateWorker = options.terminateWorker
     this.identityOf = options.identityOf ?? ((id) => id)
+    this.ctxTokensOf = options.ctxTokensOf
     this.onLog = options.onLog
   }
 
@@ -634,6 +638,9 @@ export class DefaultContextManager implements ContextManager {
       agentId: box.agentId,
       settings: this.settings,
       estimatedTokens: () => this.repository.listValid(box.agentId).reduce((sum, m) => sum + m.tokens, 0),
+      ...(this.ctxTokensOf !== undefined
+        ? { ctxTokens: () => this.ctxTokensOf!(box.agentId) ?? 0 }
+        : {}),
       list: () => this.repository.list(box.agentId),
       listValid: () => this.repository.listValid(box.agentId),
       append: async (message, tag) => {

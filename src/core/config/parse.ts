@@ -26,7 +26,6 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
   'providers',
   'autoApprove',
   'user',
-  'maxSteps',
   'context',
   'bash',
   'tools',
@@ -91,7 +90,6 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
   const providers = raw.providers !== undefined ? validateProviders(raw.providers, fail) : undefined
   const autoApprove = validateBoolean(raw.autoApprove, fail, 'autoApprove')
   const sendCountdown = validateNumber(raw.sendCountdown, fail, 'sendCountdown')
-  const maxSteps = validateNumber(raw.maxSteps, fail, 'maxSteps')
   const user = raw.user !== undefined ? validateUser(raw.user, fail) : undefined
   const context = raw.context !== undefined ? validateContext(raw.context, fail) : undefined
   const bash = raw.bash !== undefined ? validateBash(raw.bash, fail) : undefined
@@ -112,7 +110,6 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
     ...(providers !== undefined ? { providers } : {}),
     ...(autoApprove !== undefined ? { autoApprove } : {}),
     ...(sendCountdown !== undefined ? { sendCountdown } : {}),
-    ...(maxSteps !== undefined ? { maxSteps } : {}),
     ...(user !== undefined ? { user } : {}),
     ...(context !== undefined ? { context } : {}),
     ...(bash !== undefined ? { bash } : {}),
@@ -222,6 +219,8 @@ function validateUser(value: unknown, fail: (message: string) => never): StemUse
     ...(genes.contextStrategy !== undefined ? { contextStrategy: genes.contextStrategy } : {}),
     ...(genes.model !== undefined ? { model: genes.model } : {}),
     ...(genes.sendCountdown !== undefined ? { sendCountdown: genes.sendCountdown } : {}),
+    ...(genes.temperature !== undefined ? { temperature: genes.temperature } : {}),
+    ...(genes.effort !== undefined ? { effort: genes.effort as StemUserClass['effort'] } : {}),
     ...(name !== undefined ? { name } : {}),
   }
 }

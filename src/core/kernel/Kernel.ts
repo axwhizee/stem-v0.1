@@ -39,13 +39,15 @@ import type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode } from '../
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
 
-/** agent_update 统一通道入参（可写面 = name/model；tools 出生后不可改）。 */
+/** agent_update 统一通道入参（可写面 = name/model/temperature/effort）。 */
 interface AgentUpdateSpec {
   readonly agentId: string
   /** 发起者；缺省 = 跳过可见域判定（pilot 信任通道）。 */
   readonly by?: string
   readonly name?: string
   readonly model?: ModelRef
+  readonly temperature?: number
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
 }
 
 import type { ToolCapabilityRegistry } from '../tools'
@@ -240,6 +242,8 @@ export class Kernel {
       terminateWorker: (workerId, by) => this.terminateAgent(workerId, { by }),
       // 信件戳身份面（B4）：from id → `name#id` 全名。
       identityOf: (agentId) => this.displayOf(agentId),
+      // 反馈式水位（cortex 等策略判据）：节点最近一次 prompt_tokens。
+      ctxTokensOf: (agentId) => this.instances.getSync(makeAgentID(agentId))?.ctxTokens,
       onLog: (event) => this.emitLog(event),
     })
     // 仓库 onChange → 管理员处理入口。
@@ -292,9 +296,8 @@ export class Kernel {
       forget(this.contextManager.register({
         agentId: instance.id,
         sendCountdownMs: isRoot ? template?.sendCountdown ?? 0 : template?.sendCountdown,
-        assemble: !isRoot && template?.panel !== true,
+        assemble: instance.assemble ?? (!isRoot && true),
         contextStrategy: missingClass ? undefined : template?.contextStrategy,
-        custom: template?.custom,
         restore: this.repository.has(instance.id),
         initialSentIds: this.repository.has(instance.id) ? this.repository.list(instance.id).map((m) => m.id) : [],
         ...(isRoot ? {} : { systemPrompt: template?.systemPrompt ?? '' }),
@@ -431,7 +434,6 @@ export class Kernel {
       sendCountdownMs: template.sendCountdown ?? 0,
       assemble: false,
       contextStrategy: template.contextStrategy,
-      custom: template.custom,
       onDelivery: (delivery) => {
         if (delivery.kind !== 'user') return
         // 来信统一经事件流发布（letter 事件；含 access_request 消息化申请）。
@@ -509,6 +511,16 @@ export class Kernel {
     // 出生解析落地：生效绑定随行持久（自包含；改父不动子由已落地绑定保证）。
     const binding = this.lineage.modelOf(instance.id as string)
     if (binding) await this.instances.setModelBinding(instance.id, binding)
+    // temperature/effort 出生落地：显式 > 类基因 > 父。
+    const parent = instance.parentId !== null ? this.instances.getSync(instance.parentId) : undefined
+    if (instance.temperature === undefined) {
+      const t = template.temperature ?? parent?.temperature
+      if (t !== undefined) await this.instances.update(instance.id, { temperature: t })
+    }
+    if (instance.effort === undefined) {
+      const e = template.effort ?? parent?.effort
+      if (e !== undefined) await this.instances.update(instance.id, { effort: e })
+    }
     this.emitLog({
       type: 'kernel.instance.created',
       at: Date.now(),
@@ -517,16 +529,15 @@ export class Kernel {
       parentId: instance.parentId ?? '',
     })
 
-    // 模块扮演面板（class panel=true：策略 role 等）：不组装、不跑 LLM 轮，
+    // 模块扮演面板（创建方 assemble=false）：不组装、不跑 LLM 轮，
     // 信件由扮演模块消费（信箱配对 waitForReply / 审计），与根面板同构。
-    const isPanel = template.panel === true
+    const isPanel = instance.assemble === false
     await this.contextManager.register({
       agentId: instance.id,
       systemPrompt: template.systemPrompt,
       sendCountdownMs: template.sendCountdown,
       assemble: !isPanel,
       contextStrategy: template.contextStrategy,
-      custom: template.custom,
       onDelivery: isPanel
         ? () => {}
         : (delivery) => this.handleDelivery(delivery),
@@ -576,7 +587,7 @@ export class Kernel {
     await this.ensureSystemTemplate(role)
     const hostInstance = this.instances.getSync(host)
     if (!hostInstance) throw { kind: 'agent_not_found', agentId: host }
-    return this.instantiateInSpace({ className, parentId: host, userPrompt: '', accessMode: 'grant' })
+    return this.instantiateInSpace({ className, parentId: host, userPrompt: '', accessMode: 'grant', assemble: false })
   }
 
   /** 策略工具 worker 创建（父 = 扮演 agent；任务 = userPrompt 首信；回收交调用方）。 */
@@ -585,6 +596,7 @@ export class Kernel {
     await this.ensureSystemTemplate(spec)
     const roleInstance = this.instances.getSync(role)
     if (!roleInstance) throw { kind: 'agent_not_found', agentId: role }
+    // worker 是正常组装 agent（跑 LLM 产出回信）——面板性只属于 role。
     return this.instantiateInSpace(
       { className: spec.name, parentId: role, userPrompt: task, accessMode: 'grant' },
     )
@@ -666,6 +678,14 @@ export class Kernel {
     if (spec.model !== undefined) {
       patch.model = spec.model
       fields.push('model')
+    }
+    if (spec.temperature !== undefined) {
+      patch.temperature = spec.temperature
+      fields.push('temperature')
+    }
+    if (spec.effort !== undefined) {
+      patch.effort = spec.effort
+      fields.push('effort')
     }
     if (spec.name !== undefined) {
       patch.name = spec.name
@@ -805,7 +825,7 @@ export class Kernel {
     return this.classStore !== undefined
   }
 
-  /** 落盘一次类（persist 未请求 / 无端口 → false；序列化异常（panel 红线等）向上抛为工具失败）。 */
+  /** 落盘一次类（persist 未请求 / 无端口 → false；序列化异常（系统机制红线等）向上抛为工具失败）。 */
   private async persistClass(cls: AgentClass, opts?: { persist?: boolean }): Promise<boolean> {
     if (opts?.persist !== true || this.classStore === undefined) return false
     await this.classStore.save(cls)

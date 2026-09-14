@@ -5,24 +5,19 @@
 // serializeAgentClass（写，agentParse 的逆函数）。**用户文件契约与配置同源**，
 // 故随 config 模块（而非装载管线）——装载管线只负责 IO 与注册。
 //
-// 文件形式（自由式 frontmatter：仅文件名即类名这一格式约束，字段可扩展）：
+// 文件形式（自由式 frontmatter：仅文件名即类名这一格式约束）：
 //   ---
 //   description: ...           # 可选（缺省 = 文件名）
 //   tools:                     # 融合的工具清单（工具=键、动作=值，键即白名单）
-//     read: allow
-//     bash: deny
 //   send_countdown: 1000       # 可选送信倒计时
-//   max_steps: 12              # 可选单轮工具步数上限（≤0/缺省 = 无限制）
 //   context_strategy: classic  # 可选上下文管理策略
 //   model: provider/id         # 可选模型偏好
-//   <任意其它字段>             # 透传进 AgentClass.custom（自定义扩展位）
+//   temperature: 0.2           # 可选采样温度
+//   effort: high               # 可选思考强度
 //   ---
 //   <system_prompt 正文>
 //
-// **红线**（D6/D7）：
-//   - `panel === true` 的模块扮演类（策略 role 等机制类）**永不回写**
-//     ——系统机制类与用户主权基因分界，`.stem/agent/` 只装后者；
-//   - 类名即文件名：字符集守卫（拒路径穿越；模型可控输入参与文件路径）。
+// 未知 frontmatter 字段拒收（custom 槽已退役）；类名即文件名：字符集守卫。
 // ============================================================
 
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
@@ -50,10 +45,10 @@ export interface ParsedAgentFile {
   /** 工具白名单（= tools 的键，缺省空）。 */
   readonly tools: readonly string[]
   readonly sendCountdown?: number
-  readonly maxSteps?: number
   readonly contextStrategy?: string
   readonly model?: ModelRef
-  readonly custom: Readonly<Record<string, unknown>>
+  readonly temperature?: number
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
   readonly systemPrompt: string
 }
 
@@ -80,10 +75,10 @@ export function parseAgentFile(text: string, filename: string): ParsedAgentFile 
     toolAccess,
     tools,
     ...(genes.sendCountdown !== undefined ? { sendCountdown: genes.sendCountdown } : {}),
-    ...(genes.maxSteps !== undefined ? { maxSteps: genes.maxSteps } : {}),
     ...(genes.contextStrategy !== undefined ? { contextStrategy: genes.contextStrategy } : {}),
     ...(genes.model !== undefined ? { model: genes.model } : {}),
-    custom: genes.custom ?? {},
+    ...(genes.temperature !== undefined ? { temperature: genes.temperature } : {}),
+    ...(genes.effort !== undefined ? { effort: genes.effort } : {}),
     systemPrompt: extractPrompt(text),
   }
 }
@@ -130,29 +125,19 @@ export function agentFileOf(dir: string, name: string): string {
 
 /**
  * AgentClass → `.stem/agent/<name>.md` 全文（frontmatter + 正文）。
- * @throws panel 类回写（红线）/ custom 键与已知键冲突 / 类名非法。
+ * @throws 系统机制类回写（红线）/ 类名非法。
  */
 export function serializeAgentClass(cls: AgentClass): string {
-  if (cls.panel === true) {
-    throw new Error(`panel 类 ${cls.name} 为系统机制承载，永不回写 .stem/agent/（红线）`)
-  }
   const genes = pickAgentClassGenes(cls)
   const head: Record<string, unknown> = {
     description: genes.description,
     tools: { ...genes.tools },
   }
   if (genes.sendCountdown !== undefined) head[frontmatterKeyOf('sendCountdown')] = genes.sendCountdown
-  if (genes.maxSteps !== undefined) head[frontmatterKeyOf('maxSteps')] = genes.maxSteps
   if (genes.contextStrategy !== undefined) head[frontmatterKeyOf('contextStrategy')] = genes.contextStrategy
   if (genes.model !== undefined) head[frontmatterKeyOf('model')] = `${genes.model.provider}/${genes.model.id}`
-  // custom 自由键透传（进化基因承载位）：与已知键冲突 = 歧义，拒绝落盘；undefined 值剔除。
-  for (const [key, value] of Object.entries(genes.custom ?? {})) {
-    if (AGENT_KNOWN_KEYS.has(key)) {
-      throw new Error(`custom 键 "${key}" 与 frontmatter 已知键冲突，无法无损往返（请改用标准字段）`)
-    }
-    if (value === undefined) continue
-    head[key] = value
-  }
+  if (genes.temperature !== undefined) head[frontmatterKeyOf('temperature')] = genes.temperature
+  if (genes.effort !== undefined) head[frontmatterKeyOf('effort')] = genes.effort
   const yaml = stringifyYaml(head)
   return `---\n${yaml}---\n\n${cls.systemPrompt}\n`
 }

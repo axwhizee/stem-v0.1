@@ -8,21 +8,20 @@
 // ②估算过 dreamAt 线且全局无梦 → 后台点火 runDream（绝不等它——
 // 本轮送信照常，新组下拍生效）。手动链：actions.dream（context_apply
 // 模型侧 / pilot / CLI /dream 用户侧，同步等收口拿回报）。
-// 配置：类 custom.cortex = {dreamAt?, consolidateModel?}（仅此两件）。
+// 配置：模块公式 dreamAt（窗口×0.003，夹 [64, DEFAULT]）；dreamer 走出生链。
 // 策略 = 纯既有接口组合（s11-c）：工具注册（ignore 出生）+ 声明清单
 // raise + 标准 spawn 回信——对 core 零专属机制索取。
 // ============================================================
 
 import { classicAssemble } from '../classic'
-import type { StrategyAgentSpec, StrategyApi, StrategyInitContext, StrategyInitFs } from '../types'
+import type { StrategyApi, StrategyInitContext, StrategyInitFs } from '../types'
 import type { AgentClass } from '../../../kernel/types'
 import { makeAgentClassID } from '../../../kernel/types'
 import type { ContextStrategyModule } from '../types'
-import type { ModelRef } from '../../../gateway'
 import { CortexRuntime } from './state'
 import { createCortexTools } from './tools'
 import { MEM_DIR_NAME, refreshTocRow } from './memory'
-import { DEFAULT_DREAM_AT, parseCortexSettings } from './schema'
+import { DEFAULT_DREAM_AT, resolveDreamAt } from './schema'
 import type { CortexSettings } from './schema'
 import { runDream } from './dream'
 import type { DreamDeps } from './dream'
@@ -36,7 +35,6 @@ export const CORTEX_ROLE: AgentClass = {
   systemPrompt:
     '（模块扮演面板）cortex 上下文策略的执行体：接收做梦 worker 的回信并留档审计；不参与 LLM 组装。',
   sendCountdown: 0,
-  panel: true,
   contextStrategy: 'none',
 }
 
@@ -47,14 +45,19 @@ export function createCortexStrategy(): ContextStrategyModule {
 
   const memDirOf = (agentId: string): string => `${projectRoot}/${MEM_DIR_NAME}/${agentId}`
 
-  const settingsFor = (api: StrategyApi): CortexSettings =>
-    parseCortexSettings(api.custom, api.settings.window, (message) => {
-      const st = runtime.host(api.agentId)
-      if (!st.warned.has(message)) {
-        st.warned.add(message)
-        api.log({ type: 'context.dreamed', agentId: api.agentId, consolidated: false, invalidRows: 0, notesTouched: 0, message: `配置 ${message}` })
-      }
-    })
+  const settingsFor = (api: StrategyApi): CortexSettings => {
+    // 模块公式：默认 256k，随窗口 0.3% 收紧（小窗测试/短上下文仍可触发）。
+    const formula = Math.min(DEFAULT_DREAM_AT, Math.max(64, Math.floor(api.settings.window * 0.003)))
+    return {
+      dreamAt: resolveDreamAt(formula, api.settings.window, (message) => {
+        const st = runtime.host(api.agentId)
+        if (!st.warned.has(message)) {
+          st.warned.add(message)
+          api.log({ type: 'context.dreamed', agentId: api.agentId, consolidated: false, invalidRows: 0, notesTouched: 0, message: `配置 ${message}` })
+        }
+      }),
+    }
+  }
 
   const dreamDeps = (): DreamDeps => ({
     runtime,
@@ -109,8 +112,8 @@ export function createCortexStrategy(): ContextStrategyModule {
           // 目录建不成 = 只读降级（dream 收口自然跳过落盘，warn 一次在那头）。
         }
       }
-      // 全局参数预检（类级 dreamAt 在 process 逐宿主校验——这里只核缺省档）。
-      parseCortexSettings({ cortex: { dreamAt: DEFAULT_DREAM_AT } }, ctx.settings.window, (message) =>
+      // 全局参数预检（缺省档；宿主级在 process 逐宿主校验）。
+      resolveDreamAt(DEFAULT_DREAM_AT, ctx.settings.window, (message) =>
         ctx.log.log({ type: 'context.dreamed', at: Date.now(), agentId: '*', consolidated: false, invalidRows: 0, notesTouched: 0, message }),
       )
     },
@@ -124,9 +127,10 @@ export function createCortexStrategy(): ContextStrategyModule {
         }
       }
       // ② 阈值点火：过线且全局无梦 → 后台做梦（本轮送信照常，不等收口）。
+      // 水位 = 最近一次 API prompt_tokens（反馈账；0 = 尚无请求则不触发）。
       if (runtime.dream !== undefined) return
       const settings = settingsFor(api)
-      if (api.estimatedTokens() < settings.dreamAt) return
+      if ((api.ctxTokens?.() ?? 0) < settings.dreamAt) return
       void runDream(api, settings, dreamDeps())
         .then((outcome) => {
           api.log({
@@ -170,4 +174,3 @@ export function createCortexStrategy(): ContextStrategyModule {
 }
 
 export type { CortexSettings }
-export type { ModelRef }

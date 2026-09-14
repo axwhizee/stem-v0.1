@@ -34,7 +34,6 @@ writeFileSync(join(dir, '.stem', 'stem.jsonc'), JSON.stringify({
   providers: { alibaba: { base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', key_env: 'ALIBABA_API_KEY' } },
   user: { model: 'alibaba/qwen3.8-flash' },
   autoApprove: false,
-  maxSteps: 4,
   context: { window: 4000, compact: { enabled: true, threshold: 0.5, keepRecentTurns: 1 } },
   extensions: { tools: { websearch: 'allow', webfetch: 'allow' } },
   sendCountdown: 20,
@@ -122,7 +121,6 @@ try {
   writeFileSync(join(wdir, '.stem', 'stem.jsonc'), JSON.stringify({
     providers: { alibaba: { base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', key_env: 'ALIBABA_API_KEY' } },
     user: { model: 'alibaba/qwen3.8-flash' },
-    maxSteps: 3,
     context: { window: 1500, compact: { enabled: true, threshold: 0.5, keepRecentTurns: 1 } },
     extensions: { tools: {} },
     sendCountdown: 20,

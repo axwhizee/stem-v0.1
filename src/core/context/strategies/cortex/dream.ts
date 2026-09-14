@@ -144,8 +144,8 @@ export async function runDream(api: StrategyApi, settings: CortexSettings, deps:
     const toc = await buildTocSafe(fs, deps.memDirOf(hostId))
     // 打包时带上的笔记正文 = 磁盘全部（体积由 dreamAt 线间接控制，无硬预算）。
     const noteBodies = await readAllNotes(fs, deps.memDirOf(hostId))
-    const spec: AgentClass =
-      settings.consolidateModel !== undefined ? { ...DREAMER_SPEC, model: settings.consolidateModel } : DREAMER_SPEC
+    // dreamer 模型随出生链（父 role → 宿主 → 家学）；无独立 consolidateModel。
+    const spec: AgentClass = DREAMER_SPEC
     // 回信即交付物：validate 不过 = 同一 dreamer 收纠错信再改（≤2 轮）；
     // 末件仍不过 = 半途（不轮替）。
     const reply = await api.spawn(buildDreamTask(snapshot, toc, noteBodies), spec, { validate: validateDreamReport })

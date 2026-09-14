@@ -37,7 +37,6 @@ export const CLASSIC_ROLE: AgentClass = {
   systemPrompt: '（模块扮演面板）classic 上下文策略的执行体：接收宿主 agent 委托的摘要任务 worker 的回信并留档审计；不参与 LLM 组装。',
   tools: {},
   sendCountdown: 0,
-  panel: true,
   contextStrategy: 'none',
 }
 

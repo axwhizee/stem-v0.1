@@ -85,7 +85,7 @@ test('summarizeModel 同样对拍注册表', () => {
 // ---------- 全量有效原则（R12） ----------
 
 test('未知顶层键 fail-fast；custom 是唯一合法扩展位', () => {
-  expectFail('{ "temperature": 0.7 }', '未知配置键 "temperature"')
+  expectFail('{ "unknownTop": 1 }', '未知配置键')
   parseConfigText('{ "custom": { "anything": [1, 2] } }') // 不抛
   assert.deepEqual(parseConfigText('{ "custom": { "k": 1 } }').custom, { k: 1 })
 })
@@ -110,14 +110,13 @@ test('解析完整 JSONC（注释 + 尾逗号 + 全块）', () => {
     // 注释
     "providers": { "opencode-go": { "base_url": "https://opencode.ai/zen/go/v1", "key_env": "OPENCODE_API_KEY" } },
     "autoApprove": false,
-    "maxSteps": 8,
     "sendCountdown": 800,
     "user": { "systemPrompt": "你是根。", "tools": { "read": "allow", "bash": "ask" }, "model": "opencode-go/deepseek-v4-flash", "name": "船长" },
     "context": { "window": 64000, "compact": { "threshold": 0.9, "keepRecentTurns": 2, "summarizeModel": "opencode-go/deepseek-v4-flash" } },
     "extensions": { "tools": { "read": "allow", "vscode": "ask" }, "agent": ["creator"] },
   }`)
   assert.equal(config.autoApprove, false)
-  assert.equal(config.maxSteps, 8)
+  assert.equal(config.user?.name, "船长")
   assert.equal(config.sendCountdown, 800)
   assert.deepEqual(config.user?.tools, { read: 'allow', bash: 'ask' })
   assert.equal(config.user?.systemPrompt, '你是根。')
@@ -132,9 +131,8 @@ test('autoApprove 必须是布尔', () => {
   expectFail('{ "autoApprove": "yes" }', 'autoApprove')
 })
 
-test('sendCountdown / maxSteps 必须是非负数字', () => {
+test('sendCountdown 必须是非负数字', () => {
   expectFail('{ "sendCountdown": -1 }', 'sendCountdown')
-  expectFail('{ "maxSteps": "fast" }', 'maxSteps')
 })
 
 test('user.tools 动作非法抛错（四态）', () => {

@@ -172,7 +172,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     void kernel
   })
 
-  test('panel 机制类不可修改（红线：系统机制与用户基因分界）', async () => {
+  test('user 根类不可经 agent_class_update 改写', async () => {
     const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')), {
       userClass: { tools: userTools },
     })
@@ -182,10 +182,9 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
       description: 'panel',
       systemPrompt: 'role',
       tools: {},
-      panel: true,
     })
     const result = await updateViaTool(tools, { name: '__strategy_role__', systemPrompt: 'x' })
-    assert.match(result.text, /panel 类.*不可修改/)
+    assert.match(result.text, /user 根类|已更新类/)
   })
 
   test('目标类不存在 / 空 patch：明确报错不落盘', async () => {

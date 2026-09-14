@@ -48,7 +48,6 @@ mkdirSync(join(dir, '.stem'), { recursive: true })
 writeFileSync(join(dir, '.stem', 'stem.jsonc'), JSON.stringify({
   providers: { mock: { base_url: mock.url } },
   user: { model: 'mock/echo' },
-  maxSteps: 4,
   context: { window: 400, compact: { enabled: true, threshold: 0.4, keepRecentTurns: 1, summarizeModel: 'mock/summarizer' } },
   extensions: { tools: {} },
   sendCountdown: 20,

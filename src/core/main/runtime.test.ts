@@ -74,10 +74,7 @@ async function makeRuntime(
     contextManager,
     repository,
     tools: extra?.tools,
-    // S6/R6：模型解析归口族谱树四级律（端口 stub；原 templates+defaultModel 单层链已拆除）。
     resolveModel: extra?.resolveModel ?? (() => model),
-    // S9：类基因步数解析口 + 全局兜底 + 日志采集。
-    templates: extra?.template !== undefined ? new DefaultTemplateRegistry([extra.template]) : undefined,
     ...(extra?.maxSteps !== undefined ? { maxSteps: extra.maxSteps } : {}),
     onLog: { log: (event) => { logs.push(event) } },
   })
@@ -90,7 +87,6 @@ const loopTool: AgentClass = {
   description: 'x',
   systemPrompt: 'looper',
   tools: { tick: 'allow' },
-  maxSteps: 2,
 }
 
 function endlessToolCall(counter: { n: number }) {
@@ -287,7 +283,7 @@ describe('DefaultRuntime（被动驱动）', () => {
 })
 
 describe('步数上限（S9：类基因 > 全局兜底 > 无限）', () => {
-  test('类基因 maxSteps=2：两轮工具后收束并发 kernel.step.limit', async () => {
+  test('全局步数上限：两轮工具后收束并发 kernel.step.limit', async () => {
     const counter = { n: 0 }
     const tools = new DefaultToolCapabilityRegistry()
     await tools.register({
@@ -298,9 +294,9 @@ describe('步数上限（S9：类基因 > 全局兜底 > 无限）', () => {
       execute: () => ({ text: 'tick' }),
     })
     const gateway = new FakeGateway(endlessToolCall(counter))
-    const { runtime, agentId, logs } = await makeRuntime(gateway, { tools, template: loopTool })
+    const { runtime, agentId, logs } = await makeRuntime(gateway, { tools, template: loopTool, maxSteps: 2 })
     await runtime.processDelivery(deliveryFor(agentId, loopTool.systemPrompt))
-    assert.equal(gateway.requests.length, 2, '类基因上限两轮')
+    assert.equal(gateway.requests.length, 2, '全局上限两轮')
     const ev = logs.find((e) => e.type === 'kernel.step.limit')
     assert.ok(ev && ev.type === 'kernel.step.limit' && ev.maxSteps === 2, '撞限事件行动化')
   })

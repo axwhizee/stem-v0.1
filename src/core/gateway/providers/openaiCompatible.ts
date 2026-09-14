@@ -118,6 +118,9 @@ function buildBody(request: LLMRequest): Record<string, unknown> {
   }
   if (request.maxTokens !== undefined) body.max_tokens = request.maxTokens
   if (request.temperature !== undefined) body.temperature = request.temperature
+  if (request.reasoningEffort !== undefined && request.reasoningEffort !== 'none') {
+    body.reasoning_effort = request.reasoningEffort
+  }
   return body
 }
 

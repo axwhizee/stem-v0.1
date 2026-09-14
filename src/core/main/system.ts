@@ -137,7 +137,6 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     defaultCountdownMs: config.sendCountdown,
     autoApprove: config.autoApprove,
     timer: deps.timer,
-    maxSteps: deps.maxSteps ?? config.maxSteps,
     ...(config.tools?.outputLimit !== undefined ? { toolOutputLimit: config.tools.outputLimit } : {}),
     estimateCost: deps.estimateCost,
     logger: deps.logger,

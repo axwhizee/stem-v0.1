@@ -1,63 +1,39 @@
 // ============================================================
 // core/context/strategies/cortex/schema.ts —— cortex 数据形状与纯校验
 //
-// 三层记忆的"合同层"：dreamAt 基因解析（类 custom.cortex）、LTM JSON
+// 三层记忆的"合同层"：dreamAt 解析（模块公式 + clamp）、LTM JSON
 // 结构校验、**dreamer 回信格式与解析**、笔记名/目录渲染——全部纯函数
 // （离线可测，无 IO 无状态）。机制详情 = docs/architecture.md §2.2b。
 // ============================================================
 
-import type { ModelRef } from '../../../gateway'
-
-/** cortex 基因参数（类 custom.cortex 槽；两件，无硬预算——提示词指导）。 */
+/** cortex 策略参数（模块自有；dreamAt 由窗口公式推导，dreamer 走出生链）。 */
 export interface CortexSettings {
-  /** 专注度线（估算 tokens；触发做梦 + 天然兼作重启线与频控）。 */
+  /** 专注度线（反馈式 ctxTokens；触发做梦 + 天然兼作重启线与频控）。 */
   readonly dreamAt: number
-  /** dreamer 模型（缺省 inherit 走出生链）。 */
-  readonly consolidateModel?: ModelRef
 }
 
-/** dreamAt 缺省值（256k 自愿收紧档；窗口大的模型在类基因里自调）。 */
+/** dreamAt 缺省值（256k 自愿收紧档；窗口小的在模块公式里自调）。 */
 export const DEFAULT_DREAM_AT = 262_144
 
-/** 解析类 custom.cortex（宽松读取 + clamp：≤ window×0.9，非法值回缺省）。
+/** 解析 dreamAt（宽松 + clamp：≤ window×0.9，非法值回缺省）。
  *  warn 回调供调用方去重上报（per-host 首见时）。 */
-export function parseCortexSettings(
-  custom: Readonly<Record<string, unknown>> | undefined,
+export function resolveDreamAt(
+  raw: unknown,
   window: number,
   warn?: (message: string) => void,
-): CortexSettings {
-  const raw = custom?.cortex
+): number {
   let dreamAt = DEFAULT_DREAM_AT
-  let consolidateModel: ModelRef | undefined
-  if (raw !== undefined && typeof raw === 'object' && !Array.isArray(raw)) {
-    const r = raw as Record<string, unknown>
-    if (typeof r.dreamAt === 'number' && Number.isFinite(r.dreamAt) && r.dreamAt > 0) {
-      dreamAt = r.dreamAt
-    } else if (r.dreamAt !== undefined) {
-      warn?.(`custom.cortex.dreamAt 非正数（${String(r.dreamAt)}），回缺省 ${String(DEFAULT_DREAM_AT)}`)
-    }
-    const m = r.consolidateModel
-    if (m !== undefined) {
-      if (typeof m === 'object' && m !== null && !Array.isArray(m)) {
-        const mm = m as Record<string, unknown>
-        if (typeof mm.provider === 'string' && typeof mm.id === 'string') {
-          consolidateModel = { provider: mm.provider, id: mm.id }
-        } else {
-          warn?.('custom.cortex.consolidateModel 形状不合法（需 {provider,id}），忽略')
-        }
-      } else {
-        warn?.('custom.cortex.consolidateModel 不是 {provider,id} 对象，忽略')
-      }
-    }
+  if (typeof raw === 'number' && Number.isFinite(raw) && raw > 0) {
+    dreamAt = raw
   } else if (raw !== undefined) {
-    warn?.('custom.cortex 不是对象，整段忽略')
+    warn?.(`dreamAt 非正数（${String(raw)}），回缺省 ${String(DEFAULT_DREAM_AT)}`)
   }
   const ceiling = Math.max(1, Math.floor(window * 0.9))
   if (dreamAt > ceiling) {
     warn?.(`dreamAt=${String(dreamAt)} 超窗口 90%（${String(ceiling)}），clamp`)
     dreamAt = ceiling
   }
-  return { dreamAt, ...(consolidateModel !== undefined ? { consolidateModel } : {}) }
+  return dreamAt
 }
 
 /** LTM 单条记忆（provenance 必填——有损毒性对策，plan §7）。 */

@@ -57,6 +57,10 @@ export interface StemUserClass {
   readonly model?: ModelRef
   /** 送信倒计时毫秒（缺省 0 = 直接获得回复）。 */
   readonly sendCountdown?: number
+  /** 采样温度家学缺省。 */
+  readonly temperature?: number
+  /** 思考强度家学缺省（缺省 none）。 */
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
   /** 根的出生称呼（B2；缺省 'user' → 全名 user#0。实例参数不上类，运行期改名走 agent_update.name）。 */
   readonly name?: string
 }
@@ -122,8 +126,6 @@ export interface StemConfig {
   readonly autoApprove?: boolean
   /** 根的类配置（族谱根 = 收敛链首层）。 */
   readonly user?: StemUserClass
-  /** 单轮 LLM 循环最大步数（含工具轮；缺省 5）。 */
-  readonly maxSteps?: number
   /** 上下文策略配置（window/compact）。 */
   readonly context?: StemContextConfig
   /** bash 工具配置（超时/输出上限/shell 路径/缺省目录）。 */

@@ -62,7 +62,7 @@ function agentClassCreate(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_class_create',
     description:
-      '创建新的 agent 类（模板）并回写 `.stem/agent/<name>.md`（目录即真相，重启后仍生效——进化书写面）。新名 = 变体并存（供谱系对照与回滚）；同名会被拒绝（覆盖现役请用 agent_class_update）。类定义角色设定（systemPrompt / tools 工具清单 / contextStrategy / model / sendCountdown / maxSteps），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。tools 为工具访问键到访问动作的映射（键即白名单，未列出的工具不可用；对继承面只能收敛）。',
+      '创建新的 agent 类（模板）并回写 `.stem/agent/<name>.md`（目录即真相，重启后仍生效——进化书写面）。新名 = 变体并存（供谱系对照与回滚）；同名会被拒绝（覆盖现役请用 agent_class_update）。类定义角色设定（systemPrompt / tools 工具清单 / contextStrategy / model / sendCountdown / temperature / effort），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。tools 为工具访问键到访问动作的映射（键即白名单，未列出的工具不可用；对继承面只能收敛）。',
     accessKey: 'agent_class_create',
     birth: 'ignore', // 出生声明（agent_class_create）
     kind: 'internal',
@@ -77,7 +77,8 @@ function agentClassCreate(host: SystemToolHost): ToolCapability {
         contextStrategy: { type: 'string', description: '上下文管理策略（默认 classic）' },
         model: { type: 'string', description: '模型（"提供商/模型"，可选；缺省沿 父继承>家学 链解析）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒（可选，缺省 1000）' },
-        maxSteps: { type: 'number', description: '单轮工具步数上限（可选；≤0/未设 = 无限制——仅对确有需要限步的角色设置）' },
+        temperature: { type: 'number', description: '采样温度（可选）' },
+        effort: { type: 'string', description: '思考强度 none/low/medium/high（可选，缺省 none）' },
       },
       required: ['name', 'description'],
     },
@@ -90,7 +91,8 @@ function agentClassCreate(host: SystemToolHost): ToolCapability {
         contextStrategy?: string
         model?: string
         sendCountdown?: number
-        maxSteps?: number
+        temperature?: number
+        effort?: 'none' | 'low' | 'medium' | 'high'
       }
       let model: ModelRef | undefined
       if (args.model !== undefined) {
@@ -106,7 +108,8 @@ function agentClassCreate(host: SystemToolHost): ToolCapability {
         ...(args.contextStrategy !== undefined ? { contextStrategy: args.contextStrategy } : {}),
         ...(model !== undefined ? { model } : {}),
         ...(args.sendCountdown !== undefined ? { sendCountdown: args.sendCountdown } : {}),
-        ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
+        ...(args.temperature !== undefined ? { temperature: args.temperature } : {}),
+        ...(args.effort !== undefined ? { effort: args.effort } : {}),
       }
       await host.agents.registerAgentClass(cls, { persist: true, by: ctx.agentId })
       return {
@@ -120,7 +123,7 @@ function agentClassCreate(host: SystemToolHost): ToolCapability {
  * 更新现役 agent 类（S5.2 进化书写面：同名覆盖 + 落盘，方案 §4.2）。
  * 边界（设计内）：①只影响**后续实例**（已绑定能力物化于族谱树，防"改类即远程改现役"）；
  * ②工具路径**只许收敛**（checkToolsConvergence——deny 不可撤销、ask 不许变执行免询问）；
- * ③panel 机制类与 user 根类不可改（红线：系统机制与用户基因分界；根人格归 config.user）。
+ * ③系统机制类与 user 根类不可改（红线：系统机制与用户基因分界；根人格归 config.user）。
  */
 function agentClassUpdate(host: SystemToolHost): ToolCapability {
   return {
@@ -141,7 +144,8 @@ function agentClassUpdate(host: SystemToolHost): ToolCapability {
         contextStrategy: { type: 'string', description: '上下文策略名' },
         model: { type: 'string', description: '模型（"提供商/模型"）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒' },
-        maxSteps: { type: 'number', description: '单轮工具步数上限（≤0/未设 = 无限制）' },
+        temperature: { type: 'number', description: '采样温度' },
+        effort: { type: 'string', description: '思考强度 none/low/medium/high' },
       },
     },
     execute: async (input, ctx) => {
@@ -153,7 +157,8 @@ function agentClassUpdate(host: SystemToolHost): ToolCapability {
         contextStrategy?: string
         model?: string
         sendCountdown?: number
-        maxSteps?: number
+        temperature?: number
+        effort?: 'none' | 'low' | 'medium' | 'high'
       }
       // 缺省目标 = 调用者所属类（自我进化主路径）。
       const selfClass = host.agents.getInstanceSync(ctx.agentId)?.classRef
@@ -164,9 +169,6 @@ function agentClassUpdate(host: SystemToolHost): ToolCapability {
       }
       const current = host.agents.getClassSync(target)
       if (!current) return { text: `类不存在: ${target}（新建请用 agent_class_create）` }
-      if (current.panel === true) {
-        return { text: `panel 类 ${target} 为系统机制承载（策略 role 等），不可修改/回写（红线）` }
-      }
       if (args.tools !== undefined) {
         const violations = checkToolsConvergence(current.tools, args.tools)
         if (violations.length > 0) {
@@ -186,7 +188,8 @@ function agentClassUpdate(host: SystemToolHost): ToolCapability {
         ...(args.systemPrompt !== undefined ? { systemPrompt: args.systemPrompt } : {}),
         ...(args.contextStrategy !== undefined ? { contextStrategy: args.contextStrategy } : {}),
         ...(args.sendCountdown !== undefined ? { sendCountdown: args.sendCountdown } : {}),
-        ...(args.maxSteps !== undefined ? { maxSteps: args.maxSteps } : {}),
+        ...(args.temperature !== undefined ? { temperature: args.temperature } : {}),
+        ...(args.effort !== undefined ? { effort: args.effort } : {}),
         ...(model !== undefined ? { model } : {}),
         ...(mergedTools !== undefined ? { tools: mergedTools } : {}),
       }

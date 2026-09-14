@@ -32,6 +32,11 @@ export const ROOT_ID = makeAgentID('0')
 /** 根的缺省 name（全名呈现 `user#0`；config.user.name 可给实值）。 */
 export const ROOT_NAME = 'user'
 
+/** 模型思考强度（写 reasoning_effort；缺省 none = 压延迟）。 */
+export type EffortLevel = 'none' | 'low' | 'medium' | 'high'
+
+export const DEFAULT_EFFORT: EffortLevel = 'none'
+
 /** 出生路径 id 的合法形：数字段以 `-` 连接（`0`、`0-3`、`0-3-2-7`）。 */
 export const AGENT_ID_PATTERN = /^\d+(-\d+)*$/
 
@@ -91,20 +96,10 @@ export interface AgentClass {
   readonly model?: ModelRef
   /** 送信倒计时（毫秒，默认 1000）；实例化时传给邮局。 */
   readonly sendCountdown?: number
-  /**
-   * true = 模块扮演面板（不组装、不跑 LLM 轮，信件由扮演模块消费）——
-   * 策略 role（context 模块扮演）经此字段声明。**面板性双入径**：根实例
-   * （user#0，parentId=null）不经此字段，由 kernel 根接线 `assemble:false`
-   * 获得同一形态（pilot 扮演）——面板性皆结构性事实，非类特权。
-   */
-  readonly panel?: boolean
-  /** 用户自定义元数据。 */
-  readonly custom?: Readonly<Record<string, unknown>>
-  /**
-   * 单轮工具步数上限（S9；资源上限非权限——不进族谱律，不继承不封顶）。
-   * 解析 = 类基因 > 全局 config.maxSteps > 缺省无限；≤0/未设 = 无限制。
-   */
-  readonly maxSteps?: number
+  /** 采样温度（可选基因；实例可覆盖）。 */
+  readonly temperature?: number
+  /** 思考强度（可选基因；实例可覆盖；缺省 none）。 */
+  readonly effort?: EffortLevel
 }
 
 // ---------- 模型解析相（S6/R6 四级律；lineage 树与实例行共用形状） ----------
@@ -145,6 +140,8 @@ export interface AgentInstance {
    * 运行期可经 agent_update.name 改（撞名拒）；呈现面统一 `name#id`。
    */
   name: string
+  /** 面板性：false = 被外部扮演（不组装、不跑 LLM；创建方指定，与类无关）。 */
+  readonly assemble?: boolean
   status: AgentStatus
   turnCount: number
   totalCost: number
@@ -172,6 +169,10 @@ export interface AgentInstance {
    * 出生后必有；旧库缺字段 = restore 期按 model/类基因回填。
    */
   readonly modelBinding?: ModelBinding
+  /** 生效采样温度（出生解析落地；运行期可改自身）。 */
+  temperature?: number
+  /** 生效思考强度（出生解析落地；运行期可改自身）。 */
+  effort?: EffortLevel
 }
 
 /** 用户接管/微调可更新的字段。 */
@@ -181,6 +182,8 @@ export interface AgentInstancePatch {
   name?: string
   toolOverride?: Readonly<Record<string, ToolAccess>>
   model?: ModelRef
+  temperature?: number
+  effort?: EffortLevel
 }
 
 // ---------- 错误（判别联合，code-style §4.1） ----------

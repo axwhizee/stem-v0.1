@@ -67,7 +67,6 @@ writeFileSync(join(dir, '.stem', 'stem.jsonc'), JSON.stringify({
   providers: { mock: { base_url: mock.url } },
   user: { model: 'mock/echo', tools: defaultStemConfig().user?.tools },
   autoApprove: false,
-  maxSteps: 6,
   context: { window: 128000, compact: { enabled: false } },
   extensions: { tools: {} },
   sendCountdown: 20,

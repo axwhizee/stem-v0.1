@@ -308,10 +308,8 @@ function parseAgentInto(
       tools: parsed.toolAccess,
       ...pickAgentClassGenes({
         ...(parsed.sendCountdown !== undefined ? { sendCountdown: parsed.sendCountdown } : {}),
-        ...(parsed.maxSteps !== undefined ? { maxSteps: parsed.maxSteps } : {}),
         ...(parsed.contextStrategy !== undefined ? { contextStrategy: parsed.contextStrategy } : {}),
         ...(parsed.model !== undefined ? { model: parsed.model } : {}),
-        ...(Object.keys(parsed.custom).length > 0 ? { custom: parsed.custom } : {}),
       }),
     }
     result.push({ ...cls, file })

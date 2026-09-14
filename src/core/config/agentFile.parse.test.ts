@@ -13,8 +13,8 @@ tools:
   glob: allow
   edit: deny
 send_countdown: 800
-metadata:
-  author: someone
+temperature: 0.3
+effort: medium
 ---
 You are a senior code reviewer.
 Be concise.
@@ -26,15 +26,15 @@ test('解析完整 agent 文件（文件名即 id/name）', () => {
   assert.equal(parsed.name, 'user-reviewer')
   assert.equal(parsed.description, '代码审查员')
   assert.deepEqual(parsed.toolAccess, { read: 'allow', glob: 'allow', edit: 'deny' })
-  // 融合：工具白名单 = tools 的键。
   assert.deepEqual(parsed.tools, ['read', 'glob', 'edit'])
   assert.equal(parsed.sendCountdown, 800)
+  assert.equal(parsed.temperature, 0.3)
+  assert.equal(parsed.effort, 'medium')
   assert.match(parsed.systemPrompt, /senior code reviewer/)
-  assert.match(parsed.systemPrompt, /Be concise\./)
 })
 
 test('不读 frontmatter 的 id/name，一律用文件名', () => {
-  const parsed = parseAgentFile('---\nid: other\nname: Other\n---\nbody', 'my-agent')
+  const parsed = parseAgentFile('---\ndescription: Other\n---\nbody', 'my-agent')
   assert.equal(parsed.id, 'my-agent')
   assert.equal(parsed.name, 'my-agent')
 })
@@ -71,8 +71,6 @@ test('extractPrompt 提取正文并 trim', () => {
   assert.equal(extractPrompt('---\ndescription: x\n---\n\n  hello world  \n'), 'hello world')
 })
 
-// ---------- S3′：自由式 frontmatter（context_strategy / model / custom 透传） ----------
-
 test('context_strategy / model 已知键提取', () => {
   const parsed = parseAgentFile(
     '---\ndescription: x\ncontext_strategy: self_focus\nmodel: opencode-go/deepseek-v4-flash\n---\nbody',
@@ -82,14 +80,8 @@ test('context_strategy / model 已知键提取', () => {
   assert.deepEqual(parsed.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
 })
 
-test('未知字段透传 custom（自定义扩展位不丢弃）', () => {
-  const parsed = parseAgentFile('---\ndescription: x\nmetadata:\n  author: owl\ntags:\n  - a\n---\nbody', 'agent-y')
-  assert.deepEqual(parsed.custom, { metadata: { author: 'owl' }, tags: ['a'] })
-})
-
-test('无未知字段 → custom 空对象', () => {
-  const parsed = parseAgentFile('---\ndescription: x\n---\nbody', 'agent-z')
-  assert.deepEqual(parsed.custom, {})
+test('未知字段拒收（custom 槽已退役）', () => {
+  assert.throws(() => parseAgentFile('---\nmetadata:\n  author: owl\n---\nbody', 'agent-y'), /未知字段/)
 })
 
 test('model 缺斜杠抛错', () => {
@@ -100,15 +92,6 @@ test('context_strategy 类型非法抛错', () => {
   assert.throws(() => parseAgentFile('---\ncontext_strategy: 42\n---\nbody', 'bad'), /context_strategy/)
 })
 
-test('max_steps 已知键提取（0 = 无限制合法；类型非法抛错；不进 custom）', () => {
-  const parsed = parseAgentFile('---\ndescription: x\nmax_steps: 12\n---\nbody', 'agent-s')
-  assert.equal(parsed.maxSteps, 12)
-  assert.deepEqual(parsed.custom, {})
-  assert.equal(parseAgentFile('---\nmax_steps: 0\n---\nbody', 'agent-s0').maxSteps, 0)
-  assert.throws(() => parseAgentFile('---\nmax_steps: fast\n---\nbody', 'bad'), /max_steps/)
-})
-
-test('完整样例：SAMPLE 的 metadata 进 custom（旧"忽略"→新"透传"）', () => {
-  const parsed = parseAgentFile(SAMPLE, 'user-reviewer')
-  assert.deepEqual(parsed.custom, { metadata: { author: 'someone' } })
+test('effort 非法枚举抛错', () => {
+  assert.throws(() => parseAgentFile('---\neffort: turbo\n---\nbody', 'bad'), /effort/)
 })

@@ -107,7 +107,7 @@ export class DefaultRuntime implements RuntimePort {
     // 工具物化：registry 经族谱台账查询本 agent 的生效访问（白名单/收敛已物化）。
     const tools = this.deps.tools ? this.deps.tools.materialize(instance.id) : undefined
     // 步数上限解析（S9）：类基因 > 全局兜底；≤0 = 无限。
-    const stepLimit = this.deps.templates?.getSync(instance.classRef)?.maxSteps ?? this.maxSteps
+    const stepLimit = this.maxSteps
     let steps = 0
 
     // 本轮中断控制器：注册进活跃表，供 kernel/宿主 abort（用户/进程中断）。

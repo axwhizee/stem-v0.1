@@ -72,6 +72,8 @@ export interface StrategyApi {
   readonly settings: ContextSettings
   /** 有效消息估算 token 合计（与仓库 estimateTokens 同源）。 */
   readonly estimatedTokens: () => number
+  /** 最近一次请求 API 返回的 prompt_tokens（节点反馈账；0 = 尚无请求）。 */
+  readonly ctxTokens?: () => number
   readonly list: () => readonly StoredMessage[]
   readonly listValid: () => readonly StoredMessage[]
   /** 合成消息经邮局正规追加（write-through 自动落库；tag 标记非原生）。 */

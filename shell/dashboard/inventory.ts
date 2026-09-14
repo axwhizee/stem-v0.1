@@ -31,7 +31,6 @@ export interface InventoryClass {
   readonly description: string
   readonly model?: string
   readonly toolKeys: number
-  readonly panel: boolean
 }
 
 export interface InventoryStrategy {
@@ -86,7 +85,6 @@ async function assemble(projectRoot: string): Promise<Holder> {
     description: (c.description ?? '').slice(0, 160),
     ...(c.model !== undefined ? { model: `${c.model.provider}/${c.model.id}` } : {}),
     toolKeys: Object.keys(c.tools ?? {}).length,
-    panel: c.panel === true,
   }))
   const env = process.env
   // 策略层判定：内置集从注册表构造器派生（不硬编码名单）；目录命中 = custom/extension

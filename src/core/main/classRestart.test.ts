@@ -147,13 +147,13 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
     await revived.dispose()
   })
 
-  test('空间类策略/custom/倒计时跨重启生效（realign 接线回归）', async () => {
-    // 类文件带 cortex 策略 + custom dreamAt + send_countdown——S10 时序 bug 的
+  test('空间类策略/倒计时跨重启生效（wireRestoredContexts 接线）', async () => {
+    // 类文件带 cortex 策略 + send_countdown——S10 时序 bug 的
     // 最小复现面：这些字段曾全部活不过第二次 boot（构造期模板表未载）。
     const d = makeMemFs({
       '/proj/.stem/agent/pet.md': [
         '---', 'description: realign 回归', 'tools:', '  read: allow',
-        'context_strategy: cortex', 'cortex:', '  dreamAt: 3000',
+        'context_strategy: cortex',
         'send_countdown: 777', '---', '你是回归宠物。',
       ].join('\n'),
     })
@@ -181,7 +181,6 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
     const revived = await createStemSystem(deps() as never)
     const facts = revived.kernel.contextManager.boxFacts(petId)
     assert.equal(facts?.strategy, 'cortex', '重启后策略由 realign 补正（非 classic 兜底）')
-    assert.ok(facts?.customKeys.includes('cortex'), 'custom 跨重启生效')
     assert.equal(facts?.sendCountdownMs, 777, '类级倒计时跨重启生效')
     // 正常链路零异常留痕。
     const fb = revived.kernel.logger.query({}).filter((e) => e.type === 'context.strategy.fallback')

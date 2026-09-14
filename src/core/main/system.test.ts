@@ -122,7 +122,7 @@ describe('createStemSystem（系统装配组合根）', () => {
         tools: { access_reply: 'allow', read: 'allow', agent_terminate: 'deny' },
       },
       context: { window: 100, compact: { threshold: 0.5, keepRecentTurns: 2 } },
-      maxSteps: 3,
+      sendCountdown: 0,
     })
     const system = await createStemSystem({
       config: { store: d.store, paths: d.paths },

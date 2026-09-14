@@ -111,9 +111,8 @@ export interface AgentClassGenes {
   readonly contextStrategy?: string
   readonly model?: ModelRef
   readonly sendCountdown?: number
-  readonly maxSteps?: number
-  readonly panel?: boolean
-  readonly custom?: Readonly<Record<string, unknown>>
+  readonly temperature?: number
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
 }
 
 /** frontmatter 键 → 规范 camelCase 键。 */
@@ -123,7 +122,8 @@ const FRONTMATTER_TO_CAMEL: Readonly<Record<string, keyof AgentClassGenes>> = {
   context_strategy: 'contextStrategy',
   model: 'model',
   send_countdown: 'sendCountdown',
-  max_steps: 'maxSteps',
+  temperature: 'temperature',
+  effort: 'effort',
 }
 
 /** frontmatter 已知键集合（解析与序列化共用）。 */
@@ -169,15 +169,14 @@ export function normalizeAgentFields(
 
   // 键名归一：frontmatter 模式翻译 snake_case；camel 模式原样。
   const source = new Map<string, { value: unknown; pathKey: string }>()
-  const unknown: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(raw)) {
     if (passthrough.has(key)) continue
     if (mode === 'frontmatter') {
       const camel = FRONTMATTER_TO_CAMEL[key]
       if (camel !== undefined) source.set(camel, { value, pathKey: key })
-      else if (key !== 'panel') unknown[key] = value // panel 永不进用户文件
+      else fail(`未知字段 "${key}"（合法：${[...AGENT_KNOWN_KEYS].join(' / ')}）`)
     } else {
-      if (key === 'panel' || key === 'custom' || key in FRONTMATTER_TO_CAMEL || isCamelGeneKey(key)) {
+      if (key in FRONTMATTER_TO_CAMEL || isCamelGeneKey(key)) {
         source.set(key, { value, pathKey: key })
       }
       // camel 模式未知键静默忽略（config.user 现行行为；顶层 config 仍严格）
@@ -192,24 +191,14 @@ export function normalizeAgentFields(
   const contextStrategy = asString(source.get('contextStrategy')?.value, at('contextStrategy'), fail)
   const model = asModelRef(source.get('model')?.value, at('model'), fail)
   const sendCountdown = asNonNegNumber(source.get('sendCountdown')?.value, at('sendCountdown'), fail)
-  const maxSteps = asFiniteNumber(source.get('maxSteps')?.value, at('maxSteps'), fail)
-
-  let panel: boolean | undefined
-  if (source.has('panel') && mode === 'camel') {
-    const p = source.get('panel')?.value
-    if (p !== undefined && typeof p !== 'boolean') fail(`${prefix}panel 必须是布尔值`)
-    panel = p as boolean | undefined
-  }
-
-  let custom: Readonly<Record<string, unknown>> | undefined
-  if (mode === 'frontmatter') {
-    custom = Object.keys(unknown).length > 0 ? unknown : undefined
-  } else if (source.has('custom')) {
-    const c = source.get('custom')?.value
-    if (c !== undefined && (c === null || typeof c !== 'object' || Array.isArray(c))) {
-      fail(`${prefix}custom 必须是对象`)
+  const temperature = asNonNegNumber(source.get('temperature')?.value, at('temperature'), fail)
+  let effort: 'none' | 'low' | 'medium' | 'high' | undefined
+  const effortRaw = asString(source.get('effort')?.value, at('effort'), fail)
+  if (effortRaw !== undefined) {
+    if (!['none', 'low', 'medium', 'high'].includes(effortRaw)) {
+      fail(`${at('effort')} 必须是 none/low/medium/high 之一`)
     }
-    custom = c as Readonly<Record<string, unknown>> | undefined
+    effort = effortRaw as 'none' | 'low' | 'medium' | 'high'
   }
 
   return {
@@ -218,9 +207,8 @@ export function normalizeAgentFields(
     ...(contextStrategy !== undefined ? { contextStrategy } : {}),
     ...(model !== undefined ? { model } : {}),
     ...(sendCountdown !== undefined ? { sendCountdown } : {}),
-    ...(maxSteps !== undefined ? { maxSteps } : {}),
-    ...(panel !== undefined ? { panel } : {}),
-    ...(custom !== undefined && Object.keys(custom).length > 0 ? { custom } : {}),
+    ...(temperature !== undefined ? { temperature } : {}),
+    ...(effort !== undefined ? { effort } : {}),
   }
 }
 
@@ -231,7 +219,8 @@ function isCamelGeneKey(key: string): boolean {
     key === 'contextStrategy' ||
     key === 'model' ||
     key === 'sendCountdown' ||
-    key === 'maxSteps'
+    key === 'temperature' ||
+    key === 'effort'
   )
 }
 
@@ -245,9 +234,8 @@ export function pickAgentClassGenes(source: {
   readonly contextStrategy?: string
   readonly model?: ModelRef
   readonly sendCountdown?: number
-  readonly maxSteps?: number
-  readonly panel?: boolean
-  readonly custom?: Readonly<Record<string, unknown>>
+  readonly temperature?: number
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
 }): AgentClassGenes {
   return {
     ...(source.description !== undefined ? { description: source.description } : {}),
@@ -255,9 +243,8 @@ export function pickAgentClassGenes(source: {
     ...(source.contextStrategy !== undefined ? { contextStrategy: source.contextStrategy } : {}),
     ...(source.model !== undefined ? { model: source.model } : {}),
     ...(source.sendCountdown !== undefined ? { sendCountdown: source.sendCountdown } : {}),
-    ...(source.maxSteps !== undefined ? { maxSteps: source.maxSteps } : {}),
-    ...(source.panel !== undefined ? { panel: source.panel } : {}),
-    ...(source.custom !== undefined ? { custom: source.custom } : {}),
+    ...(source.temperature !== undefined ? { temperature: source.temperature } : {}),
+    ...(source.effort !== undefined ? { effort: source.effort } : {}),
   }
 }
 
