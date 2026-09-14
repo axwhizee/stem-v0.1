@@ -185,6 +185,8 @@ export class DefaultRuntime implements RuntimePort {
         // 累积差分归位：把「相对上次请求的 input 增量」真实值回填到两轮之间的 tool/user 行。
         if (roundUsage !== undefined) {
           await this.deps.contextManager.attributeUsage(instance.id, roundUsage)
+          // 反馈式 ctxTokens：最近一次请求 prompt_tokens 落节点（cortex 水位判据）。
+          await this.deps.instances.setCtxTokens(instance.id, roundUsage.inputTokens)
         }
 
         // 显式退出条件：无工具调用 → 结束会话。

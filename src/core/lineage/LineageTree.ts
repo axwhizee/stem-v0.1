@@ -8,8 +8,7 @@
 // （无 snapshot 输入层、无运行期全树 replay）。setModel 只重绑节点
 // 自身为 explicit。启动 replay 仅一次（恢复接线）。
 //
-// 权限相：注册期 attach/replay 物化（AccessLedger 内部）；tools 更新
-// 经 rebindSubtree 定向重算（收缩沿链下传），不再全树 replay。
+// 权限相：注册期 attach/replay 物化（AccessLedger 内部）；tools 出生后不可改。
 //
 // 红线：
 //   - 派生态可完整重建（启动按拓扑序重放一次）；
@@ -80,8 +79,6 @@ export interface LineageTree {
   readonly detach: (agentId: string) => void
   /** 启动重放：任意顺序绑定集合（内部按族谱拓扑序处理一次）。 */
   readonly replay: (entries: readonly LineageBindEntry[]) => void
-  /** tools 更新后定向重算子树（收缩沿链下传；替代运行期全树 replay）。 */
-  readonly rebindSubtree: (rootId: string, entriesFor: (agentId: string) => LineageBindEntry) => void
   /** 运行期模型显式层重绑（只动节点自身为 explicit；不级联）。 */
   readonly setModel: (agentId: string, model: ModelRef) => void
   /** 是否已绑定。 */
@@ -190,16 +187,6 @@ export class DefaultLineageTree implements LineageTree {
   }
 
   replay(entries: readonly LineageBindEntry[]): void {
-    this.ledger.rebind(entries)
-    for (const entry of entries) this.bindModelNode(entry, false)
-    this.resolvePendingModels()
-  }
-
-  rebindSubtree(rootId: string, entriesFor: (agentId: string) => LineageBindEntry): void {
-    const ids = [rootId as AgentID, ...this.getDescendants(rootId as AgentID)]
-    // 拓扑序：父先于子（id 前缀序即拓扑序）。
-    const ordered = [...ids].sort((a, b) => a.split('-').length - b.split('-').length || a.localeCompare(b))
-    const entries = ordered.map((id) => entriesFor(id))
     this.ledger.rebind(entries)
     for (const entry of entries) this.bindModelNode(entry, false)
     this.resolvePendingModels()

@@ -39,17 +39,13 @@ import type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode } from '../
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
 
-/** agent_update 统一通道入参（tools 两形式互斥；语义见 updateAgent）。 */
+/** agent_update 统一通道入参（可写面 = name/model；tools 出生后不可改）。 */
 interface AgentUpdateSpec {
   readonly agentId: string
   /** 发起者；缺省 = 跳过可见域判定（pilot 信任通道）。 */
   readonly by?: string
   readonly name?: string
   readonly model?: ModelRef
-  /** 收敛 patch：提及键合并，逐键对现自身清单只许收敛。 */
-  readonly toolsPatch?: Readonly<Record<string, ToolAccess>>
-  /** 清单形整表替换：未列一律 deny，逐键经祖先显式封顶。与 toolsPatch 互斥。 */
-  readonly toolsGrant?: Readonly<Record<string, ToolAccess>>
 }
 
 import type { ToolCapabilityRegistry } from '../tools'
@@ -654,13 +650,9 @@ export class Kernel {
   }
 
   /**
-   * 实例参数统一更新（agent config 面的唯一运行期写通道——
-   * agent_update 工具与 pilot 通道共用；合并吸收原 set_model 散点）。
-   *
-   * 顺序 = 可见域鉴权 → 总序校验（toolsPatch 对现自身清单只许收敛，扩张
-   * 逐键拒绝）→ 实例行写（写穿持久）→ **族谱全树 replay**（收缩沿链下传
-   * 自动重算；模型不级联由子女出生快照层天然保证）。
-   * by 缺省 = 跳过可见域判定（信任调用方——pilot 宿主通道语义）。
+   * 实例参数统一更新（运行期可写面 = name / model）。
+   * tools/策略/类字段不在此通道：tools 出生后不可改（属性表律），
+   * 类定义走 agent_class_update。改模型只重绑节点自身，不级联。
    */
   async updateAgent(spec: AgentUpdateSpec): Promise<void> {
     const id = makeAgentID(spec.agentId)
@@ -671,35 +663,6 @@ export class Kernel {
     if (!instance) throw { kind: 'agent_not_found', agentId: spec.agentId }
     const fields: string[] = []
     const patch: AgentInstancePatch = {}
-    if (spec.toolsPatch !== undefined) {
-      // 收敛 patch：对目标**当前生效显式面**（链摊平 + 自身值）逐键总序校验，
-      // 并叠出生表封顶（实例收敛层拒绝式归因）。
-      const surface = this.lineage.profileOf(spec.agentId)?.explicit ?? {}
-      const mergedOverride = { ...surface, ...spec.toolsPatch }
-      const viol = this.validateAccessSteps(
-        instance.parentId !== null ? this.lineage.profileOf(instance.parentId as string) : undefined,
-        this.labeledSteps(
-          [
-            this.listStep(this.templates.getSync(instance.classRef)?.tools),
-            this.strategyStep(this.templates.getSync(instance.classRef)?.contextStrategy),
-            this.listStep(mergedOverride),
-          ],
-          '类收敛',
-        ),
-      )
-      if (viol.length > 0) {
-        throw { kind: 'agent_update_expanded', agentId: spec.agentId, violations: viol }
-      }
-      // 合并写 override = 生效显式面全量 + patch——若以"类 ∪ 现 override"为基线，
-      // 继承形实例（类无表）首更时父档案里的键会被静默挤出（own 跳变封闭面
-      // + fallback deny = 能力清零悬崖）；以显式摊平面为基线则更新只动提及键。
-      patch.toolOverride = mergedOverride
-      fields.push('tools')
-    } else if (spec.toolsGrant !== undefined) {
-      // 清单形整表替换（受限 grant）：未列一律 deny；逐键封顶由台账物化保证。
-      patch.toolOverride = spec.toolsGrant
-      fields.push('toolsGrant')
-    }
     if (spec.model !== undefined) {
       patch.model = spec.model
       fields.push('model')
@@ -710,15 +673,7 @@ export class Kernel {
     }
     if (fields.length === 0) return
     await this.instances.update(id, patch)
-    // 定向重算：model 只重绑节点自身；tools 重算子树（收缩沿链下传，无全树 replay）。
     if (spec.model !== undefined) this.lineage.setModel(spec.agentId, spec.model)
-    if (spec.toolsPatch !== undefined || spec.toolsGrant !== undefined) {
-      this.lineage.rebindSubtree(spec.agentId, (agentId) => {
-        const inst = this.instances.getSync(makeAgentID(agentId))
-        if (!inst) throw { kind: 'agent_not_found', agentId }
-        return this.bindEntryOf(inst)
-      })
-    }
     if (spec.model !== undefined) {
       this.emitLog({
         type: 'kernel.model.set',

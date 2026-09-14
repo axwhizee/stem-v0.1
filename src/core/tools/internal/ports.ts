@@ -78,15 +78,13 @@ export interface InstantiateRequest {
   readonly hold?: { readonly toolCallId: string; readonly timeoutMs?: number }
 }
 
-/** 实例参数更新请求（agent_update）。 */
+/** 实例参数更新请求（agent_update；可写面 = name/model）。 */
 export interface AgentUpdateRequest {
   readonly agentId: string
   /** 发起者（可见域校验）；缺省 = 信任通道（跳过判定）。 */
   readonly by?: string
   readonly name?: string
   readonly model?: ModelRef
-  readonly toolsPatch?: Readonly<Record<string, ToolAccess>>
-  readonly toolsGrant?: Readonly<Record<string, ToolAccess>>
 }
 
 /** 生效配置视图（agent_inspect：模型四级律 + 权限物化面）。 */

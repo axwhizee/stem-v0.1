@@ -192,18 +192,16 @@ function parseModel(value: string): { provider: string; id: string } | undefined
 async function listAgents(system: StemSystem): Promise<Array<Record<string, unknown>>> {
   const agents = await system.pilot.listAgents()
   return agents.map((a) => {
-    const binding = system.kernel.lineage.modelOf(a.id as string)
-    // S6 批 2：侧栏行摘要 = 最近一条 user 信剥 <sender>（view.js truncate 渲染）。
+    const node = system.kernel.lineage.nodeOf(a.id as never)
+    const binding = node?.model
+    // 侧栏行摘要 = 最近一条 user 信剥 <sender>（view.js truncate 渲染）。
     const rows = [...system.kernel.repository.list(a.id)]
-    const lastUser = rows.reverse().find((m) => m.message.role === 'user')
+    const lastUser = [...rows].reverse().find((m) => m.message.role === 'user')
     const rawContent = typeof lastUser?.message.content === 'string' ? lastUser.message.content : ''
     const sender = /^<sender id="([^"]+)"(?: at="[^"]*")?>/.exec(rawContent)?.[1] ?? ''
-    // 批 3 观察面扩充：hover 详情卡 / 左栏信息面板数据（策略、上下文占用、最近活跃）。
     const facts = system.kernel.contextManager.boxFacts(a.id)
-    let ctxTokens = 0
     let lastActive = 0
     for (const m of rows) {
-      if (m.valid) ctxTokens += m.tokens
       if (m.at > lastActive) lastActive = m.at
     }
     return {
@@ -214,11 +212,11 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
       status: a.status,
       turnCount: a.turnCount,
       totalCost: a.totalCost,
-      totalTokens: a.totalTokens ?? 0, // 终身累计（不受 compact 影响）——信息条/详情卡数据源
+      totalTokens: a.totalTokens ?? 0,
       ...(facts !== undefined ? { strategy: facts.strategy, sendCountdownMs: facts.sendCountdownMs } : {}),
-      ctxTokens,
+      // 反馈式占用（最近 prompt_tokens）；旧行无值时回落仓库估算。
+      ctxTokens: a.ctxTokens ?? rows.filter((m) => m.valid).reduce((s, m) => s + m.tokens, 0),
       ...(lastActive > 0 ? { lastActive } : {}),
-      // S6：生效模型 + 解析命中层（header 模型行/origin 徽标数据源）。
       ...(binding !== undefined ? { model: `${binding.ref.provider}/${binding.ref.id}`, modelOrigin: binding.origin } : {}),
       ...(rawContent !== '' ? { lastPrompt: rawContent.replace(/^<sender id="[^"]+">/, '').replace(/<\/sender>$/, ''), lastPromptFrom: sender } : {}),
     }

@@ -151,6 +151,11 @@ export interface AgentInstance {
   /** **终身累计 token**（每轮 usage in+out 累加；不受 compact 压缩影响——
    *  与 ctxTokens（当前上下文占用）两本账。旧行缺字段 = restore 归零）。 */
   totalTokens: number
+  /**
+   * **反馈式上下文占用**：最近一次请求 API 返回的 `prompt_tokens`，初始 0/缺省。
+   * cortex 水位等策略判据用；与 totalTokens 终身账分开。
+   */
+  ctxTokens?: number
   /** 实例化时必填的 user prompt（作为首封信投递，符合 openai messages 规范）。 */
   readonly userPrompt: string
   /** 实例化时传入的工具清单补充（对模板表的收敛，可临时收紧；运行时仅用于组装）。 */

@@ -90,6 +90,11 @@ export class PersistedInstanceManager implements InstanceManager {
     this.snap(agentId)
   }
 
+  async setCtxTokens(agentId: AgentID, tokens: number): Promise<void> {
+    await this.inner.setCtxTokens(agentId, tokens)
+    this.snap(agentId)
+  }
+
   restore(instance: AgentInstance): void {
     this.inner.restore(instance)
   }

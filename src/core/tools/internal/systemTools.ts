@@ -330,13 +330,11 @@ function agentUpdate(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_update',
     description:
-      '更新 agent 实例的运行参数（缺省目标 = 你自己；祖先可改后代，**只许收紧不许放宽**）。' +
-      'model = "提供商/模型"（下一轮生效，不级联已出生子孙的快照；随实例持久化）。' +
-      'tools = {键:访问} 收敛补丁：提及键合并、逐键只许更严（deny≺ask≺allow≺ignore 单链），放宽会被逐键拒绝——' +
-      '想藏起祖先给的能力（allow→ignore）同样是被拒的扩张。' +
-      'grantTools = {键:访问} 清单形整表替换：你给出的就是全部可用清单，未列键一律 deny——' +
-      '免于逐个填 deny 的负担，但每键仍被祖先显式判定封顶（ask 洗不成 allow）。tools 与 grantTools 互斥。' +
-      'name = 实例称呼（全局唯一，撞名拒绝）。类定义/父子拓扑/上下文策略/系统提示不在本通道（改类文件走 agent_class_update，拓扑是族谱事实）。',
+      '更新 agent 实例的运行参数（缺省目标 = 你自己；祖先可改后代）。' +
+      'model = "提供商/模型"（下一轮生效，不级联已出生子孙；随实例持久化）。' +
+      'name = 实例称呼（全局唯一，撞名拒绝）。' +
+      '类定义/父子拓扑/上下文策略/系统提示/工具清单不在本通道——改类走 agent_class_update；' +
+      '工具清单出生时收敛落地后不可改。',
     accessKey: 'agent_update',
     birth: 'ignore', // 出生声明（agent_update）
     kind: 'internal',
@@ -347,8 +345,6 @@ function agentUpdate(host: SystemToolHost): ToolCapability {
         agentId: { type: 'string', description: '目标（可选，缺省为调用者自身；name / name#id / id 三形态）；仅自身或祖先可改' },
         model: { type: 'string', description: '新模型 "提供商/模型"（可选）' },
         name: { type: 'string', description: '新称呼（全局唯一，撞名被拒）' },
-        tools: { type: 'object', description: '收敛补丁：访问键 → allow/ask/deny/ignore，逐键只许收紧' },
-        grantTools: { type: 'object', description: '清单形整表替换（与 tools 互斥）：给出的即全部清单，其余 deny' },
       },
     },
     execute: async (input, ctx) => {
@@ -356,8 +352,6 @@ function agentUpdate(host: SystemToolHost): ToolCapability {
         agentId?: string
         model?: string
         name?: string
-        tools?: Record<string, ToolAccess>
-        grantTools?: Record<string, ToolAccess>
       }
       const resolved = args.agentId !== undefined ? resolveOr(host, args.agentId) : { id: ctx.agentId }
       if ('text' in resolved) return { text: resolved.text }
@@ -365,21 +359,14 @@ function agentUpdate(host: SystemToolHost): ToolCapability {
       if (!host.agents.canReach(ctx.agentId, target)) {
         return { text: `无权更新该 agent（可见域 = 自身 + 族谱后代）: ${target}` }
       }
-      if (args.tools !== undefined && args.grantTools !== undefined) {
-        return { text: 'tools（收敛补丁）与 grantTools（清单整表替换）互斥，一次只用一种' }
-      }
-      const bad = [...Object.entries(args.tools ?? {}), ...Object.entries(args.grantTools ?? {})].find(
-        ([, v]) => !['allow', 'ask', 'deny', 'ignore'].includes(String(v)),
-      )
-      if (bad !== undefined) return { text: `非法访问值 ${String(bad[1])}（键 ${bad[0]}）：allow/ask/deny/ignore 之一` }
       let model: ModelRef | undefined
       if (args.model !== undefined) {
         const parsed = parseModelArg(args.model)
         if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
         model = parsed
       }
-      if (model === undefined && args.name === undefined && args.tools === undefined && args.grantTools === undefined) {
-        return { text: '至少给出一个更新字段（model / name / tools / grantTools）；现档案见 agent_inspect' }
+      if (model === undefined && args.name === undefined) {
+        return { text: '至少给出一个更新字段（model / name）；现档案见 agent_inspect' }
       }
       try {
         await host.agents.updateAgent({
@@ -387,20 +374,15 @@ function agentUpdate(host: SystemToolHost): ToolCapability {
           by: ctx.agentId,
           ...(model !== undefined ? { model } : {}),
           ...(args.name !== undefined ? { name: args.name } : {}),
-          ...(args.tools !== undefined ? { toolsPatch: args.tools } : {}),
-          ...(args.grantTools !== undefined ? { toolsGrant: args.grantTools } : {}),
         })
       } catch (e) {
-        const err = e as { kind?: string; violations?: string[]; message?: string }
-        if (err.kind === 'agent_update_expanded') {
-          return { text: `扩张被拒（总序 deny ≺ ask ≺ allow ≺ ignore，只许顺链收紧）：\n${(err.violations ?? []).map((v) => `  - ${v}`).join('\n')}` }
-        }
+        const err = e as { kind?: string; message?: string }
         if (err.kind === 'agent_name_conflict') return { text: `改名被拒：${err.message ?? String(e)}` }
         throw e
       }
       const cfg = host.agents.getAgentConfig(target)
       const modelEcho = cfg?.model !== undefined ? `${cfg.model.provider}/${cfg.model.id}·${cfg.model.origin}` : '-'
-      return { text: `已更新 ${host.agents.displayOf(target)}（下一轮送信生效；收缩已沿族谱下传重算）。现模型 = ${modelEcho}；生效清单见 agent_inspect。` }
+      return { text: `已更新 ${host.agents.displayOf(target)}（下一轮送信生效）。现模型 = ${modelEcho}。` }
     },
   }
 }

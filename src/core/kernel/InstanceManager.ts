@@ -89,6 +89,8 @@ export interface InstanceManager {
    * 重启不需类模板恢复运行模型；改父不动子由已落地绑定保证。
    */
   readonly setModelBinding: (agentId: AgentID, binding: ModelBinding) => Promise<void>
+  /** 反馈式上下文占用（最近一次 prompt_tokens；runtime/attributeUsage 写入）。 */
+  readonly setCtxTokens: (agentId: AgentID, tokens: number) => Promise<void>
   /**
    * 持久化恢复专用（绕过模板校验，仅由组合根启动期调用）：
    * 直接装载实例行；活跃状态归一化——thinking/holding → interrupted
@@ -255,6 +257,11 @@ export class DefaultInstanceManager implements InstanceManager {
   async setModelBinding(agentId: AgentID, binding: ModelBinding): Promise<void> {
     const instance = await this.get(agentId)
     ;(instance as { modelBinding?: ModelBinding }).modelBinding = binding
+  }
+
+  async setCtxTokens(agentId: AgentID, tokens: number): Promise<void> {
+    const instance = await this.get(agentId)
+    ;(instance as { ctxTokens?: number }).ctxTokens = tokens
   }
 
   restore(instance: AgentInstance): void {
