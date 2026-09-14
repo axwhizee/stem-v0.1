@@ -93,7 +93,7 @@ describe('显式会话模型（CLI 式目标制）', () => {
     const s = createRouterState(cfg({ sessions: { oc_p2p: 'kid7' } }), { onSession: (c, t) => { events.push([c, t]) } })
     s.ownerChatId = 'oc_p2p'
     assert.deepEqual(handleInbound(s, msg({ text: '/new organizer 整理周报' })), [{ kind: 'command', chatId: 'oc_p2p', name: 'new', args: ['organizer', '整理周报'] }])
-    assert.deepEqual(handleInbound(s, msg({ text: '/use kid#0-1', messageId: 'm2' })), [{ kind: 'command', chatId: 'oc_p2p', name: 'use', args: ['kid#0-1'] }])
+    assert.deepEqual(handleInbound(s, msg({ text: '/use kid#1', messageId: 'm2' })), [{ kind: 'command', chatId: 'oc_p2p', name: 'use', args: ['kid#1'] }])
     assert.deepEqual(handleInbound(s, msg({ text: '/agents', messageId: 'm3' })), [{ kind: 'command', chatId: 'oc_p2p', name: 'agents', args: [] }])
     const exits = handleInbound(s, msg({ text: '/exit', messageId: 'm4' }))
     assert.equal(exits[0]!.kind, 'reply')
@@ -180,11 +180,11 @@ describe('命令面', () => {
 describe('信箱分流（读 aloud / 审批）', () => {
   test('access_request XML 解析', () => {
     const req = parseAccessRequest(
-      '<access_request id="r7" accessKey="edit" agent="tester#0-1"><EditFile path="a.py" ...>请用 access_reply 工具答复（requestId=r7）。</access_request>',
+      '<access_request id="r7" accessKey="edit" agent="tester#1"><EditFile path="a.py" ...>请用 access_reply 工具答复（requestId=r7）。</access_request>',
     )
     assert.deepEqual(
       { requestId: req?.requestId, accessKey: req?.accessKey, agentId: req?.agentId },
-      { requestId: 'r7', accessKey: 'edit', agentId: 'tester#0-1' },
+      { requestId: 'r7', accessKey: 'edit', agentId: 'tester#1' },
     )
     assert.equal(parseAccessRequest('普通信件'), undefined)
   })
@@ -193,7 +193,7 @@ describe('信箱分流（读 aloud / 审批）', () => {
     const s = state({ approvalChatIds: ['oc_admin_grp'] })
     const acts = routeUserMail(s, [
       { from: 'sec1', content: '主人，天气晴。' },
-      { from: 'tester#0-1', content: '<access_request id="r7" accessKey="edit" agent="tester#0-1">…</access_request>' },
+      { from: 'tester#1', content: '<access_request id="r7" accessKey="edit" agent="tester#1">…</access_request>' },
       { from: '0', content: '（船长的话回声，不该读 aloud）' },
     ])
     assert.equal(acts[0]!.kind, 'reply')
@@ -228,12 +228,12 @@ describe('审批卡回调与渲染', () => {
   test('formatTree 缩进 + 徽标 + 空树兜底', () => {
     const tree = formatTree([
       { id: '0', name: 'user', classRef: 'user', parentId: '', status: 'idle', turnCount: 0 },
-      { id: '0-1', name: 'sec1', classRef: 'assistant', parentId: '0', status: 'idle', turnCount: 3 },
-      { id: '0-1-2', name: 'kid9', classRef: 'tester', parentId: '0-1', status: 'thinking', turnCount: 1 },
+      { id: '1', name: 'sec1', classRef: 'assistant', parentId: '0', status: 'idle', turnCount: 3 },
+      { id: '1.2', name: 'kid9', classRef: 'tester', parentId: '1', status: 'thinking', turnCount: 1 },
     ])
     assert.match(tree, /user#0 \(根\)/)
-    assert.match(tree, /🟢 sec1#0-1 \(assistant, idle, 3轮\)/)
-    assert.match(tree, /🔵 kid9#0-1-2/)
+    assert.match(tree, /🟢 sec1#1 \(assistant, idle, 3轮\)/)
+    assert.match(tree, /🔵 kid9#1.2/)
     assert.ok(tree.indexOf('kid9') > tree.indexOf('sec1'), '子在父后（缩进树序）')
     assert.match(formatTree([]), /旗下暂无实例/)
   })

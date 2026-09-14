@@ -15,7 +15,7 @@
 
 import { resolve } from 'node:path'
 import { bootStem } from '../cli/platform'
-import { ROOT_ID } from '../../src/core/kernel'
+import { parentIdOf, ROOT_ID } from '../../src/core/kernel'
 import type { PilotEvent } from '../../src/core/events'
 import { loadFeishuConfig, patchFeishuConfig } from './config'
 import { createFeishuPlatform } from './feishu'
@@ -277,7 +277,7 @@ async function main(): Promise<void> {
       }
       case 'tree': {
         const agents = await system.pilot.listAgents()
-        return formatTree(agents.map((a) => ({ id: a.id, name: a.name, classRef: String(a.classRef), parentId: a.parentId ?? '', status: a.status, turnCount: a.turnCount })))
+        return formatTree(agents.map((a) => ({ id: a.id, name: a.name, classRef: String(a.classRef), parentId: parentIdOf(a.id) ?? '', status: a.status, turnCount: a.turnCount })))
       }
       case 'status': {
         const target = (args[0] !== undefined ? resolveRef(args[0]) ?? args[0] : undefined) ?? state.secretaryId
@@ -285,7 +285,7 @@ async function main(): Promise<void> {
           const a = await system.pilot.inspect(target)
           const facts = system.kernel.contextManager.boxFacts(a.id)
           return [
-            `agent ${a.id}（${String(a.classRef)}，父=${a.parentId ?? '∅'}）`,
+            `agent ${a.id}（${String(a.classRef)}，父=${parentIdOf(a.id) ?? '∅'}）`,
             `状态=${a.status} 轮数=${a.turnCount} 模型=${a.model ? `${a.model.provider}/${a.model.id}` : '继承链'}`,
             facts
               ? `生效接线：策略=${facts.strategy} 组装=${facts.assemble} custom=[${facts.customKeys.join(',')}] 倒计时=${facts.sendCountdownMs}ms`
@@ -334,7 +334,7 @@ async function main(): Promise<void> {
 
   async function resolveSecretary(): Promise<string> {
     const agents = await system.pilot.listAgents()
-    const found = agents.find((a) => String(a.classRef) === config.secretaryClass && a.parentId === ROOT_ID)
+    const found = agents.find((a) => String(a.classRef) === config.secretaryClass && parentIdOf(a.id) === ROOT_ID)
     if (found !== undefined) return found.id
     return await system.pilot.instantiate(
       {

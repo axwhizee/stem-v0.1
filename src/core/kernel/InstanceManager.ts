@@ -2,18 +2,18 @@
 // core/kernel/InstanceManager.ts —— 实例管理器（身份注册表）
 //
 // 身份两件套（B1/B2）：
-//   - id = 出生路径，系统全托管：根 `0`；子 = `<父id>-<出生序号>`。序号 1 起、
-//     永不回收——terminate 留归档墓碑（status='terminated'），计数器含墓碑行
-//     （restore 扫描立地板）；地址复用 = 历史信件指错实体，绝对禁止。
+//   - id = 出生路径，系统全托管：根 `0`；root 第 N 子 = `N`；子 = `<父id>.<序号>`。
+//     序号 1 起、永不回收——terminate 留归档墓碑（status='terminated'），计数器
+//     含墓碑行（restore 扫描立地板）；地址复用 = 历史信件指错实体，绝对禁止。
 //   - name = 可变称呼，全局唯一：出生显式（撞名拒，绝不自动后缀）或缺省
 //     确定性推导 `类名-N`（扫描含墓碑，可复现无随机）；改名撞名拒。
 // 寻址解析（B3）：`name#id` 精确制导 → 精确 id → 唯一 id 前缀 → name。
-// 总线/邮局注册由 Kernel 在实例化流程中完成。
+// 父拓扑 = parentIdOf(id) 纯推导（不落库）。
 // ============================================================
 
 import type { TemplateRegistry } from './TemplateRegistry'
 import type { AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentStatus, ModelBinding } from './types'
-import { formatFull, makeAgentID, ROOT_ID } from './types'
+import { formatFull, makeAgentID, parentIdOf, ROOT_ID } from './types'
 import type { ToolAccess } from '../tools'
 import type { ModelRef } from '../gateway'
 
@@ -162,14 +162,12 @@ export class DefaultInstanceManager implements InstanceManager {
     const instance: AgentInstance = {
       id,
       classRef: template.name,
-      parentId: opts.parentId,
       name,
       ...(opts.assemble !== undefined ? { assemble: opts.assemble } : {}),
       status: 'idle',
       turnCount: 0,
       totalCost: 0,
       totalTokens: 0,
-      userPrompt: opts.userPrompt,
       ...(opts.tools !== undefined ? { toolOverride: opts.tools } : {}),
       ...(opts.model !== undefined ? { model: opts.model } : {}),
       ...(opts.temperature !== undefined ? { temperature: opts.temperature } : {}),
@@ -334,35 +332,36 @@ export class DefaultInstanceManager implements InstanceManager {
     return dup
   }
 
-  /** 祖先链判定（根 parentId=null 终止；路径前缀 ⇔ 结构祖先——此处走结构真相）。 */
+  /** 祖先链判定（路径前缀 ⇔ 结构祖先——纯字符串推导；根是全树祖先）。 */
   private isAncestorOf(by: AgentID, target: AgentID): boolean {
-    let current: AgentInstance | undefined = this.agents.get(target)
-    while (current?.parentId != null) {
-      if (current.parentId === by) return true
-      current = this.agents.get(current.parentId)
-    }
-    return false
+    if (by === target) return false
+    if (by === ROOT_ID) return true
+    return target.startsWith(`${by}.`)
   }
 
   private directChildren(agentId: AgentID): AgentID[] {
-    return [...this.agents.values()].filter((a) => a.parentId === agentId).map((a) => a.id)
+    return [...this.agents.values()]
+      .filter((a) => parentIdOf(a.id) === agentId)
+      .map((a) => a.id)
   }
 
-  /** 出生路径分配：`<父id>-<高水位+1>`（根的子挂 '0' 下）。 */
+  /** 出生路径分配：root 子 = `N`；其余 = `<父id>.<高水位+1>`。 */
   private nextChildId(parentId: AgentID | null): AgentID {
     if (parentId === null) return ROOT_ID
     const key = parentId
     const next = (this.childSeq.get(key) ?? 0) + 1
     this.childSeq.set(key, next)
-    return makeAgentID(`${parentId}-${next}`)
+    if (parentId === ROOT_ID) return makeAgentID(String(next))
+    return makeAgentID(`${parentId}.${next}`)
   }
 
   /** 恢复/出生共用的占用登记：childSeq 地板、classSeq 地板、names 在册。 */
   private reserveIdentity(instance: AgentInstance): void {
-    if (instance.parentId !== null) {
-      const suffix = Number(instance.id.slice(instance.parentId.length + 1))
+    const parent = parentIdOf(instance.id)
+    if (parent !== null) {
+      const suffix = Number(instance.id.slice(parent === ROOT_ID ? 0 : parent.length + 1))
       if (Number.isFinite(suffix)) {
-        this.childSeq.set(instance.parentId, Math.max(this.childSeq.get(instance.parentId) ?? 0, suffix))
+        this.childSeq.set(parent, Math.max(this.childSeq.get(parent) ?? 0, suffix))
       }
     }
     this.names.add(instance.name)

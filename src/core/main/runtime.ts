@@ -18,7 +18,7 @@ import { defaultTimer } from '../context/wait'
 import type { ToolContext, ToolError } from '../tools'
 import { formatToolOutput } from '../tools'
 import type { AgentID, AgentStatus, RuntimePort, RuntimePortDeps } from '../kernel'
-import { makeAgentID, ROOT_ID } from '../kernel'
+import { makeAgentID, parentIdOf, ROOT_ID } from '../kernel'
 
 /** 中断后收尾标记（消息闭合：避免出现"assistant 后直接接 user"的非法消息序列）。 */
 const INTERRUPTED_MARKER = '<interrupted>'
@@ -247,7 +247,7 @@ export class DefaultRuntime implements RuntimePort {
       // 最终回复：寄给创建者（= 族谱父；发原始文本，发送者戳由管理员打标签时统一生成）。
       const finalText = allText.join('')
       if (finalText !== '') {
-        await this.deps.contextManager.deposit(instance.parentId ?? ROOT_ID, { role: 'user', content: finalText }, instance.id)
+        await this.deps.contextManager.deposit(parentIdOf(instance.id) ?? ROOT_ID, { role: 'user', content: finalText }, instance.id)
       }
     } catch (cause) {
       // 中断/错误发生在当前轮 for-await 内部：roundText 持有中断前已产出的部分文本。

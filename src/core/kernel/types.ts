@@ -24,8 +24,8 @@ export const USER_CLASS_ID = makeAgentClassID('user')
 
 /**
  * 根 id = 出生路径的起点（B1：id 是纯推导的族谱地址，系统全托管）：
- * 根 = `0`；子 = `<父id>-<出生序号>`（序号 1 起、永不回收，terminate 留墓碑）。
- * 代际 = 段数、父 = 去尾段、祖先链 = 前缀——零查询纯字符串推导。
+ * 根 = `0`；root 第 N 子 = `N`；子 = `<父id>.<出生序号>`（序号 1 起、永不回收，
+ * terminate 留墓碑）。代际 = 段数、父 = 去尾段、祖先链 = 前缀——零查询纯字符串推导。
  */
 export const ROOT_ID = makeAgentID('0')
 
@@ -37,13 +37,15 @@ export type EffortLevel = 'none' | 'low' | 'medium' | 'high'
 
 export const DEFAULT_EFFORT: EffortLevel = 'none'
 
-/** 出生路径 id 的合法形：数字段以 `-` 连接（`0`、`0-3`、`0-3-2-7`）。 */
-export const AGENT_ID_PATTERN = /^\d+(-\d+)*$/
+/** 出生路径 id 的合法形：数字段以 `.` 连接（`0`、`1`、`1.3`、`1.3.2`）。 */
+export const AGENT_ID_PATTERN = /^\d+(\.\d+)*$/
 
-/** 路径父解析：`0-3-2` → `0-3`；根 `0` → null（纯推导，不查树）。 */
+/** 路径父解析：`1.3.2` → `1.3`；root 第 N 子 `3` → `0`；根 `0` → null（纯推导，不查树）。 */
 export function parentIdOf(agentId: AgentID): AgentID | null {
-  const cut = agentId.lastIndexOf('-')
-  return cut < 0 ? null : (agentId.slice(0, cut) as AgentID)
+  if (agentId === ROOT_ID) return null
+  const cut = agentId.lastIndexOf('.')
+  if (cut < 0) return ROOT_ID
+  return agentId.slice(0, cut) as AgentID
 }
 
 /** 全名呈现（信件戳/列表/审批卡/错误 message 统一 `name#id`）。 */
@@ -126,15 +128,13 @@ export interface ModelBinding {
 /**
  * AgentInstance（运行时原子单位）。**自包含**：模型生效绑定随行持久，
  * 重启不需类模板即可恢复运行模型（类仍负责 systemPrompt/策略/工具基因）。
- * **id = 出生路径**（B1 系统全托管：根 `0`，子 `<父id>-<序号>`；不可变、不复用）。
- * **parentId 即 creatorId 合并**：谁创建实例，谁就是族谱父（根为 null 即根）。
+ * **id = 出生路径**（B1 系统全托管：根 `0`，root 子 `N`，子 `<父id>.<序号>`；
+ * 不可变、不复用）。**父 = parentIdOf(id) 纯推导**（不落库）。
  */
 export interface AgentInstance {
   readonly id: AgentID
   /** 模板名（即模板键）。 */
   readonly classRef: AgentClassID
-  /** 族谱父（= 创建者；根为 null）；创建时确定、不可变，且是 id 的前缀真相。 */
-  readonly parentId: AgentID | null
   /**
    * **全局唯一称呼**（B2）：出生 = 显式指定（撞名拒）或确定性推导 `类名-N`；
    * 运行期可经 agent_update.name 改（撞名拒）；呈现面统一 `name#id`。
@@ -153,8 +153,6 @@ export interface AgentInstance {
    * cortex 水位等策略判据用；与 totalTokens 终身账分开。
    */
   ctxTokens?: number
-  /** 实例化时必填的 user prompt（作为首封信投递，符合 openai messages 规范）。 */
-  readonly userPrompt: string
   /** 实例化时传入的工具清单补充（对模板表的收敛，可临时收紧；运行时仅用于组装）。 */
   readonly toolOverride?: Readonly<Record<string, ToolAccess>>
   /**

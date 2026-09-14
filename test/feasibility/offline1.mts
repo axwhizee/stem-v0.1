@@ -15,7 +15,7 @@ import { join } from 'node:path'
 
 const { startMockSse } = await import('../../shell/cli/mockSse.ts')
 const { bootStem } = await import('../../shell/cli/platform.ts')
-const { makeAgentClassID, makeAgentID } = await import('../../src/core/kernel')
+const { makeAgentClassID, makeAgentID, parentIdOf } = await import('../../src/core/kernel')
 const { defaultStemConfig } = await import('../../src/core/config')
 
 let pass = 0
@@ -105,7 +105,7 @@ try {
   // ---------- S1 装配与权限物化 ----------
   console.log('S1 装配（bootStem 全链）')
   const agents0 = await sys.pilot.listAgents()
-  ok('根（user#0）存在且为根', agents0.some((a) => a.id === '0' && a.parentId === null && a.name === 'user'), JSON.stringify(agents0.map((a) => [a.id, a.parentId])))
+  ok('根（user#0）存在且为根', agents0.some((a) => a.id === '0' && parentIdOf(a.id) === null && a.name === 'user'), JSON.stringify(agents0.map((a) => [a.id, parentIdOf(a.id)])))
   const toolsAll = await sys.tools.list()
   ok('internal 工具在场（bash/access_reply）', toolsAll.some((t) => t.id === 'bash') && toolsAll.some((t) => t.id === 'access_reply'))
   ok('extension 纯关（extensions.tools={} 不点名）', !toolsAll.some((t) => t.id === 'read'))
@@ -127,7 +127,7 @@ try {
   ok('回信自动投递根信箱（letter 事件）', letters.some((l) => l.agentId === '0' && l.text.includes('MOCK-DONE')), JSON.stringify(letters.slice(-2)))
   ok('status 事件流有迁移', statuses.length > 0)
   const inst2 = await sys.pilot.inspect(coderId)
-  ok('coder 出生（parentId=根 0）', inst2.parentId === makeAgentID('0'), JSON.stringify(inst2.parentId))
+  ok('coder 出生（parentId=根 0）', parentIdOf(inst2.id) === makeAgentID('0'), JSON.stringify(parentIdOf(inst2.id)))
 
   // ---------- S3 ask 审批（消息化）+ 进化书写 + bash 对外操作面 ----------
   console.log('S3 子实例跑轮：ask→根信箱→答复→落盘；bash allow 执行')

@@ -12,7 +12,7 @@
 //   - journal 用默认 rollback（不启 WAL：WAL 依赖 shm 共享内存，
 //     WSL /mnt/c 9P 挂载下有风险；原型规模 rollback 足够）；
 //   - 归档：messages.archived 标记（销毁保语料，恢复不加载）；
-//   - 版本守卫：PRAGMA user_version（当前 3）——**零历史兼容**（v1.0 开发期
+//   - 版本守卫：PRAGMA user_version（当前 4）——**零历史兼容**（v1.0 开发期
 //     特权：schema 不对就是错，拒绝加载即正确行为；无迁移脚本无兼容层，
 //     明示"重建空间"出路）。
 // ============================================================
@@ -26,7 +26,7 @@ import type { InstanceStore } from '../../../src/core/kernel'
 import type { AgentID, AgentInstance } from '../../../src/core/kernel'
 
 /** 当前 schema 版本（PRAGMA user_version；任何非零不符版本 = 拒载）。 */
-const SCHEMA_VERSION = 3
+const SCHEMA_VERSION = 4
 
 /**
  * SQLite 个体层存储（驱动类：不直接 implements 两端口——

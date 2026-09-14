@@ -29,6 +29,7 @@ import {
   Kernel,
   makeAgentClassID,
   makeAgentID,
+  parentIdOf,
   BUILTIN_TEMPLATES,
   ROOT_ID,
   type AgentID,
@@ -238,7 +239,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       const agents = await state.kernel.instances.listAll()
       for (const a of agents) {
         const marker = a.id === state.currentAgentId ? '*' : ' '
-        console.log(` ${marker} ${a.name}#${a.id}  <${a.classRef}>  parent=${a.parentId ?? '-'}  ${a.status}  turns=${a.turnCount}`)
+        console.log(` ${marker} ${a.name}#${a.id}  <${a.classRef}>  parent=${parentIdOf(a.id) ?? '-'}  ${a.status}  turns=${a.turnCount}`)
       }
       return false
     }

@@ -30,7 +30,7 @@ async function makeManager() {
 }
 
 describe('出生路径 id（B1）', () => {
-  test('根 = 0；子 = <父id>-<序号>，代际/父 = 纯推导', async () => {
+  test('根 = 0；root 子 = N；子 = <父id>.<序号>，代际/父 = 纯推导', async () => {
     const { manager, root } = await makeManager()
     assert.equal(root.id, ROOT_ID)
     assert.match(root.id, AGENT_ID_PATTERN)
@@ -38,10 +38,11 @@ describe('出生路径 id（B1）', () => {
     const c1 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
     const c2 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
     const g = await manager.instantiate({ className: cls.name, parentId: c2.id, userPrompt: 'hi' })
-    assert.equal(c1.id, '0-1')
-    assert.equal(c2.id, '0-2')
-    assert.equal(g.id, '0-2-1')
-    assert.equal(parentIdOf(g.id), '0-2')
+    assert.equal(c1.id, '1')
+    assert.equal(c2.id, '2')
+    assert.equal(g.id, '2.1')
+    assert.equal(parentIdOf(g.id), '2')
+    assert.equal(parentIdOf(c1.id), ROOT_ID)
   })
 
   test('序号永不回收：terminate 后下一个出生跳号（地址复用=历史信件指错实体）', async () => {
@@ -50,18 +51,18 @@ describe('出生路径 id（B1）', () => {
     const b = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
     await manager.terminate(a.id)
     const c = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
-    assert.equal(a.id, '0-1')
-    assert.equal(b.id, '0-2')
-    assert.equal(c.id, '0-3', '被销毁的 0-1 不被复用')
+    assert.equal(a.id, '1')
+    assert.equal(b.id, '2')
+    assert.equal(c.id, '3', '被销毁的 1 不被复用')
   })
 
   test('restore 扫描含墓碑行立计数器地板（重启不复用历史地址）', async () => {
     const { manager } = await makeManager()
     manager.restore({
-      id: makeAgentID('0-7'), classRef: cls.name, parentId: ROOT_ID, name: 'worker-8', status: 'terminated', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '',
+      id: makeAgentID('7'), classRef: cls.name, name: 'worker-8', status: 'terminated', turnCount: 0, totalCost: 0, totalTokens: 0,
     })
     const next = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
-    assert.equal(next.id, '0-8', '墓碑 0-7 占位在先')
+    assert.equal(next.id, '8', '墓碑 7 占位在先')
     assert.equal(next.name, 'worker-9', '派生名同样避占用')
   })
 
@@ -118,8 +119,8 @@ describe('name 全局唯一（B2）', () => {
   test('装载唯一性校验（文件真相被手改的 DB 重复名 = boot 硬错料）', async () => {
     const { manager } = await makeManager()
     const dup: AgentInstanceLike[] = [
-      { id: '0-1', name: 'x', parentId: ROOT_ID, status: 'idle' },
-      { id: '0-2', name: 'x', parentId: ROOT_ID, status: 'idle' },
+      { id: '1', name: 'x', parentId: ROOT_ID, status: 'idle' },
+      { id: '2', name: 'x', parentId: ROOT_ID, status: 'idle' },
     ]
     assert.deepEqual(
       manager.assertNamesUnique(dup as never),
@@ -138,25 +139,25 @@ describe('寻址三形态（B3）', () => {
 
   test('name / name#id / 精确 id / 唯一 id 前缀 → 同一实例（往返）', async () => {
     const { manager, b } = await seeded()
-    for (const ref of ['bob', 'bob#0-1-1', '0-1-1', '0-1-']) {
+    for (const ref of ['bob', 'bob#1.1', '1.1', '1.']) {
       const r = manager.resolve(ref)
       assert.deepEqual(r, { found: b.id }, `ref=${ref}`)
     }
-    // 非唯一前缀不误伤：'0-1' 命中 alice 精确 id（精确优先于前缀）。
-    assert.deepEqual(manager.resolve('0-1'), { found: '0-1' })
+    // 非唯一前缀不误伤：'1' 命中 alice 精确 id（精确优先于前缀）。
+    assert.deepEqual(manager.resolve('1'), { found: '1' })
   })
 
   test('歧义前缀 → ambiguous 带候选（name#id 形）', async () => {
     const { manager, a } = await seeded()
     const c = await manager.instantiate({ className: cls.name, parentId: a.id, userPrompt: 'hi', name: 'carol' })
-    const r = manager.resolve('0-1-')
+    const r = manager.resolve('1.')
     assert.ok('ambiguous' in r)
-    assert.deepEqual([...r.ambiguous].sort(), ['bob#0-1-1', `carol#${c.id}`].sort())
+    assert.deepEqual([...r.ambiguous].sort(), ['bob#1.1', `carol#${c.id}`].sort())
   })
 
   test('name#id 不吻合 → 不命中（id 在场但 name 漂移不误配）', async () => {
     const { manager, b } = await seeded()
-    assert.deepEqual(manager.resolve('mallory#0-1-1'), { notFound: true })
+    assert.deepEqual(manager.resolve('mallory#1.1'), { notFound: true })
   })
 
   test('销毁后不可寻址（墓碑不被 name 命中）', async () => {
@@ -167,8 +168,8 @@ describe('寻址三形态（B3）', () => {
 
   test('displayOf = name#id 全名；未知 id 回落裸 id', async () => {
     const { manager, a } = await seeded()
-    assert.equal(manager.displayOf(a.id), 'alice#0-1')
-    assert.equal(manager.displayOf('9-9'), '9-9')
+    assert.equal(manager.displayOf(a.id), 'alice#1')
+    assert.equal(manager.displayOf('9.9'), '9.9')
   })
 })
 
@@ -178,8 +179,7 @@ describe('基础行为', () => {
     const a1 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
     const a2 = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
     assert.equal(a1.name, 'worker-2')
-    assert.equal(a1.parentId, root.id)
-    assert.equal(a1.userPrompt, 'hi')
+    assert.equal(parentIdOf(a1.id), root.id)
     assert.equal(a1.status, 'idle')
     assert.equal((await manager.listAll()).length, 3) // root + a1 + a2
     assert.equal((await manager.get(a1.id)).classRef, cls.name)

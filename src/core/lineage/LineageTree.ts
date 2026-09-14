@@ -18,6 +18,7 @@
 
 import type { ModelRef } from '../gateway'
 import type { AgentID, AgentInstance, ModelBinding } from '../kernel'
+import { parentIdOf } from '../kernel'
 import type { ToolAccess } from '../tools'
 import type { AccessBindEntry, AccessLedger, AccessProfile } from './AccessLedger'
 import { DefaultAccessLedger } from './AccessLedger'
@@ -122,23 +123,23 @@ export class DefaultLineageTree implements LineageTree {
   }
 
   getParent(agentId: AgentID): AgentID | null {
-    return this.getInstance(agentId)?.parentId ?? null
+    return parentIdOf(agentId)
   }
 
   getChildren(agentId: AgentID): readonly AgentID[] {
     const result: AgentID[] = []
     for (const instance of this.getAllInstances()) {
-      if (instance.parentId === agentId) result.push(instance.id)
+      if (parentIdOf(instance.id) === agentId) result.push(instance.id)
     }
     return result
   }
 
   getAncestors(agentId: AgentID): readonly AgentID[] {
     const chain: AgentID[] = []
-    let current = this.getInstance(agentId)
-    while (current?.parentId != null) {
-      chain.push(current.parentId)
-      current = this.getInstance(current.parentId)
+    let current = parentIdOf(agentId)
+    while (current !== null) {
+      chain.push(current)
+      current = parentIdOf(current)
     }
     return chain
   }

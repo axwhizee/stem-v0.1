@@ -62,7 +62,7 @@ describe('字形表（R8）', () => {
 describe('sender 剥壳与截断', () => {
   test('stripSender 往返', () => {
     assert.deepEqual(stripSender('<sender id="a1">你好</sender>'), { sender: 'a1', text: '你好' }) // 旧形兼容
-    assert.deepEqual(stripSender('<sender id="w#0-1" at="260908.1234">你好</sender>'), { sender: 'w#0-1', text: '你好' }) // B4 新形
+    assert.deepEqual(stripSender('<sender id="w#1" at="260908.1234">你好</sender>'), { sender: 'w#1', text: '你好' }) // B4 新形
     assert.deepEqual(stripSender('裸文本'), { sender: '', text: '裸文本' })
     assert.deepEqual(stripSender(''), { sender: '', text: '' })
   })
@@ -119,10 +119,10 @@ describe('routeLetters（R9 第一视角归位）', () => {
   test('agent 窗 assistant 发送者 = 全名 name#id（nameOf 解析）；无解析器回退裸 id', () => {
     const rows = routeLetters(
       [{ role: 'assistant', content: 'hi', valid: true }],
-      '0-1-1', ROOT_ID, (id) => (id === '0-1-1' ? 'verify-child' : undefined),
+      '1.1', ROOT_ID, (id) => (id === '1.1' ? 'verify-child' : undefined),
     )
-    assert.equal(rows[0]?.who, 'verify-child#0-1-1')
-    assert.equal(routeLetters([{ role: 'assistant', content: 'hi', valid: true }], '0-7')[0]?.who, '0-7')
+    assert.equal(rows[0]?.who, 'verify-child#1.1')
+    assert.equal(routeLetters([{ role: 'assistant', content: 'hi', valid: true }], '7')[0]?.who, '7')
   })
   test('纯 tool-call 轮（空正文 assistant）跳过；tool 行携带来源 who 与关联工具名', () => {
     const rows = routeLetters(
@@ -132,11 +132,11 @@ describe('routeLetters（R9 第一视角归位）', () => {
         { role: 'tool', content: 'agent 类列表', valid: true, toolCallId: 'c2' },
         { role: 'assistant', content: '有正文', valid: true },
       ],
-      '0-1-1', ROOT_ID, (id) => (id === '0-1-1' ? 'verify-child' : undefined),
+      '1.1', ROOT_ID, (id) => (id === '1.1' ? 'verify-child' : undefined),
     )
     assert.equal(rows.length, 3)
     assert.equal(rows[0]?.kind, 'tool')
-    assert.equal(rows[0]?.who, 'verify-child#0-1-1')
+    assert.equal(rows[0]?.who, 'verify-child#1.1')
     assert.equal(rows[0]?.toolName, 'bash')
     assert.equal(rows[1]?.toolName, 'list_agents')
     assert.equal(rows[2]?.kind, 'msg')
@@ -351,19 +351,19 @@ describe('mdToHtml（零依赖子集）', () => {
 
 describe('idOrder + 族谱显式排序', () => {
   test('逐段数值比较（字符串序的 0-10 < 0-2 陷阱被修正）', () => {
-    assert.ok(idOrder('0-2', '0-10') < 0)
-    assert.ok(idOrder('0-1-9', '0-2') < 0)
-    assert.equal(idOrder('0-3', '0-3'), 0)
-    assert.ok(idOrder('0', '0-1') < 0)
+    assert.ok(idOrder('2', '10') < 0)
+    assert.ok(idOrder('1.9', '2') < 0)
+    assert.equal(idOrder('3', '3'), 0)
+    assert.ok(idOrder('0', '1') < 0)
   })
   test('computeTreeRows：输入乱序子代仍按 id 自然序出栈', () => {
     const rows = computeTreeRows([
       { id: '0', parentId: null },
-      { id: '0-10', parentId: '0' },
-      { id: '0-2', parentId: '0' },
-      { id: '0-1', parentId: '0' },
+      { id: '10', parentId: '0' },
+      { id: '2', parentId: '0' },
+      { id: '1', parentId: '0' },
     ])
-    assert.deepEqual(rows.filter(isNode).map((r) => r.id), ['0', '0-1', '0-2', '0-10'])
+    assert.deepEqual(rows.filter(isNode).map((r) => r.id), ['0', '1', '2', '10'])
   })
 })
 
@@ -378,7 +378,7 @@ describe('menuItems（数据驱动，无 agent 特判）', () => {
     assert.equal(items.find((i) => i.key === 'terminate')?.state, 'off')
   })
   test('普通 agent：对话 active（当前视角语义）、毁 ready、label 全汉字', () => {
-    const items = menuItems({ id: '0-1', parentId: '0' })
+    const items = menuItems({ id: '1', parentId: '0' })
     assert.equal(items.find((i) => i.key === 'open')?.state, 'active')
     assert.equal(items.find((i) => i.key === 'terminate')?.state, 'ready')
     for (const i of items) assert.ok([...i.label].every((c) => /^[\u4e00-\u9fff]$/.test(c)), i.label)
@@ -399,8 +399,8 @@ describe('relativeTime', () => {
 
 describe('infoRows', () => {
   test('全名 = name#id；缺字段降级；模型行带来源标签', () => {
-    const rows = infoRows({ id: '0-1', name: 'helper', parentId: '0', classRef: 'assistant', status: 'idle', model: 'p/m', modelOrigin: 'class' }, Date.now())
-    assert.equal(rows.find((r) => r.k === '全名')?.v, 'helper#0-1')
+    const rows = infoRows({ id: '1', name: 'helper', parentId: '0', classRef: 'assistant', status: 'idle', model: 'p/m', modelOrigin: 'class' }, Date.now())
+    assert.equal(rows.find((r) => r.k === '全名')?.v, 'helper#1')
     assert.equal(rows.find((r) => r.k === '策略')?.v, '—')
     assert.equal(rows.find((r) => r.k === '模型')?.v, 'p/m（类基因）')
     assert.ok(!rows.some((r) => r.k === '累计费')) // 终身 token 替代费用口径
@@ -408,9 +408,9 @@ describe('infoRows', () => {
     assert.equal(infoRows(null).length, 0)
   })
   test('composerMeta：六项横排（全名/模型/策略/轮次/上下文/累计）', () => {
-    const rows = composerMeta({ id: '0-1', name: 'h', parentId: '0', strategy: 'classic', turnCount: 3, ctxTokens: 1200, totalTokens: 8900, model: 'p/m' })
+    const rows = composerMeta({ id: '1', name: 'h', parentId: '0', strategy: 'classic', turnCount: 3, ctxTokens: 1200, totalTokens: 8900, model: 'p/m' })
     assert.deepEqual(rows.map((r) => r.k), ['agent', '模型', '策略', '轮次', '上下文', '累计'])
-    assert.equal(rows[0]?.v, 'h#0-1')
+    assert.equal(rows[0]?.v, 'h#1')
     assert.equal(rows[4]?.v, '1,200')
     assert.equal(rows[5]?.v, '8,900')
     assert.deepEqual(composerMeta(null), [])

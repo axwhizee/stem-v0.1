@@ -11,6 +11,7 @@
 import { existsSync } from 'node:fs'
 import { DatabaseSync } from 'node:sqlite'
 import { statSync } from 'node:fs'
+import { parentIdOf } from '../../src/core/kernel'
 
 /** 打开空间 DB（文件不存在 = 未出生的空间，返回 undefined 由上层显示空态）。 */
 export function openDb(file: string, opts: { readonly readonly?: boolean } = {}): DatabaseSync | undefined {
@@ -49,10 +50,8 @@ export interface DashAgentRow {
 interface RawInstance {
   readonly id: string
   readonly classRef: string
-  readonly parentId: string | null
   readonly name?: string
   readonly status: string
-  readonly spaceId: string
   readonly turnCount: number
   readonly totalCost: number
   readonly model?: { provider: string; id: string }
@@ -103,9 +102,9 @@ export function dashAgents(db: DatabaseSync): DashAgentRow[] {
       id: inst.id,
       ...(inst.name !== undefined ? { name: inst.name } : {}),
       classRef: inst.classRef,
-      parentId: inst.parentId,
+      parentId: parentIdOf(inst.id as import('../../src/core/kernel').AgentID),
       status: inst.status,
-      spaceId: inst.spaceId,
+      spaceId: '',
       turnCount: inst.turnCount,
       totalCost: inst.totalCost,
       ...(refText(inst.model) !== undefined ? { model: refText(inst.model) } : {}),

@@ -67,7 +67,7 @@ describe('agent_instantiate 显式模型（R6 出生链顶）', () => {
       name: 'e1',
       model: 'cfg/explicit-m',
     })
-    assert.match(result.text, /已创建 agent e1#0-1/)
+    assert.match(result.text, /已创建 agent e1#1/)
     const e1 = kernel.resolveAgent('e1')
     assert.deepEqual(kernel.instances.getSync(e1)?.model, { provider: 'cfg', id: 'explicit-m' })
     assert.deepEqual(kernel.lineage.modelOf(e1), { ref: { provider: 'cfg', id: 'explicit-m' }, origin: 'explicit' })
@@ -102,7 +102,7 @@ describe('agent_update（R7）', () => {
       { id: 'call_self', name: 'agent_update', input: { model: 'cfg/new-m' } },
       { agentId: p1 },
     )
-    assert.match(self.text, /已更新 p1#0-1/)
+    assert.match(self.text, /已更新 p1#1/)
     assert.deepEqual(kernel.lineage.modelOf(p1), { ref: { provider: 'cfg', id: 'new-m' }, origin: 'explicit' })
     assert.deepEqual(kernel.instances.getSync(p1)?.model, { provider: 'cfg', id: 'new-m' })
     // 子女快照不动

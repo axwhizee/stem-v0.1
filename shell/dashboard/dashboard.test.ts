@@ -44,13 +44,13 @@ async function seedSpace(): Promise<{ dir: string; file: string }> {
   await repository.register('a2', 'sys2')
   await repository.append('a2', { message: { role: 'user', content: '干活' }, from: '0', tokens: 3 })
 
-  // 路径 id 标本：根实例 `0`（箱同名）+ 子 `0-1` = ghost（terminated）；a2 为孤儿箱（无实例行）。
+  // 路径 id 标本：根实例 `0`（箱同名）+ 子 `1` = ghost（terminated）；a2 为孤儿箱（无实例行）。
   await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '你好世界', name: 'root-probe' })
   await manager.instantiate({ className: cls.name, parentId: makeAgentID('0'), userPrompt: 'go', name: 'ghost' })
-  await manager.updateStatus('0-1' as never, 'interrupted')
+  await manager.updateStatus('1' as never, 'interrupted')
   // SQL 直改为 terminated（updateStatus 状态机不含该迁移，测试造终态行）。
   const db = openDb(file, { readonly: false })!
-  db.prepare(`UPDATE instances SET instance = json_set(instance, '$.status', 'terminated') WHERE id = '0-1'`).run()
+  db.prepare(`UPDATE instances SET instance = json_set(instance, '$.status', 'terminated') WHERE id = '1'`).run()
   db.close()
   store.close()
   return { dir, file }
@@ -80,7 +80,7 @@ test('仪表盘数据层：汇总/族谱/token 账目/语料/原表 全查询面
     assert.equal(root.lastPrompt, '你好世界') // 最新 user 信剥 sender 戳（B4 含 at= 属性）
     assert.equal(root.lastPromptFrom, 'user#0')
     assert.equal(root.status, 'idle')
-    const ghost = agents.find((a) => a.id === '0-1')
+    const ghost = agents.find((a) => a.id === '1')
     assert.equal(ghost?.status, 'terminated')
     assert.equal(ghost?.parentId, '0')
     assert.equal(ghost?.name, 'ghost')
@@ -118,7 +118,7 @@ test('清理工具：孤儿/terminated GC + 定点 purge（active 需 force）+ 
     const db = open(file)
     const preview = cleanupPreview(db)
     assert.deepEqual([...preview.orphanAgents], ['a2'])
-    assert.deepEqual([...preview.terminatedAgents], ['0-1'])
+    assert.deepEqual([...preview.terminatedAgents], ['1'])
     assert.equal(preview.orphanRows, 2) // a2 箱 = system + user 两行
 
     const gcOrphan = runCleanup(db, 'gc-orphans')

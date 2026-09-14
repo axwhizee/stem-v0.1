@@ -16,8 +16,8 @@ test('formatStampAt：yymmdd.hhmm 分钟精度（本地历法逐段补零）', (
 })
 
 test('stampSender：全名 + 时刻 + 正文包裹；幂等判定在场', () => {
-  const t = stampSender('worker-2#0-1', new Date(2026, 8, 7, 0, 39).getTime(), '在吗')
-  assert.equal(t, '<sender id="worker-2#0-1" at="260907.0039">在吗</sender>')
+  const t = stampSender('worker-2#1', new Date(2026, 8, 7, 0, 39).getTime(), '在吗')
+  assert.equal(t, '<sender id="worker-2#1" at="260907.0039">在吗</sender>')
   assert.ok(hasSenderStamp(t))
   assert.ok(!hasSenderStamp('裸文本'))
 })

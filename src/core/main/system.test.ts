@@ -8,7 +8,7 @@ import { FakeGateway } from '../gateway'
 import type { ConfigPaths, ConfigStore, StemConfig } from '../config'
 import type { InitFs, InitToolLoader } from './types'
 import { createStemSystem } from './system'
-import { makeAgentClassID, makeAgentID, ROOT_ID } from '../kernel'
+import { makeAgentClassID, makeAgentID, parentIdOf, ROOT_ID } from '../kernel'
 
 /** 家学锚点（S6/R12 boot 硬校验必填：config.user.model = 全链缺省本体）。 */
 const HOME: StemConfig = { user: { model: { provider: 'fake', id: 'home-model' } } }
@@ -72,10 +72,10 @@ describe('createStemSystem（系统装配组合根）', () => {
     const rootInst = system.kernel.instances.getSync(makeAgentID(ROOT_ID))
     assert.ok(rootInst)
     assert.equal(rootInst!.classRef, makeAgentClassID('user'))
-    assert.equal(rootInst!.parentId, null)
+    assert.equal(parentIdOf(rootInst!.id), null)
     // S6/R11：单空间——kernel.project = paths.projectRoot，无 spaces 表。
     assert.equal(system.kernel.project, '/proj', 'user#0 与后代共享项目身份')
-    assert.equal(rootInst!.parentId, null)
+    assert.equal(parentIdOf(rootInst!.id), null)
     // S6/R6：根绑定即家学层。
     assert.deepEqual(system.kernel.lineage.modelOf(ROOT_ID), {
       ref: { provider: 'fake', id: 'home-model' },

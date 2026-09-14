@@ -11,7 +11,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { bootStem } from '../cli/platform'
-import { makeAgentClassID } from '../../src/core/kernel'
+import { makeAgentClassID, parentIdOf } from '../../src/core/kernel'
 import type { AgentClass } from '../../src/core/kernel'
 import type { PilotEvent } from '../../src/core/events'
 import type { StemSystem } from '../../src/core/main'
@@ -208,7 +208,7 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
       id: a.id,
       name: a.name,
       classRef: a.classRef,
-      parentId: a.parentId,
+      parentId: parentIdOf(a.id),
       status: a.status,
       turnCount: a.turnCount,
       totalCost: a.totalCost,

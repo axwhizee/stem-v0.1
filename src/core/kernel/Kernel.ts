@@ -65,7 +65,7 @@ import type { AccessProfile, LineageBindEntry, LineageTree } from '../lineage'
 import { ASSISTANT, buildUserClass } from './builtin/agents'
 import type { UserClassConfig } from './builtin/agents'
 import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, ModelBinding, ProjectRef } from './types'
-import { makeAgentID, ROOT_ID, ROOT_NAME, USER_CLASS_ID } from './types'
+import { makeAgentID, parentIdOf, ROOT_ID, ROOT_NAME, USER_CLASS_ID } from './types'
 
 /**
  * 内置模板（类形态统一：唯一定义域 `kernel/builtin/agents.ts`）。
@@ -294,7 +294,7 @@ export class Kernel {
     this.replayLineage()
     for (const instance of this.restoredInstances) {
       const template = this.templates.getSync(instance.classRef)
-      const isRoot = instance.parentId === null
+      const isRoot = parentIdOf(instance.id) === null
       if (instance.modelBinding === undefined) {
         const binding = this.lineage.modelOf(instance.id)
         if (binding) await this.instances.setModelBinding(instance.id, binding)
@@ -328,7 +328,7 @@ export class Kernel {
     const template = this.templates.getSync(instance.classRef)
     return {
       agentId: instance.id as string,
-      parentId: instance.parentId as string | null,
+      parentId: parentIdOf(instance.id) as string | null,
       steps: this.accessStepsOf(instance.id),
       caps: this.birthCaps(),
       model: {
@@ -507,10 +507,11 @@ export class Kernel {
       }
     }
     const instance = await this.instances.instantiate(opts)
+    const parentOfInstance = parentIdOf(instance.id)
     // 能力绑定（注册两步曲：继承父档案 → 自身清单收敛；grant = 系统通道加法整表）。
     this.lineage.attach({
       agentId: instance.id as string,
-      parentId: instance.parentId as string | null,
+      parentId: parentOfInstance as string | null,
       ...(opts.accessMode === 'grant'
         ? { own: { ...template.tools, ...instance.toolOverride }, mode: 'grant' as const, caps: this.birthCaps() }
         : { steps: this.accessStepsOf(instance.id), caps: this.birthCaps() }),
@@ -520,7 +521,7 @@ export class Kernel {
     const binding = this.lineage.modelOf(instance.id as string)
     if (binding) await this.instances.setModelBinding(instance.id, binding)
     // temperature/effort 出生落地：显式 > 类基因 > 父。
-    const parent = instance.parentId !== null ? this.instances.getSync(instance.parentId) : undefined
+    const parent = parentOfInstance !== null ? this.instances.getSync(parentOfInstance) : undefined
     if (instance.temperature === undefined) {
       const t = template.temperature ?? parent?.temperature
       if (t !== undefined) await this.instances.update(instance.id, { temperature: t })
@@ -534,7 +535,7 @@ export class Kernel {
       at: Date.now(),
       agentId: instance.id,
       classId: instance.classRef,
-      parentId: instance.parentId ?? '',
+      parentId: parentOfInstance ?? '',
     })
 
     // 模块扮演面板（创建方 assemble=false）：不组装、不跑 LLM 轮，
@@ -553,8 +554,8 @@ export class Kernel {
     })
 
     // 上下文传递：父 agent 指定的仓库消息 id 列表，深拷贝导入新实例上下文空间。
-    if (opts.contextRefs && opts.contextRefs.length > 0 && instance.parentId) {
-      const parentState = await this.contextManager.getState(instance.parentId)
+    if (opts.contextRefs && opts.contextRefs.length > 0 && parentOfInstance) {
+      const parentState = await this.contextManager.getState(parentOfInstance)
       for (const ref of opts.contextRefs) {
         const stored = parentState.messages.find((m) => m.id === ref || `${m.turn}` === ref)
         if (stored && stored.message.role !== 'system') {
@@ -564,17 +565,17 @@ export class Kernel {
     }
 
     // wait 配对先于首信投递（S9 竞态根除：子存在的任何输出都晚于 hold）。
-    if (opts.hold !== undefined && instance.parentId !== null) {
+    if (opts.hold !== undefined && parentOfInstance !== null) {
       await this.contextManager.registerHold(instance.id, {
-        ownerId: instance.parentId,
+        ownerId: parentOfInstance,
         toolCallId: opts.hold.toolCallId,
         ...(opts.hold.timeoutMs !== undefined ? { timeoutMs: opts.hold.timeoutMs } : {}),
       })
     }
 
     // userPrompt 作为首封信投递（from=父，管理员打戳）；面板 role 无任务信。
-    if (instance.userPrompt !== '') {
-      await this.contextManager.deposit(instance.id, { role: 'user', content: instance.userPrompt }, instance.parentId ?? ROOT_ID)
+    if (opts.userPrompt !== '') {
+      await this.contextManager.deposit(instance.id, { role: 'user', content: opts.userPrompt }, parentOfInstance ?? ROOT_ID)
     }
     return instance.id
   }

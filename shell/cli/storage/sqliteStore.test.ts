@@ -50,7 +50,7 @@ async function seedLifecycle(file: string): Promise<{ ids: string[]; agentId: st
 
   await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '' })
   await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'go' })
-  await manager.updateStatus(makeAgentID('0-1'), 'thinking')
+  await manager.updateStatus(makeAgentID('1'), 'thinking')
 
   const ids = repository.list('a1').map((m) => m.id)
   store.close()
@@ -86,7 +86,7 @@ describe('SqliteStateStore（真库 round-trip）', () => {
       const instances = new PersistedInstanceManager(instanceMemory, store.instances)
       const restored = instances.restoreFromStore()
       assert.equal(restored.length, 2)
-      assert.equal(instanceMemory.getSync(makeAgentID('0-1'))?.status, 'interrupted')
+      assert.equal(instanceMemory.getSync(makeAgentID('1'))?.status, 'interrupted')
       store.close()
     })
   })
@@ -104,7 +104,7 @@ describe('SqliteStateStore（真库 round-trip）', () => {
       const archivedId = repository.list('a1')[0]!.id
 
       // 销毁 0-1：实例行转墓碑；其消息箱归档（此处 a1 即被销毁者的箱，模拟 unregister 路径）。
-      await manager.terminate(makeAgentID('0-1'), { by: ROOT_ID })
+      await manager.terminate(makeAgentID('1'), { by: ROOT_ID })
       await repository.unregister('a1')
 
       const seq = store.messages.maxMessageSeq()
@@ -112,12 +112,12 @@ describe('SqliteStateStore（真库 round-trip）', () => {
 
       // 重开：墓碑行在场（loadAll 可见、活体恢复不进名单），无 a1 恢复箱，序号守住。
       const store2 = createSqliteStateStore(file)
-      assert.equal(store2.instances.loadAll().find((i) => i.id === '0-1')?.status, 'terminated')
+      assert.equal(store2.instances.loadAll().find((i) => i.id === '1')?.status, 'terminated')
       const memory = new DefaultInstanceManager(new DefaultTemplateRegistry([cls]))
       const instances = new PersistedInstanceManager(memory, store2.instances)
       assert.equal(instances.restoreFromStore().length, 1, '墓碑不进恢复接线名单')
       const next = await instances.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'go2' })
-      assert.equal(next.id, '0-2', '墓碑 0-1 占位：新出生跳号')
+      assert.equal(next.id, '2', '墓碑 0-1 占位：新出生跳号')
       assert.equal(store2.messages.loadBoxes().some((b) => b.agentId === 'a1'), false)
       assert.equal(store2.messages.maxMessageSeq(), seq)
       assert.ok(seq > Number(archivedId.replace('m-', '')))

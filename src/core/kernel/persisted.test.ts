@@ -62,14 +62,14 @@ describe('PersistedInstanceManager write-through', () => {
     const { manager, store } = makePersisted()
     const spaceId = makeAgentID('s')
     await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '' })
-    const mid = makeAgentID('0-1')
+    const mid = makeAgentID('1')
     await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
     await manager.instantiate({ className: cls.name, parentId: mid, userPrompt: 'hi' })
 
     // root 递归销毁唯一子 mid：mid + leaf（0-1-1）两行都转墓碑，root 行存活。
     await manager.terminate(mid, { by: ROOT_ID, recursive: true })
     assert.equal(rowOf(store, mid)?.status, 'terminated')
-    assert.equal(rowOf(store, '0-1-1')?.status, 'terminated')
+    assert.equal(rowOf(store, '1.1')?.status, 'terminated')
     assert.equal(rowOf(store, ROOT_ID)?.status, 'idle')
   })
 
@@ -77,17 +77,17 @@ describe('PersistedInstanceManager write-through', () => {
     const { manager, store } = makePersisted()
     const spaceId = makeAgentID('s')
     await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '' })
-    const kid = makeAgentID('0-1')
+    const kid = makeAgentID('1')
     await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: '' })
     // 另起一个独立 manager 的"外人"不共享行集；用兄弟位模拟无销毁权：
-    const sib = makeAgentID('0-2')
+    const sib = makeAgentID('2')
     await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: '' })
     // sib 不是 kid 的祖先（结构上是兄弟）——但根可以……销毁权 by=sib 拒。
     await assert.rejects(
       () => manager.terminate(kid, { by: sib }),
       (error: unknown) => (error as { kind: string }).kind === 'agent_terminate_denied',
     )
-    assert.ok(rowOf(store, '0-1'))
+    assert.ok(rowOf(store, '1'))
   })
 
   test('有子且非 recursive：抛错且不落墓碑', async () => {
@@ -95,14 +95,14 @@ describe('PersistedInstanceManager write-through', () => {
     const spaceId = makeAgentID('s')
     await manager.instantiate({ className: cls.name, parentId: null, userPrompt: '' })
     await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: '' })
-    await manager.instantiate({ className: cls.name, parentId: makeAgentID('0-1'), userPrompt: '' })
+    await manager.instantiate({ className: cls.name, parentId: makeAgentID('1'), userPrompt: '' })
 
     await assert.rejects(
-      () => manager.terminate(makeAgentID('0-1'), { by: ROOT_ID, recursive: false }),
+      () => manager.terminate(makeAgentID('1'), { by: ROOT_ID, recursive: false }),
       (error: unknown) => (error as { kind: string }).kind === 'agent_has_children',
     )
-    assert.ok(rowOf(store, '0-1'))
-    assert.notEqual(rowOf(store, '0-1')?.status, 'terminated')
+    assert.ok(rowOf(store, '1'))
+    assert.notEqual(rowOf(store, '1')?.status, 'terminated')
   })
 })
 
@@ -110,32 +110,32 @@ describe('PersistedInstanceManager 恢复', () => {
   test('restoreFromStore：活体行归一化 interrupted；墓碑行只立占用不进名单', async () => {
     const store = new MemoryInstanceStore()
     const s = makeAgentID('s')
-    store.upsert({ id: ROOT_ID, classRef: cls.name, parentId: null, name: 'worker-1', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '' })
-    store.upsert({ id: makeAgentID('0-1'), classRef: cls.name, parentId: ROOT_ID, name: 'worker-2', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '' })
-    store.upsert({ id: makeAgentID('0-7'), classRef: cls.name, parentId: ROOT_ID, name: 'worker-8', status: 'terminated', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '' })
+    store.upsert({ id: ROOT_ID, classRef: cls.name, name: 'worker-1', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0 })
+    store.upsert({ id: makeAgentID('1'), classRef: cls.name, name: 'worker-2', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0 })
+    store.upsert({ id: makeAgentID('7'), classRef: cls.name, name: 'worker-8', status: 'terminated', turnCount: 0, totalCost: 0, totalTokens: 0 })
 
     const { manager } = makePersisted(store)
     const restored = manager.restoreFromStore()
     assert.equal(restored.length, 2, '墓碑不进恢复接线名单')
-    assert.equal(manager.getSync(makeAgentID('0-1'))?.status, 'interrupted')
-    assert.equal(manager.getSync(makeAgentID('0-7')), undefined, '墓碑不在活体面')
+    assert.equal(manager.getSync(makeAgentID('1'))?.status, 'interrupted')
+    assert.equal(manager.getSync(makeAgentID('7')), undefined, '墓碑不在活体面')
     const next = await manager.instantiate({ className: cls.name, parentId: ROOT_ID, userPrompt: 'hi' })
-    assert.equal(next.id, '0-8', '墓碑立计数器地板')
+    assert.equal(next.id, '8', '墓碑立计数器地板')
     assert.equal(next.name, 'worker-9', '墓碑占名，派生名避让')
   })
 
   test('restore 幂等：已存在 id 跳过', async () => {
     const { manager } = makePersisted()
     await manager.instantiate({ className: cls.name, parentId: null, userPrompt: 'first' })
-    manager.restore({ id: makeAgentID(ROOT_ID), classRef: cls.name, parentId: null, name: 'ghost', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '' })
-    assert.equal((await manager.get(ROOT_ID)).userPrompt, 'first')
+    manager.restore({ id: makeAgentID(ROOT_ID), classRef: cls.name, name: 'ghost', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0 })
+    assert.equal((await manager.get(ROOT_ID)).status, 'idle')
   })
 
   test('装载期撞名 = 硬错（B2 唯一性 boot 审判；文件真相被手改的形态）', async () => {
     const store = new MemoryInstanceStore()
     const s = makeAgentID('s')
-    store.upsert({ id: makeAgentID('0-1'), classRef: cls.name, parentId: null, name: 'twin', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '' })
-    store.upsert({ id: makeAgentID('0-2'), classRef: cls.name, parentId: null, name: 'twin', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0, userPrompt: '' })
+    store.upsert({ id: makeAgentID('1'), classRef: cls.name, name: 'twin', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0 })
+    store.upsert({ id: makeAgentID('2'), classRef: cls.name, name: 'twin', status: 'thinking', turnCount: 0, totalCost: 0, totalTokens: 0 })
     const { manager } = makePersisted(store)
     assert.throws(
       () => manager.restoreFromStore(),

@@ -40,7 +40,7 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
     const child = await manager.instantiate({ className: cls.name, parentId: root.id, userPrompt: 'hi' })
     const grand = await manager.instantiate({ className: cls.name, parentId: child.id, userPrompt: 'hi' })
 
-    assert.equal(root.id, '0-1')
+    assert.equal(root.id, '1')
     assert.deepEqual(lineage.getAncestors(ROOT_ID), [])
     assert.deepEqual(lineage.getAncestors(root.id), [ROOT_ID])
     assert.deepEqual(lineage.getAncestors(child.id), [root.id, ROOT_ID])
@@ -154,18 +154,31 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
       for (const b of live) {
         if (a === b) continue
         // 路径前缀 ⇔ 结构祖先（活体面互验；权限裁决权威仍是物化，编码不是旁路）。
+        // id = x.x：根是全树祖先；其余 = `<id>.` 前缀。
+        const prefix =
+          a === ROOT_ID ? b !== ROOT_ID : b.startsWith(`${a}.`)
         assert.equal(
           lineage.isAncestorOf(a, b),
-          b.startsWith(a + '-'),
-          `prefix(=${b.startsWith(a + '-')}) ⇔ isAncestorOf(=${lineage.isAncestorOf(a, b)}) ${a}→${b}`,
+          prefix,
+          `prefix(=${String(prefix)}) ⇔ isAncestorOf(=${String(lineage.isAncestorOf(a, b))}) ${a}→${b}`,
         )
       }
     }
     // 活体链无洞：每个活体的祖先链（父→根）全活且 = id 逐段前缀反序。
     for (const b of live) {
-      const parts = b.split('-')
-      const prefixes = parts.slice(0, -1).map((_, i) => parts.slice(0, i + 1).join('-') as AgentID)
-      assert.deepEqual(lineage.getAncestors(b).slice().reverse(), prefixes, `chain ${b}`)
+      const prefixes: string[] = []
+      let cur = b as string
+      while (cur !== ROOT_ID) {
+        const cut = cur.lastIndexOf('.')
+        if (cut < 0) {
+          prefixes.push(ROOT_ID)
+          cur = ROOT_ID
+        } else {
+          cur = cur.slice(0, cut)
+          prefixes.push(cur)
+        }
+      }
+      assert.deepEqual(lineage.getAncestors(b).slice(), prefixes, `chain ${b}`)
     }
   })
 })

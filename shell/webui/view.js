@@ -307,10 +307,10 @@ export function clearBucket(buckets, agentId) {
 
 // ---------- 5b. 出生路径 id 自然序与族谱显式排序 ----------
 
-/** 出生路径 id（`0` / `0-2` / `0-10`）逐段数值比较（'0-10' > '0-2'，字符串序会错）。 */
+/** 出生路径 id（`0` / `2` / `1.10`）逐段数值比较（'1.10' > '1.2'，字符串序会错）。 */
 export function idOrder(a, b) {
-  const pa = String(a).split('-')
-  const pb = String(b).split('-')
+  const pa = String(a).split('.')
+  const pb = String(b).split('.')
   const n = Math.max(pa.length, pb.length)
   for (let i = 0; i < n; i++) {
     const va = i < pa.length ? Number(pa[i]) : -1

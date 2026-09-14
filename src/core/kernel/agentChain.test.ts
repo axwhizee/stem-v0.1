@@ -14,7 +14,7 @@ import assert from 'node:assert/strict'
 import { FakeGateway } from '../gateway'
 import type { LLMRequest, LLMEvent } from '../gateway'
 import type { AgentClass } from './types'
-import { makeAgentClassID, makeAgentID, ROOT_ID } from './types'
+import { makeAgentClassID, makeAgentID, parentIdOf, ROOT_ID } from './types'
 import { BUILTIN_TEMPLATES } from './Kernel'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
 import { registerInternalTools } from '../main'
@@ -107,9 +107,9 @@ describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
     assert.equal(creatorRounds(), 2, '创造者只跑两轮（创建即等待轮 + 醒来报告轮）——无 contextWait 空转轮')
 
     const creator = await kernel.instances.get(creatorId)
-    const sub = (await kernel.instances.listAll()).find((a) => a.parentId === creatorId)
+    const sub = (await kernel.instances.listAll()).find((a) => parentIdOf(a.id) === creatorId)
     assert.ok(sub, '应存在由创造者创建的子 agent')
-    assert.equal(sub.parentId, creatorId)
+    assert.equal(parentIdOf(sub.id), creatorId)
 
     const state = await kernel.contextManager.getState(creatorId)
     const waitResult = state.messages.find(

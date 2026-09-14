@@ -28,9 +28,9 @@ async function setup() {
   const A = await kernel.instantiateAgent({ className: makeAgentClassID('observer'), parentId: ROOT_ID, userPrompt: 'x' }, '/p')
   const A1 = await kernel.instantiateAgent({ className: makeAgentClassID('observer'), parentId: A, userPrompt: 'x' }, '/p')
   const B = await kernel.instantiateAgent({ className: makeAgentClassID('observer'), parentId: ROOT_ID, userPrompt: 'x' }, '/p')
-  assert.equal(A, '0-1')
-  assert.equal(A1, '0-1-1')
-  assert.equal(B, '0-2')
+  assert.equal(A, '1')
+  assert.equal(A1, '1.1')
+  assert.equal(B, '2')
   const ev = (e: LogEvent) => kernel.logger.log(e)
   const t = 1000
   ev({ type: 'tool.invoked', at: t, agentId: A, tool: 'read', args: {}, phase: 'success', durationMs: 5 })
@@ -73,7 +73,7 @@ describe('telemetry_query（可见域 = 树位置函数）', () => {
     assert.match(byName.text, /bash called/)
     assert.ok(byName.text.startsWith(`${kernel.displayOf(B)} |`), byName.text.slice(0, 80))
     const selfByName = await run(A, {})
-    assert.ok(selfByName.text.startsWith('observer-1#0-1 |'), selfByName.text.slice(0, 80))
+    assert.ok(selfByName.text.startsWith('observer-1#1 |'), selfByName.text.slice(0, 80))
   })
 
   test('类型过滤（精确 + 前缀通配）与时间窗', async () => {

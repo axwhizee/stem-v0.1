@@ -17,26 +17,17 @@ import type {
   TelemetryPort,
 } from '../tools/internal/ports'
 import type { AccessProfile } from '../lineage'
-import type { AgentClass } from './types'
-import { makeAgentClassID, makeAgentID } from './types'
+import type { AgentClass, AgentInstance } from './types'
+import { makeAgentClassID, makeAgentID, parentIdOf } from './types'
 import { pickAgentClassGenes } from './attributes'
 import type { Kernel } from './Kernel'
 
-function toInstanceView(instance: {
-  readonly id: string
-  readonly name: string
-  readonly classRef: string
-  readonly parentId: string | null
-  readonly status: string
-  readonly turnCount: number
-  readonly totalCost: number
-  readonly totalTokens: number
-}): AgentInstanceView {
+function toInstanceView(instance: AgentInstance): AgentInstanceView {
   return {
     id: instance.id,
     name: instance.name,
     classRef: instance.classRef,
-    parentId: instance.parentId,
+    parentId: parentIdOf(instance.id),
     status: instance.status,
     turnCount: instance.turnCount,
     totalCost: instance.totalCost,
