@@ -62,6 +62,8 @@ export interface AgentInstanceView {
   readonly status: string
   readonly turnCount: number
   readonly totalCost: number
+  /** 终身累计 token（usage in+out 累加，不受 compact 影响）。 */
+  readonly totalTokens: number
 }
 
 /** 实例化请求（agent_instantiate；accessMode 恒为普通收敛，grant 属策略/宿主专用）。 */

@@ -21,6 +21,7 @@ import type { ModelRef } from '../../gateway'
 import type { ToolAccess } from '../../tools'
 import type { AgentClass } from '../types'
 import { makeAgentClassID, USER_CLASS_ID } from '../types'
+import { pickAgentClassGenes } from '../attributes'
 
 /** user 类配置（与 config.StemUserClass 同构，model 已解析为 ModelRef；init 层映射注入）。 */
 export interface UserClassConfig {
@@ -58,13 +59,10 @@ export const BUILTIN_AGENT_CLASSES: readonly AgentClass[] = [USER_DEFAULT, ASSIS
 
 /** user 类装配 = 默认档全字段消费 config.user（人格声明式可配）。 */
 export function buildUserClass(cfg?: UserClassConfig): AgentClass {
+  if (cfg === undefined) return USER_DEFAULT
   return {
     ...USER_DEFAULT,
-    ...(cfg?.description !== undefined ? { description: cfg.description } : {}),
-    ...(cfg?.systemPrompt !== undefined ? { systemPrompt: cfg.systemPrompt } : {}),
-    ...(cfg?.tools !== undefined ? { tools: cfg.tools } : {}),
-    ...(cfg?.sendCountdown !== undefined ? { sendCountdown: cfg.sendCountdown } : {}),
-    ...(cfg?.contextStrategy !== undefined ? { contextStrategy: cfg.contextStrategy } : {}),
-    ...(cfg?.model !== undefined ? { model: cfg.model } : {}),
+    ...(cfg.systemPrompt !== undefined ? { systemPrompt: cfg.systemPrompt } : {}),
+    ...pickAgentClassGenes(cfg),
   }
 }

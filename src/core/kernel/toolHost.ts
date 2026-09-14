@@ -19,6 +19,7 @@ import type {
 import type { AccessProfile } from '../lineage'
 import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentID } from './types'
+import { pickAgentClassGenes } from './attributes'
 import type { Kernel } from './Kernel'
 
 function toInstanceView(instance: {
@@ -30,6 +31,7 @@ function toInstanceView(instance: {
   readonly status: string
   readonly turnCount: number
   readonly totalCost: number
+  readonly totalTokens: number
 }): AgentInstanceView {
   return {
     id: instance.id,
@@ -40,6 +42,7 @@ function toInstanceView(instance: {
     status: instance.status,
     turnCount: instance.turnCount,
     totalCost: instance.totalCost,
+    totalTokens: instance.totalTokens,
   }
 }
 
@@ -47,10 +50,7 @@ function toClassView(cls: AgentClass): AgentClassView {
   return {
     name: cls.name,
     description: cls.description,
-    ...(cls.tools !== undefined ? { tools: cls.tools } : {}),
-    ...(cls.contextStrategy !== undefined ? { contextStrategy: cls.contextStrategy } : {}),
-    ...(cls.model !== undefined ? { model: cls.model } : {}),
-    ...(cls.panel !== undefined ? { panel: cls.panel } : {}),
+    ...pickAgentClassGenes(cls),
   }
 }
 
@@ -79,11 +79,7 @@ export function createSystemToolHost(kernel: Kernel): SystemToolHost {
           name: makeAgentClassID(cls.name),
           description: cls.description,
           systemPrompt: cls.systemPrompt,
-          ...(cls.tools !== undefined ? { tools: cls.tools } : {}),
-          ...(cls.contextStrategy !== undefined ? { contextStrategy: cls.contextStrategy } : {}),
-          ...(cls.model !== undefined ? { model: cls.model } : {}),
-          ...(cls.sendCountdown !== undefined ? { sendCountdown: cls.sendCountdown } : {}),
-          ...(cls.maxSteps !== undefined ? { maxSteps: cls.maxSteps } : {}),
+          ...pickAgentClassGenes(cls),
         },
         opts,
       ),

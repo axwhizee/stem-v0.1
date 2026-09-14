@@ -16,7 +16,7 @@
 // ============================================================
 
 import type { AgentClass, AgentClassID } from '../kernel'
-import { makeAgentClassID } from '../kernel'
+import { makeAgentClassID, pickAgentClassGenes } from '../kernel'
 import type { ContextStrategyModule } from '../context'
 import type { ToolAccess, ToolCapability } from '../tools'
 import { DEFAULT_CONFIG_TEXT, parseAgentFile } from '../config'
@@ -305,13 +305,14 @@ function parseAgentInto(
       name: makeAgentClassID(parsed.name),
       description: parsed.description,
       systemPrompt: parsed.systemPrompt,
-      // 融合：工具清单 = permission 的键 → 动作（键即白名单）。
       tools: parsed.toolAccess,
-      ...(parsed.sendCountdown !== undefined ? { sendCountdown: parsed.sendCountdown } : {}),
-      ...(parsed.maxSteps !== undefined ? { maxSteps: parsed.maxSteps } : {}),
-      ...(parsed.contextStrategy !== undefined ? { contextStrategy: parsed.contextStrategy } : {}),
-      ...(parsed.model !== undefined ? { model: parsed.model } : {}),
-      ...(Object.keys(parsed.custom).length > 0 ? { custom: parsed.custom } : {}),
+      ...pickAgentClassGenes({
+        ...(parsed.sendCountdown !== undefined ? { sendCountdown: parsed.sendCountdown } : {}),
+        ...(parsed.maxSteps !== undefined ? { maxSteps: parsed.maxSteps } : {}),
+        ...(parsed.contextStrategy !== undefined ? { contextStrategy: parsed.contextStrategy } : {}),
+        ...(parsed.model !== undefined ? { model: parsed.model } : {}),
+        ...(Object.keys(parsed.custom).length > 0 ? { custom: parsed.custom } : {}),
+      }),
     }
     result.push({ ...cls, file })
   } catch (cause) {

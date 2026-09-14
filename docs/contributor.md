@@ -21,10 +21,7 @@
 
 > **交付产物标记（2026-09-10）**：`docs/api.md` 是面向 1.0 交付的接口参考，**正式发布前可能滞后于代码**——实现以 `architecture.md`、各模块 README 与代码为准，v1.0 冻结时统一重定稿（见 `prompts.md` 优化台账）。
 
-**plan 卷生命周期**（用户裁决）：阶段计划卷（`*-plan.md`）是实施期的执行依据；
-**实施完成即随下一个功能提交删除**——全部裁决与沿革由 git 提交历史承载，残留计划
-只会长成过时指路牌。写 plan 时即按此契约：plan 卷只承载"将要做什么+为什么这么定"，
-不承载实况描述（实况永远归 architecture/api/模块 README）。
+**plan 卷生命周期**（用户裁决）：阶段计划卷是实施期的执行依据，落**仓库根 `plan.md`**（gitignore 临时档，**不入 `docs/`**——避免污染实况卷）；**实施完成即删除**——全部裁决与沿革由 git 提交历史承载，残留计划只会长成过时指路牌。写 plan 时即按此契约：plan 卷只承载"将要做什么 + 为什么这么定"，不承载实况描述（实况永远归 architecture/api/模块 README）。
 
 ### 1.2 为什么（历史教训实录）
 
@@ -32,7 +29,7 @@
 
 - `docs/code-style.md`（已于本卷合并后退役删除）：正文停留在 VSCode 时代愿景——`ContextAssetPool/KVStore/MessageBus/adapters/extension.ts` 组合根、`oc_*` 工具前缀、`normal/advanced/admin` 权限三级、`'idle'|'running'|'waiting'` 状态机。这些概念**全部已被废除**，直到有人拿它当契约才会中毒。
 - AGENTS.md 曾长期表述「panel……如 user0」——暗示根的类携带 `panel: true` 字段；实况是 **根（user#0）的面板性来自根接线**（`Kernel` 对 `parentId=null` 的 `assemble:false`），`panel` 字段是策略 role 的泛化形态。一字之差会让人去 userClass.ts 找不存在的字段。
-- `shell/cli/main.ts` 头注释残留「bus.send → 邮局 → 自动寄信」旧叙事（bus 早已工具化为 `bus_*` 系统工具）。
+- `shell/cli/main.ts` 头注释残留「bus.send → 邮局 → 自动寄信」旧叙事（bus 早已工具化，`bus_*` 又已更名 `mail_*`）。
 
 **判定标准：一段文字如果描述的是已经不存在的机制，它就是死文字。死文字零容忍——删掉或重写成活的事实，二者必居其一。**
 
@@ -72,13 +69,13 @@
 
 | 场景 | 规则 | 现行示例 |
 |---|---|---|
-| 文件 | PascalCase 类文件；camelCase 功能文件 | `LineageTree.ts`、`agentParse.ts` |
+| 文件 | PascalCase 类文件；camelCase 功能文件 | `LineageTree.ts`、`agentFile.ts` |
 | 接口 | 名词无 `I` 前缀 | `ModelGateway`、`ContextStrategyModule` |
 | 实现类 | `Default` 前缀或语义名 | `DefaultRepository`、`AccessLedger` |
 | 判别联合成员 | `type`/`kind` 域判别 | `PilotEvent`、`LogEvent`、`{kind:'...'}` 错误 |
 | ID | branded string | `AgentID`/`AgentClassID`/`AgentSpaceID`/`ProjectRef`（构造走 `makeAgentID` 等） |
 | 工具 id | 语义 snake/kebab；三分类 kind 而非前缀分权 | `agent_class_create`、`read`、`websearch` |
-| 类模板 | `kernel/builtin/<Name>.json`（internal）；目录形态（extension/custom） | `Assistant.json`（占位继承类） |
+| 类模板 | `kernel/builtin/agents.ts`（internal，代码内建）；目录形态（extension/custom） | `ASSISTANT`（占位继承类） |
 | 常量 | UPPER_SNAKE | `BASH_DEFAULTS` |
 
 类型纪律：多用 `readonly`/`interface`/`type`；**禁止 `any`**（未定用 `unknown`+守卫）；`verbatimModuleSyntax` 强制类型导入写 `import type`；`noUncheckedIndexedAccess` 下索引取值必须判空。
@@ -129,7 +126,7 @@
 - 每功能批一次 conventional commit；scope 用能力域（feat(gateway)/feat(dashboard)/test/docs…）。
 - **提交前一律先征求用户同意**（方案落盘、功能批次完成均报告待批，不自行入库）。
 - **message 遵循 conventional 规范且精炼**：标题一句话说清功能变化，正文只列关键改动点，避免长篇过程叙事（细节住 plan 卷）。
-- **plan 卷随实现退役**（§1.1 契约的执行面）：计划落盘先独立 docs 批提交；其内容实现完成后，**删除该 plan 卷并随功能批一并提交**（沿革归 git 提交历史，不留过时指路牌）。
+- **plan 卷随实现退役**（§1.1 契约的执行面）：计划落盘为**根路径临时档 `plan.md`（gitignore，不提交、不入 `docs/`）**；其内容实现完成后**删除**（沿革归 git 提交历史，不留过时指路牌）。
 
 ## 8. 环境与运行陷阱（WSL 开发机实录）
 

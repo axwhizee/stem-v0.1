@@ -7,12 +7,15 @@
 
 import { parse as parseJsonc } from 'jsonc-parser'
 import type { ParseError } from 'jsonc-parser'
-import type { ToolAccess } from '../tools'
 import type { ModelRef } from '../gateway'
+import {
+  asModelRef,
+  asNonNegNumber,
+  asString,
+  asToolAccessRecord,
+  normalizeAgentFields,
+} from '../kernel'
 import type { ConfigError, StemBashConfig, StemConfig, StemContextConfig, StemExtensionsConfig, StemProviderConfig, StemToolsConfig, StemUserClass } from './types'
-
-/** 合法工具访问动作（四态）。 */
-const ACTIONS: readonly ToolAccess[] = ['allow', 'deny', 'ask', 'ignore']
 
 /**
  * config 全量有效原则（S6/R12）：顶层键必须在此表内——config 即全部配置，
@@ -192,62 +195,34 @@ function validateNumber(
   name: string,
   upperBound?: number,
 ): number | undefined {
-  if (value === undefined) return undefined
-  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
-    fail(`${name} 必须是非负数字`)
-  }
-  if (upperBound !== undefined && value > upperBound) fail(`${name} 不得超过 ${String(upperBound)}`)
-  return value
+  const n = asNonNegNumber(value, name, fail)
+  if (n !== undefined && upperBound !== undefined && n > upperBound) fail(`${name} 不得超过 ${String(upperBound)}`)
+  return n
 }
 
-/** 工具权限记录（键 → 四态动作）。 */
-function validatePermissionRecord(
-  value: unknown,
-  fail: (message: string) => never,
-  path: string,
-): Readonly<Record<string, ToolAccess>> | undefined {
-  if (value === undefined) return undefined
-  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
-    fail(`${path} 必须是对象`)
-  }
-  const permission: Record<string, ToolAccess> = {}
-  for (const [tool, action] of Object.entries(value as Record<string, unknown>)) {
-    if (!ACTIONS.includes(action as ToolAccess)) fail(`${path}.${tool} 非法（允许 allow/ask/deny/ignore）`)
-    permission[tool] = action as ToolAccess
-  }
-  return permission
-}
-
-/** `提供商/模型` 字符串 → ModelRef（严格式：两段皆非空；config 内部完成，下游零解析）。 */
-function validateModelRef(value: unknown, fail: (message: string) => never, path: string): ModelRef | undefined {
-  if (value === undefined) return undefined
-  if (typeof value !== 'string') fail(`${path} 必须是 "提供商/模型" 格式的字符串`)
-  const slash = (value as string).indexOf('/')
-  if (slash <= 0 || slash === (value as string).length - 1) {
-    fail(`${path} 必须是 "提供商/模型" 格式的字符串（收到 "${String(value)}"）`)
-  }
-  return { provider: (value as string).slice(0, slash), id: (value as string).slice(slash + 1) }
-}
-
-/** 根的类配置对象（完整可配）。 */
+/** 根的类配置对象（完整可配；基因字段经 kernel/attributes 统一归一）。 */
 function validateUser(value: unknown, fail: (message: string) => never): StemUserClass | undefined {
   if (value === undefined) return undefined
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     fail('user 必须是对象（根 user#0 的类配置）')
   }
   const raw = value as Record<string, unknown>
-  if (raw.description !== undefined && typeof raw.description !== 'string') fail('user.description 必须是字符串')
-  if (raw.systemPrompt !== undefined && typeof raw.systemPrompt !== 'string') fail('user.systemPrompt 必须是字符串')
-  if (raw.contextStrategy !== undefined && typeof raw.contextStrategy !== 'string') fail('user.contextStrategy 必须是字符串')
-  if (raw.name !== undefined && typeof raw.name !== 'string') fail('user.name 必须是字符串')
+  const systemPrompt = asString(raw.systemPrompt, 'user.systemPrompt', fail)
+  const name = asString(raw.name, 'user.name', fail)
+  const genes = normalizeAgentFields(raw, {
+    fail,
+    mode: 'camel',
+    pathPrefix: 'user',
+    passthrough: new Set(['systemPrompt', 'name']),
+  })
   return {
-    ...(raw.description !== undefined ? { description: raw.description as string } : {}),
-    ...(raw.systemPrompt !== undefined ? { systemPrompt: raw.systemPrompt as string } : {}),
-    ...(raw.tools !== undefined ? { tools: validatePermissionRecord(raw.tools, fail, 'user.tools') } : {}),
-    ...(raw.contextStrategy !== undefined ? { contextStrategy: raw.contextStrategy as string } : {}),
-    ...(raw.model !== undefined ? { model: validateModelRef(raw.model, fail, 'user.model') } : {}),
-    ...(raw.sendCountdown !== undefined ? { sendCountdown: validateNumber(raw.sendCountdown, fail, 'user.sendCountdown') } : {}),
-    ...(raw.name !== undefined ? { name: raw.name as string } : {}),
+    ...(genes.description !== undefined ? { description: genes.description } : {}),
+    ...(systemPrompt !== undefined ? { systemPrompt } : {}),
+    ...(genes.tools !== undefined ? { tools: genes.tools } : {}),
+    ...(genes.contextStrategy !== undefined ? { contextStrategy: genes.contextStrategy } : {}),
+    ...(genes.model !== undefined ? { model: genes.model } : {}),
+    ...(genes.sendCountdown !== undefined ? { sendCountdown: genes.sendCountdown } : {}),
+    ...(name !== undefined ? { name } : {}),
   }
 }
 
@@ -271,7 +246,7 @@ function validateContext(value: unknown, fail: (message: string) => never): Stem
       ...(c.enabled !== undefined ? { enabled: c.enabled as boolean } : {}),
       ...(c.threshold !== undefined ? { threshold: validateNumber(c.threshold, fail, 'context.compact.threshold', 1) } : {}),
       ...(c.keepRecentTurns !== undefined ? { keepRecentTurns: validateNumber(c.keepRecentTurns, fail, 'context.compact.keepRecentTurns') } : {}),
-      ...(c.summarizeModel !== undefined ? { summarizeModel: validateModelRef(c.summarizeModel, fail, 'context.compact.summarizeModel') } : {}),
+      ...(c.summarizeModel !== undefined ? { summarizeModel: asModelRef(c.summarizeModel, 'context.compact.summarizeModel', fail) } : {}),
       ...(c.instruction !== undefined ? { instruction: c.instruction as string } : {}),
       ...(c.replyTimeoutMs !== undefined ? { replyTimeoutMs: validateNumber(c.replyTimeoutMs, fail, 'context.compact.replyTimeoutMs') } : {}),
     }
@@ -347,7 +322,7 @@ function validateExtensions(value: unknown, fail: (message: string) => never): S
           '如 { "tools": { "read": "allow", "write": "allow" } }',
       )
     }
-    result.tools = validatePermissionRecord(raw.tools, fail, 'extensions.tools')
+    result.tools = asToolAccessRecord(raw.tools, 'extensions.tools', fail)
   }
   for (const key of ['agent', 'context'] as const) {
     if (raw[key] === undefined) continue

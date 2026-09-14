@@ -21,10 +21,9 @@ export {
   parseAgentFile,
   parseFrontmatter,
   extractPrompt,
-  normalizeHead,
   serializeAgentClass,
   agentFileName,
   agentFileOf,
   AGENT_KNOWN_KEYS,
 } from './agentFile'
-export type { AgentFrontmatter, ParsedAgentFile } from './agentFile'
+export type { ParsedAgentFile } from './agentFile'

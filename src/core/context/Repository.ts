@@ -180,10 +180,8 @@ export class DefaultRepository implements Repository {
     let nextTurn = 0
     let nextIndexInTurn = 0
     for (const msg of messages) {
-      if (msg.id > `m-${String(this.counter)}`.replace('m-', '') || true) {
-        const seq = messageSeqOf(msg.id)
-        if (seq > this.counter) this.counter = seq
-      }
+      const seq = messageSeqOf(msg.id)
+      if (seq > this.counter) this.counter = seq
       if (msg.message.role === 'system') {
         nextTurn = 1
         nextIndexInTurn = 0

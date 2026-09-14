@@ -29,26 +29,16 @@ import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
 import type { ModelRef } from '../gateway'
 import type { ToolAccess } from '../tools'
 import type { AgentClass } from '../kernel'
+import {
+  AGENT_KNOWN_KEYS,
+  frontmatterKeyOf,
+  normalizeAgentFields,
+  pickAgentClassGenes,
+} from '../kernel'
 
 // ---------- 解析（读侧） ----------
 
-/** YAML 头（已归一化；未知字段透传 custom）。 */
-export interface AgentFrontmatter {
-  readonly description?: string
-  /** 融合的工具访问：工具名 → allow|ask|deny|ignore（键即工具白名单）。 */
-  readonly tools?: Readonly<Record<string, string>>
-  readonly send_countdown?: number
-  /** 单轮工具步数上限（S9；≤0/未设 = 无限制）。 */
-  readonly max_steps?: number
-  /** 上下文管理策略名（缺省 classic；注册期由策略注册表校验）。 */
-  readonly context_strategy?: string
-  /** 模型偏好（`提供商/模型`）。 */
-  readonly model?: string
-  /** 其余未知字段（自定义扩展位）。 */
-  readonly extra: Readonly<Record<string, unknown>>
-}
-
-/** agent 文件解析结果。 */
+/** agent 文件解析结果（基因字段经 kernel/attributes 统一归一）。 */
 export interface ParsedAgentFile {
   /** agent 类 id（= 文件名）。 */
   readonly id: string
@@ -79,29 +69,22 @@ export function parseAgentFile(text: string, filename: string): ParsedAgentFile 
     throw new Error(`agent 文件 ${filename} frontmatter 非法：${message}`)
   }
 
-  const head = normalizeHead(rawHead, fail)
-
-  const id = filename
-  const name = filename
-  const description = head.description ?? name
-  const toolAccess = normalizePermissions(head.tools, fail)
-  // 融合：工具白名单 = tools 的键（缺省无工具）。
+  const genes = normalizeAgentFields(rawHead, { fail, mode: 'frontmatter' })
+  const toolAccess = genes.tools ?? {}
   const tools = Object.keys(toolAccess)
-  const systemPrompt = extractPrompt(text)
-  const model = head.model !== undefined ? parseModelString(head.model, fail) : undefined
 
   return {
-    id,
-    name,
-    description,
+    id: filename,
+    name: filename,
+    description: genes.description ?? filename,
     toolAccess,
     tools,
-    ...(head.send_countdown !== undefined ? { sendCountdown: head.send_countdown } : {}),
-    ...(head.max_steps !== undefined ? { maxSteps: head.max_steps } : {}),
-    ...(head.context_strategy !== undefined ? { contextStrategy: head.context_strategy } : {}),
-    ...(model !== undefined ? { model } : {}),
-    custom: head.extra,
-    systemPrompt,
+    ...(genes.sendCountdown !== undefined ? { sendCountdown: genes.sendCountdown } : {}),
+    ...(genes.maxSteps !== undefined ? { maxSteps: genes.maxSteps } : {}),
+    ...(genes.contextStrategy !== undefined ? { contextStrategy: genes.contextStrategy } : {}),
+    ...(genes.model !== undefined ? { model: genes.model } : {}),
+    custom: genes.custom ?? {},
+    systemPrompt: extractPrompt(text),
   }
 }
 
@@ -119,79 +102,12 @@ export function parseFrontmatter(text: string): Record<string, unknown> {
 }
 
 /** frontmatter 已知键（解析与序列化**共用**同一集合，防两侧漂移；其余透传 custom）。 */
-export const AGENT_KNOWN_KEYS: ReadonlySet<string> = new Set([
-  'description',
-  'tools',
-  'send_countdown',
-  'max_steps',
-  'context_strategy',
-  'model',
-])
-
-/** 归一化 YAML 头为 AgentFrontmatter（校验字段类型；未知键收进 extra）。 */
-export function normalizeHead(raw: Record<string, unknown>, fail: (message: string) => never): AgentFrontmatter {
-  if (raw.description !== undefined && typeof raw.description !== 'string') fail('description 必须是字符串')
-  if (
-    raw.send_countdown !== undefined &&
-    (typeof raw.send_countdown !== 'number' || raw.send_countdown < 0)
-  ) {
-    fail('send_countdown 必须是非负数字（毫秒）')
-  }
-  if (raw.max_steps !== undefined && (typeof raw.max_steps !== 'number' || !Number.isFinite(raw.max_steps))) {
-    fail('max_steps 必须是数字（≤0/缺省 = 无限制）')
-  }
-  if (raw.tools !== undefined) {
-    if (raw.tools === null || typeof raw.tools !== 'object' || Array.isArray(raw.tools)) {
-      fail('tools 必须是对象')
-    }
-  }
-  if (raw.context_strategy !== undefined && typeof raw.context_strategy !== 'string') {
-    fail('context_strategy 必须是字符串')
-  }
-  if (raw.model !== undefined && typeof raw.model !== 'string') fail('model 必须是字符串（提供商/模型）')
-  const extra: Record<string, unknown> = {}
-  for (const [key, value] of Object.entries(raw)) {
-    if (!AGENT_KNOWN_KEYS.has(key)) extra[key] = value
-  }
-
-  return {
-    ...(raw.description !== undefined ? { description: raw.description as string } : {}),
-    ...(raw.tools !== undefined
-      ? { tools: raw.tools as Readonly<Record<string, string>> }
-      : {}),
-    ...(raw.send_countdown !== undefined ? { send_countdown: raw.send_countdown as number } : {}),
-    ...(raw.max_steps !== undefined ? { max_steps: raw.max_steps as number } : {}),
-    ...(raw.context_strategy !== undefined ? { context_strategy: raw.context_strategy as string } : {}),
-    ...(raw.model !== undefined ? { model: raw.model as string } : {}),
-    extra,
-  }
-}
-
-/** `提供商/模型` 字符串 → ModelRef（严格格式，agent 文件写错应尽早暴露）。 */
-function parseModelString(value: string, fail: (message: string) => never): ModelRef {
-  const slash = value.indexOf('/')
-  if (slash <= 0 || slash === value.length - 1) fail('model 必须是 "提供商/模型" 格式')
-  return { provider: value.slice(0, slash), id: value.slice(slash + 1) }
-}
+export { AGENT_KNOWN_KEYS }
 
 /** 提取 `---` 之后的正文（trim）。 */
 export function extractPrompt(text: string): string {
   const match = /^---\r?\n[\s\S]*?(?:\r?\n)?---(?:\r?\n|$)([\s\S]*)$/.exec(text)
   return (match?.[1] ?? '').trim()
-}
-
-const ACTIONS: readonly string[] = ['allow', 'deny', 'ask', 'ignore']
-
-function normalizePermissions(
-  raw: Readonly<Record<string, string>> | undefined,
-  fail: (message: string) => never,
-): Readonly<Record<string, ToolAccess>> {
-  const result: Record<string, ToolAccess> = {}
-  for (const [tool, action] of Object.entries(raw ?? {})) {
-    if (!ACTIONS.includes(action)) fail(`tools.${tool} 非法（允许 allow/ask/deny/ignore）`)
-    result[tool] = action as ToolAccess
-  }
-  return result
 }
 
 // ---------- 序列化（写侧；parse 的逆） ----------
@@ -220,16 +136,17 @@ export function serializeAgentClass(cls: AgentClass): string {
   if (cls.panel === true) {
     throw new Error(`panel 类 ${cls.name} 为系统机制承载，永不回写 .stem/agent/（红线）`)
   }
+  const genes = pickAgentClassGenes(cls)
   const head: Record<string, unknown> = {
-    description: cls.description,
-    tools: { ...cls.tools },
-    ...(cls.sendCountdown !== undefined ? { send_countdown: cls.sendCountdown } : {}),
-    ...(cls.maxSteps !== undefined ? { max_steps: cls.maxSteps } : {}),
-    ...(cls.contextStrategy !== undefined ? { context_strategy: cls.contextStrategy } : {}),
-    ...(cls.model !== undefined ? { model: `${cls.model.provider}/${cls.model.id}` } : {}),
+    description: genes.description,
+    tools: { ...genes.tools },
   }
+  if (genes.sendCountdown !== undefined) head[frontmatterKeyOf('sendCountdown')] = genes.sendCountdown
+  if (genes.maxSteps !== undefined) head[frontmatterKeyOf('maxSteps')] = genes.maxSteps
+  if (genes.contextStrategy !== undefined) head[frontmatterKeyOf('contextStrategy')] = genes.contextStrategy
+  if (genes.model !== undefined) head[frontmatterKeyOf('model')] = `${genes.model.provider}/${genes.model.id}`
   // custom 自由键透传（进化基因承载位）：与已知键冲突 = 歧义，拒绝落盘；undefined 值剔除。
-  for (const [key, value] of Object.entries(cls.custom ?? {})) {
+  for (const [key, value] of Object.entries(genes.custom ?? {})) {
     if (AGENT_KNOWN_KEYS.has(key)) {
       throw new Error(`custom 键 "${key}" 与 frontmatter 已知键冲突，无法无损往返（请改用标准字段）`)
     }

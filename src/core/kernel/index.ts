@@ -45,6 +45,21 @@ export { Kernel, BUILTIN_TEMPLATES } from './Kernel'
 // 身份常量与全名呈现（根 id `0` / 缺省称呼 user / `name#id`）
 export { USER_CLASS_ID, ROOT_ID, ROOT_NAME, formatFull, parentIdOf, AGENT_ID_PATTERN } from './types'
 
+// 类字段单一真相（校验 + 键名映射 + 归一）
+export {
+  AGENT_KNOWN_KEYS,
+  asModelRef,
+  asNonNegNumber,
+  asString,
+  asToolAccessRecord,
+  asFiniteNumber,
+  normalizeAgentFields,
+  parseModelRefString,
+  pickAgentClassGenes,
+  frontmatterKeyOf,
+} from './attributes'
+export type { AgentClassGenes, NormalizeMode, NormalizeOptions } from './attributes'
+
 // 内置 user 类（根模板）
 export { BUILTIN_AGENT_CLASSES, USER_DEFAULT, ASSISTANT, buildUserClass } from './builtin/agents'
 export type { UserClassConfig } from './builtin/agents'
