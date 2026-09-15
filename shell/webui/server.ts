@@ -13,6 +13,7 @@ import { resolve } from 'node:path'
 import { bootStem } from '../cli/platform'
 import { makeAgentClassID, parentIdOf } from '../../src/core/kernel'
 import type { AgentClass } from '../../src/core/kernel'
+import { parseModelRef } from '../../src/core/gateway'
 import type { PilotEvent } from '../../src/core/events'
 import type { StemSystem } from '../../src/core/main'
 
@@ -182,12 +183,8 @@ async function main(): Promise<void> {
 
 // ---------- 辅助 ----------
 
-/** 严格模型引用解析（"提供商/模型"，两段非空；S6/R6）。 */
-function parseModel(value: string): { provider: string; id: string } | undefined {
-  const slash = value.indexOf('/')
-  if (slash <= 0 || slash === value.length - 1) return undefined
-  return { provider: value.slice(0, slash), id: value.slice(slash + 1) }
-}
+/** 严格模型引用解析（复用 gateway 单点 parseModelRef）。 */
+const parseModel = parseModelRef
 
 async function listAgents(system: StemSystem): Promise<Array<Record<string, unknown>>> {
   const agents = await system.pilot.listAgents()

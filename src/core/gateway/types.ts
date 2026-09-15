@@ -11,6 +11,16 @@ export interface ModelRef {
   readonly id: string
 }
 
+/**
+ * `提供商/模型` 字符串 → ModelRef（两段皆非空；严格格式，无归属不受理）。
+ * 单一解析点：tools 工具参数 / kernel 类字段归一 / webui 写口共用。
+ */
+export function parseModelRef(value: string): ModelRef | undefined {
+  const slash = value.indexOf('/')
+  if (slash <= 0 || slash === value.length - 1) return undefined
+  return { provider: value.slice(0, slash), id: value.slice(slash + 1) }
+}
+
 /** 文本内容块。 */
 export interface TextPart {
   readonly type: 'text'

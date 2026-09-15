@@ -19,7 +19,7 @@ export type {
   LLMEvent,
   GatewayErrorKind,
 } from './types'
-export { GatewayError, isGatewayError, isAbortError } from './types'
+export { GatewayError, isGatewayError, isAbortError, parseModelRef } from './types'
 export { createOpenAiCompatibleGateway } from './providers/openaiCompatible'
 export type { OpenAiCompatibleConfig } from './providers/openaiCompatible'
 export { FakeGateway, textEvents, abortError } from './FakeGateway'

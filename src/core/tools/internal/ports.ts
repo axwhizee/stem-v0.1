@@ -18,15 +18,16 @@ import type { AccessReplyInput, ToolAccess } from '../types'
 
 // ---------- 中性 DTO ----------
 
-/** 类模板视图（agent_class_list / agent_class_update 读取面）。 */
+/** 类模板视图（agent_class_list / agent_class_update 读取面；与 AgentClassGenes 对齐）。 */
 export interface AgentClassView {
   readonly name: string
   readonly description: string
   readonly tools?: Readonly<Record<string, ToolAccess>>
   readonly contextStrategy?: string
   readonly model?: ModelRef
+  readonly sendCountdown?: number
   readonly temperature?: number
-  readonly effort?: string
+  readonly effort?: 'none' | 'low' | 'medium' | 'high'
 }
 
 /** 类创建入参（agent_class_create）。 */

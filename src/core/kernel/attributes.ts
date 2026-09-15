@@ -7,6 +7,7 @@
 // ============================================================
 
 import type { ModelRef } from '../gateway'
+import { parseModelRef } from '../gateway'
 import type { ToolAccess } from '../tools'
 import type { AgentClass } from './types'
 
@@ -72,17 +73,17 @@ export function asToolAccessRecord(
   return result
 }
 
-/** `提供商/模型` 字符串 → ModelRef（两段皆非空）。 */
+/** `提供商/模型` 字符串 → ModelRef（两段皆非空；解析走 gateway 单点）。 */
 export function parseModelRefString(
   value: string,
   path: string,
   fail: (message: string) => never,
 ): ModelRef {
-  const slash = value.indexOf('/')
-  if (slash <= 0 || slash === value.length - 1) {
+  const parsed = parseModelRef(value)
+  if (parsed === undefined) {
     fail(`${path} 必须是 "提供商/模型" 格式（收到 "${value}"）`)
   }
-  return { provider: value.slice(0, slash), id: value.slice(slash + 1) }
+  return parsed as ModelRef
 }
 
 /** 模型字段：接受 `"提供商/模型"` 字符串或已解析 ModelRef。 */
