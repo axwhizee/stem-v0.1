@@ -11,6 +11,9 @@ export interface ModelRef {
   readonly id: string
 }
 
+/** 模型思考强度（写 reasoning_effort；缺省 none = 压延迟）。 */
+export type EffortLevel = 'none' | 'low' | 'medium' | 'high'
+
 /**
  * `提供商/模型` 字符串 → ModelRef（两段皆非空；严格格式，无归属不受理）。
  * 单一解析点：tools 工具参数 / kernel 类字段归一 / webui 写口共用。
@@ -63,7 +66,7 @@ export interface LLMRequest {
   readonly maxTokens?: number
   readonly temperature?: number
   /** 思考强度（provider 层映射 reasoning_effort）。 */
-  readonly reasoningEffort?: 'none' | 'low' | 'medium' | 'high'
+  readonly reasoningEffort?: EffortLevel
 }
 
 /** 工具调用事件（input 已解析为 JSON）。 */

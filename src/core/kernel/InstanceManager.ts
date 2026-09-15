@@ -12,10 +12,10 @@
 // ============================================================
 
 import type { TemplateRegistry } from './TemplateRegistry'
-import type { AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentStatus, ModelBinding } from './types'
+import type { AgentClassID, AgentID, AgentInstance, AgentInstancePatch, AgentStatus, KernelError, ModelBinding } from './types'
 import { formatFull, makeAgentID, parentIdOf, ROOT_ID } from './types'
 import type { ToolAccess } from '../tools'
-import type { ModelRef } from '../gateway'
+import type { EffortLevel, ModelRef } from '../gateway'
 
 export interface InstantiateOptions {
   /** 模板名（= 模板键）。 */
@@ -39,7 +39,7 @@ export interface InstantiateOptions {
   /** 显式采样温度（缺省 = 类/父/家学链）。 */
   readonly temperature?: number
   /** 显式思考强度（缺省 = 类/父/家学链）。 */
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
   /** 面板性（创建方指定；false = 被外部扮演，不组装不跑 LLM）。 */
   readonly assemble?: boolean
   /**
@@ -112,11 +112,6 @@ export interface InstanceManager {
   readonly assertNamesUnique: (records: readonly AgentInstance[]) => string[]
 }
 
-/** 销毁权错误（判别联合）。 */
-type TerminateError =
-  | { readonly kind: 'agent_terminate_denied'; readonly agentId: AgentID; readonly by: string }
-  | { readonly kind: 'agent_has_children'; readonly agentId: AgentID; readonly hint: string }
-
 export class DefaultInstanceManager implements InstanceManager {
   private readonly agents = new Map<AgentID, AgentInstance>()
   /** 各父的出生序号高水位（含已销毁/墓碑占用——永不回收，键 = parentId，根用 '' 键）。 */
@@ -186,7 +181,7 @@ export class DefaultInstanceManager implements InstanceManager {
     const by: AgentID = opts?.by ?? ROOT_ID
     // 销毁权：by 必须是目标的祖先（根 parentId=null 无祖先 → 天然不可销毁）。
     if (!this.isAncestorOf(by, agentId)) {
-      throw { kind: 'agent_terminate_denied', agentId, by } satisfies TerminateError
+      throw { kind: 'agent_terminate_denied', agentId, by } satisfies KernelError
     }
     // 默认禁止销毁有活跃子的父（先处理子）；recursive 级联整棵子树。
     const children = this.directChildren(agentId)
@@ -195,7 +190,7 @@ export class DefaultInstanceManager implements InstanceManager {
         kind: 'agent_has_children',
         agentId,
         hint: `agent ${agentId} 仍有 ${children.length} 个子 agent，请先处理子 agent 或传 recursive: true 级联销毁`,
-      } satisfies TerminateError
+      } satisfies KernelError
     }
     if (opts?.recursive) {
       for (const child of children) await this.terminate(child, { by, recursive: true })
@@ -244,7 +239,7 @@ export class DefaultInstanceManager implements InstanceManager {
       model?: ModelRef
       modelBinding?: ModelBinding
       temperature?: number
-      effort?: 'none' | 'low' | 'medium' | 'high'
+      effort?: EffortLevel
     }
     if (patch.name !== undefined && patch.name !== instance.name) {
       // 改名撞名拒（全局唯一执法面含墓碑）；旧名释放占用。

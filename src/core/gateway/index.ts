@@ -7,6 +7,7 @@
 export type { ModelGateway, ChatOptions } from './ModelGateway'
 export type {
   ModelRef,
+  EffortLevel,
   ContentPart,
   TextPart,
   ToolCall,

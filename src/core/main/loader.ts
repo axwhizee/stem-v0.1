@@ -318,23 +318,36 @@ function parseAgentInto(
   }
 }
 
+/** 注册循环（工具/类/策略同构）：冲突 → issue 不中断；replace = 矩阵装载律。 */
+async function registerAll<T extends { file: string }>(
+  items: readonly T[],
+  issues: InitIssue[],
+  issueKind: InitIssue['kind'],
+  registerOne: (item: T) => Promise<void> | void,
+  onRegistered?: (item: T) => void,
+): Promise<T[]> {
+  const registered: T[] = []
+  for (const item of items) {
+    try {
+      await registerOne(item)
+      registered.push(item)
+      onRegistered?.(item)
+    } catch (cause) {
+      issues.push({ kind: issueKind, file: item.file, message: cause instanceof Error ? cause.message : String(cause) })
+    }
+  }
+  return registered
+}
+
 /** 注册工具（冲突 → issue 不中断；replace = 矩阵装载律）。 */
 async function registerTools(
   deps: InitDeps,
   tools: readonly (ToolCapability & { file: string })[],
   issues: InitIssue[],
 ): Promise<ToolCapability[]> {
-  const registered: ToolCapability[] = []
-  for (const tool of tools) {
-    try {
-      await deps.toolRegistry.register(tool, { replace: true })
-      registered.push(tool)
-      deps.onLog?.log({ type: 'init.tool.registered', at: Date.now(), tool: tool.id, file: tool.file })
-    } catch (cause) {
-      issues.push({ kind: 'tool_invalid', file: tool.file, message: cause instanceof Error ? cause.message : String(cause) })
-    }
-  }
-  return registered
+  return registerAll(tools, issues, 'tool_invalid', (tool) => deps.toolRegistry.register(tool, { replace: true }), (tool) => {
+    deps.onLog?.log({ type: 'init.tool.registered', at: Date.now(), tool: tool.id, file: tool.file })
+  })
 }
 
 /** 注册 agent 类（冲突 → issue 不中断；replace = 矩阵装载律）。 */
@@ -343,22 +356,14 @@ async function registerAgents(
   agents: readonly (AgentClass & { file: string })[],
   issues: InitIssue[],
 ): Promise<AgentClass[]> {
-  const registered: AgentClass[] = []
-  for (const agent of agents) {
-    try {
-      await deps.templateRegistry.register(agent, { replace: true })
-      registered.push(agent)
-      deps.onLog?.log({
-        type: 'init.agent.registered',
-        at: Date.now(),
-        classId: agent.name as unknown as string,
-        file: agent.file,
-      })
-    } catch (cause) {
-      issues.push({ kind: 'agent_invalid', file: agent.file, message: cause instanceof Error ? cause.message : String(cause) })
-    }
-  }
-  return registered
+  return registerAll(agents, issues, 'agent_invalid', (agent) => deps.templateRegistry.register(agent, { replace: true }), (agent) => {
+    deps.onLog?.log({
+      type: 'init.agent.registered',
+      at: Date.now(),
+      classId: agent.name as unknown as string,
+      file: agent.file,
+    })
+  })
 }
 
 /** 注册用户策略（覆盖内置 = 用户主权；issue 不中断）。 */
@@ -369,13 +374,7 @@ function registerStrategies(
 ): void {
   const registry = deps.strategyRegistry
   if (!registry) return
-  for (const { module, file } of strategies) {
-    try {
-      registry.register(module)
-    } catch (cause) {
-      issues.push({ kind: 'strategy_invalid', file, message: cause instanceof Error ? cause.message : String(cause) })
-    }
-  }
+  void registerAll(strategies, issues, 'strategy_invalid', ({ module }) => registry.register(module))
 }
 
 // ---------- 小工具 ----------

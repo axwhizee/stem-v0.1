@@ -21,7 +21,7 @@
 // ============================================================
 
 import { parse as parseYaml, stringify as stringifyYaml } from 'yaml'
-import type { ModelRef } from '../gateway'
+import type { EffortLevel, ModelRef } from '../gateway'
 import type { ToolAccess } from '../tools'
 import type { AgentClass } from '../kernel'
 import {
@@ -48,7 +48,7 @@ export interface ParsedAgentFile {
   readonly contextStrategy?: string
   readonly model?: ModelRef
   readonly temperature?: number
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
   readonly systemPrompt: string
 }
 

@@ -33,7 +33,8 @@ export const ROOT_ID = makeAgentID('0')
 export const ROOT_NAME = 'user'
 
 /** 模型思考强度（写 reasoning_effort；缺省 none = 压延迟）。 */
-export type EffortLevel = 'none' | 'low' | 'medium' | 'high'
+export type { EffortLevel } from '../gateway'
+import type { EffortLevel } from '../gateway'
 
 /** 出生路径 id 的合法形：数字段以 `.` 连接（`0`、`1`、`1.3`、`1.3.2`）。 */
 export const AGENT_ID_PATTERN = /^\d+(\.\d+)*$/
@@ -196,3 +197,12 @@ export type KernelError =
   | { readonly kind: 'agent_name_conflict'; readonly name: string; readonly message: string }
   /** 族谱解析链无模型锚（正常不发生：boot 硬校验 config.user.model；恢复残卷防御）。 */
   | { readonly kind: 'model_unresolved'; readonly agentId: AgentID }
+  /** 根清单越出生声明（boot 校验律：config.user.tools 扩张全局封顶）。 */
+  | { readonly kind: 'root_config_expanded'; readonly message: string }
+  /** 实例化/更新 tools 收敛链扩张（带逐条违例文案）。 */
+  | { readonly kind: 'tools_convergence_expanded'; readonly violations: readonly string[] }
+  /** 销毁/中断权拒绝（可见域外）。 */
+  | { readonly kind: 'agent_terminate_denied'; readonly agentId: AgentID; readonly by: string }
+  | { readonly kind: 'agent_update_denied'; readonly agentId: string; readonly by: string }
+  /** 仍有存活子女时拒绝递归外销毁。 */
+  | { readonly kind: 'agent_has_children'; readonly agentId: AgentID; readonly hint: string }

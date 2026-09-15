@@ -5,7 +5,7 @@
 // ============================================================
 
 import type { ToolCapability, ToolAccess } from '../types'
-import type { ModelRef } from '../../gateway'
+import type { EffortLevel, ModelRef } from '../../gateway'
 import { parseModelRef } from '../../gateway'
 import type { SystemToolHost } from './ports'
 import { checkToolsConvergence } from '../access'
@@ -46,7 +46,7 @@ export function agentClassCreate(host: SystemToolHost): ToolCapability {
         model?: string
         sendCountdown?: number
         temperature?: number
-        effort?: 'none' | 'low' | 'medium' | 'high'
+        effort?: EffortLevel
       }
       let model: ModelRef | undefined
       if (args.model !== undefined) {
@@ -112,7 +112,7 @@ export function agentClassUpdate(host: SystemToolHost): ToolCapability {
         model?: string
         sendCountdown?: number
         temperature?: number
-        effort?: 'none' | 'low' | 'medium' | 'high'
+        effort?: EffortLevel
       }
       // 缺省目标 = 调用者所属类（自我进化主路径）。
       const selfClass = host.agents.getInstanceSync(ctx.agentId)?.classRef

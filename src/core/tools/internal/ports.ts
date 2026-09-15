@@ -12,7 +12,7 @@
 //   AccessPort  —— ask 审批回复（access_reply）
 // ============================================================
 
-import type { ModelRef } from '../../gateway'
+import type { EffortLevel, ModelRef } from '../../gateway'
 import type { LogEvent } from '../../logging'
 import type { AccessReplyInput, ToolAccess } from '../types'
 
@@ -27,7 +27,7 @@ export interface AgentClassView {
   readonly model?: ModelRef
   readonly sendCountdown?: number
   readonly temperature?: number
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
 }
 
 /** 类创建入参（agent_class_create）。 */
@@ -40,7 +40,7 @@ export interface AgentClassInput {
   readonly model?: ModelRef
   readonly sendCountdown?: number
   readonly temperature?: number
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
 }
 
 /** 类更新 patch（agent_class_update；只做增量合并）。 */
@@ -52,7 +52,7 @@ export interface AgentClassPatchInput {
   readonly model?: ModelRef
   readonly sendCountdown?: number
   readonly temperature?: number
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
 }
 
 /** 实例视图（agent_list / agent_inspect 读取面）。 */
@@ -89,7 +89,7 @@ export interface AgentUpdateRequest {
   readonly name?: string
   readonly model?: ModelRef
   readonly temperature?: number
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
 }
 
 /** 生效配置视图（agent_inspect：模型四级律 + 权限物化面）。 */

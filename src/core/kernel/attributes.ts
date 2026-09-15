@@ -6,7 +6,7 @@
 // 新增类参数：改 AgentClass 接口 + 本表一处，各通道自动够着。
 // ============================================================
 
-import type { ModelRef } from '../gateway'
+import type { EffortLevel, ModelRef } from '../gateway'
 import { parseModelRef } from '../gateway'
 import type { ToolAccess } from '../tools'
 
@@ -99,7 +99,7 @@ export interface AgentClassGenes {
   readonly model?: ModelRef
   readonly sendCountdown?: number
   readonly temperature?: number
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
 }
 
 /** frontmatter 键 → 规范 camelCase 键。 */
@@ -179,13 +179,13 @@ export function normalizeAgentFields(
   const model = asModelRef(source.get('model')?.value, at('model'), fail)
   const sendCountdown = asNonNegNumber(source.get('sendCountdown')?.value, at('sendCountdown'), fail)
   const temperature = asNonNegNumber(source.get('temperature')?.value, at('temperature'), fail)
-  let effort: 'none' | 'low' | 'medium' | 'high' | undefined
+  let effort: EffortLevel | undefined
   const effortRaw = asString(source.get('effort')?.value, at('effort'), fail)
   if (effortRaw !== undefined) {
     if (!['none', 'low', 'medium', 'high'].includes(effortRaw)) {
       fail(`${at('effort')} 必须是 none/low/medium/high 之一`)
     }
-    effort = effortRaw as 'none' | 'low' | 'medium' | 'high'
+    effort = effortRaw as EffortLevel
   }
 
   return {
@@ -217,7 +217,7 @@ export function pickAgentClassGenes(source: {
   readonly model?: ModelRef
   readonly sendCountdown?: number
   readonly temperature?: number
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
 }): AgentClassGenes {
   return {
     ...(source.description !== undefined ? { description: source.description } : {}),

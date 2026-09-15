@@ -20,7 +20,7 @@
 // ============================================================
 
 import type { ModelGateway } from '../gateway'
-import type { ModelRef, UsageEvent } from '../gateway'
+import type { EffortLevel, ModelRef, UsageEvent } from '../gateway'
 import type {
   ContextSettings,
   MailDelivery,
@@ -49,7 +49,7 @@ interface AgentUpdateSpec {
   readonly name?: string
   readonly model?: ModelRef
   readonly temperature?: number
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
 }
 
 import type { ToolCapabilityRegistry } from '../tools'
@@ -408,7 +408,7 @@ export class Kernel {
     const template = await this.templates.get(USER_CLASS_ID)
     const rootViolations = this.validateAccessSteps(undefined, this.labeledSteps([this.listStep(template.tools)], '根收敛'))
     if (rootViolations.length > 0) {
-      throw { kind: 'root_config_expanded', message: `config.user.tools 越出生声明被拒：\n${rootViolations.join('\n')}` }
+      throw { kind: 'root_config_expanded', message: `config.user.tools 越出生声明被拒：\n${rootViolations.join('\n')}` } satisfies KernelError
     }
     const instance = await this.instances.instantiate({
       className: USER_CLASS_ID,
@@ -503,7 +503,7 @@ export class Kernel {
         this.labeledSteps([this.listStep(template.tools), this.strategyStep(template.contextStrategy), this.listStep(opts.tools)], '类收敛'),
       )
       if (violations.length > 0) {
-        throw { kind: 'tools_convergence_expanded', violations }
+        throw { kind: 'tools_convergence_expanded', violations } satisfies KernelError
       }
     }
     const instance = await this.instances.instantiate(opts)
@@ -654,7 +654,7 @@ export class Kernel {
     const target = makeAgentID(agentId)
     // 中断权 = 可见域（自身或祖先，S5.1 统一树谓词）。
     if (!this.lineage.canReach(by, target)) {
-      throw { kind: 'agent_terminate_denied', agentId: target, by: by as string }
+      throw { kind: 'agent_terminate_denied', agentId: target, by: by as string } satisfies KernelError
     }
     this.runtime.abort(target)
   }
@@ -675,7 +675,7 @@ export class Kernel {
   async updateAgent(spec: AgentUpdateSpec): Promise<void> {
     const id = makeAgentID(spec.agentId)
     if (spec.by !== undefined && !this.lineage.canReach(makeAgentID(spec.by), id)) {
-      throw { kind: 'agent_update_denied', agentId: spec.agentId, by: spec.by }
+      throw { kind: 'agent_update_denied', agentId: spec.agentId, by: spec.by } satisfies KernelError
     }
     const instance = this.instances.getSync(id)
     if (!instance) throw { kind: 'agent_not_found', agentId: spec.agentId }

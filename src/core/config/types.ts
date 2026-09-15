@@ -17,7 +17,7 @@
 // ============================================================
 
 import type { ToolAccess } from '../tools'
-import type { ModelRef } from '../gateway'
+import type { EffortLevel, ModelRef } from '../gateway'
 
 /**
  * provider 注册表条目（S6/R13；块内 snake_case，对齐 OpenAI 生态书写习惯）。
@@ -60,7 +60,7 @@ export interface StemUserClass {
   /** 采样温度家学缺省。 */
   readonly temperature?: number
   /** 思考强度家学缺省（缺省 none）。 */
-  readonly effort?: 'none' | 'low' | 'medium' | 'high'
+  readonly effort?: EffortLevel
   /** 根的出生称呼（B2；缺省 'user' → 全名 user#0。实例参数不上类，运行期改名走 agent_update.name）。 */
   readonly name?: string
 }
