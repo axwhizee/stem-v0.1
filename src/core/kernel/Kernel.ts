@@ -36,7 +36,7 @@ import type { Logger } from '../logging'
 import { forget, InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
 import type { AccessAskBus, AccessResolver, ToolAccess } from '../tools'
-import { DefaultAccessAskBus, formatAccessRequest, foldConvergenceSteps } from '../tools'
+import { DefaultAccessAskBus, checkToolsConvergence, formatAccessRequest, foldConvergenceSteps } from '../tools'
 import type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode } from '../tools'
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
@@ -64,7 +64,7 @@ import { DefaultLineageTree } from '../lineage'
 import type { AccessProfile, LineageBindEntry, LineageTree } from '../lineage'
 import { ASSISTANT, buildUserClass } from './builtin/agents'
 import type { UserClassConfig } from './builtin/agents'
-import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, ModelBinding, ProjectRef } from './types'
+import type { AgentClass, AgentClassID, AgentID, AgentInstance, AgentInstancePatch, KernelError, ModelBinding, ProjectRef } from './types'
 import { makeAgentID, parentIdOf, ROOT_ID, ROOT_NAME, USER_CLASS_ID } from './types'
 
 /**
@@ -808,15 +808,29 @@ export class Kernel {
   }
 
   /**
-   * 更新 agent 类（S5.2 进化书写面；供 agent_class_update 使用）。
-   * 收敛校验在工具层（checkToolsConvergence）；此处只管合并/落盘/审计。
-   * 边界（方案 §4.2）：更新只影响**后续实例**——已绑定实例的能力已物化于族谱树。
+   * 更新 agent 类（进化书写面；供 agent_class_update / webui 类页签使用）。
+   * tools 收敛校验在**写入面本层**（checkToolsConvergence——任何直调 kernel
+   * 的通道都不可绕过；工具层另有同尺预检，只为 agent 友好文案）。
+   * 边界：更新只影响**后续实例**——已绑定实例的能力已物化于族谱树。
    */
   async updateAgentClass(
     name: AgentClassID,
     patch: Partial<AgentClass>,
     opts?: { persist?: boolean; by?: string },
   ): Promise<{ persisted: boolean; cls: AgentClass }> {
+    if (patch.tools !== undefined) {
+      const current = this.templates.getSync(name)
+      if (current !== undefined) {
+        const violations = checkToolsConvergence(current.tools, patch.tools)
+        if (violations.length > 0) {
+          throw {
+            kind: 'invalid_template',
+            classId: name,
+            message: `工具清单只能收敛：${violations.join('；')}`,
+          } satisfies KernelError
+        }
+      }
+    }
     await this.templates.update(name, patch)
     const merged = await this.templates.get(name)
     const persisted = await this.persistClass(merged, opts)

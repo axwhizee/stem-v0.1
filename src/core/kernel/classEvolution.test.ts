@@ -161,6 +161,33 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     assert.equal(kernel.templates.getSync(makeAgentClassID('gated'))!.systemPrompt, 'p', '违规 → 零注册表变更（整单原子拒绝）')
   })
 
+  test('kernel 直调硬门禁：tools 扩张拒绝（webui/组合根通道不可绕过）', async () => {
+    const { kernel } = await createKernelHarness(new FakeGateway(() => textEvents('ok')), {
+      userClass: { tools: userTools },
+    })
+    await kernel.templates.register({
+      name: makeAgentClassID('direct'),
+      description: 'd',
+      systemPrompt: 'p',
+      tools: { bash: 'ask' },
+    })
+    await assert.rejects(
+      () => kernel.updateAgentClass(makeAgentClassID('direct'), { tools: { bash: 'allow' } }),
+      (e: unknown) => {
+        const err = e as { kind?: string; message?: string }
+        return err.kind === 'invalid_template' && /只能收敛/.test(err.message ?? '')
+      },
+    )
+    assert.deepEqual(
+      kernel.templates.getSync(makeAgentClassID('direct'))!.tools,
+      { bash: 'ask' },
+      '违规 → 注册表不变',
+    )
+    // 合法收敛仍放行。
+    const ok = await kernel.updateAgentClass(makeAgentClassID('direct'), { tools: { bash: 'deny' } })
+    assert.deepEqual(ok.cls.tools, { bash: 'deny' })
+  })
+
   test('缺省目标 = 调用者所属类；user 根类走 config.user 不开放', async () => {
     const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')), {
       userClass: { tools: userTools },

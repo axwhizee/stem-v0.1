@@ -75,7 +75,7 @@ export function agentClassCreate(host: SystemToolHost): ToolCapability {
 /**
  * 更新现役 agent 类（S5.2 进化书写面：同名覆盖 + 落盘，方案 §4.2）。
  * 边界（设计内）：①只影响**后续实例**（已绑定能力物化于族谱树，防"改类即远程改现役"）；
- * ②工具路径**只许收敛**（checkToolsConvergence——deny 不可撤销、ask 不许变执行免询问）；
+ * ②工具路径**只许收敛**（本层同尺预检换 agent 文案；硬门禁在 kernel.updateAgentClass）；
  * ③系统机制类与 user 根类不可改（红线：系统机制与用户基因分界；根人格归 config.user）。
  */
 export function agentClassUpdate(host: SystemToolHost): ToolCapability {
