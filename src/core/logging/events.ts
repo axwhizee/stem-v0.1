@@ -12,6 +12,7 @@
 // ============================================================
 
 import type { ChatMessage } from '../gateway'
+import type { ToolPhase } from '../tools'
 
 /** 工具调用（含 hook 相位与结果）。 */
 export interface ToolInvoked {
@@ -21,7 +22,7 @@ export interface ToolInvoked {
   readonly tool: string
   readonly args: unknown
   /** hook 相位：called=已触发；success=执行成功；error=执行失败。 */
-  readonly phase: 'called' | 'success' | 'error'
+  readonly phase: ToolPhase
   readonly durationMs?: number
   readonly resultText?: string
   readonly errorKind?: string

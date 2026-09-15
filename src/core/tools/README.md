@@ -21,7 +21,7 @@ tools/
 └── internal/                ★ 一切 kind=internal 工具的唯一定义域
     ├── index.ts             createInternalTools(host, bash?) —— internal 唯一出入口
     ├── ports.ts             SystemToolHost + 按域窄端口（Agent/Context/Telemetry/Access）
-    ├── shared.ts            resolveOr / resolveReachable / parseModelArg（gateway 单点）/ 呈现基元
+    ├── shared.ts            resolveOr / resolveReachable / MODEL_* 呈现基元（模型解析走 gateway.parseModelRef）
     ├── systemTools.ts       createSystemTools 聚合（20 枚工具清单）
     ├── agentClassTools.ts   agent_class_*
     ├── agentInstanceTools.ts agent_instantiate/update/list/inspect/ancestry/descendants/terminate
@@ -66,6 +66,8 @@ tools/
 
 `SystemToolHost = { agents, context, telemetry, access }`；kernel 经 `kernel/toolHost.ts` 把自身域操作适配为中性 DTO，组合根注入。**其他模块不得 import 本端口类型**：类型只住 `internal/ports.ts`，不随 `tools/index.ts` 公开导出；kernel 适配器为具名例外，直取 `../tools/internal/ports`。
 
+中性 DTO 与 kernel 基因同集：`AgentClassGenesView`（tools/contextStrategy/model/sendCountdown/temperature/effort）组合出 View/Input/Patch；`AgentConfigView.model` 直接用 gateway `ModelBinding`（toolHost 零拷贝）。
+
 `createInternalTools({ host, bash? })` 是 internal 工具唯一定义入口；bash 端口存在时才装配。
 
 ## 5. 系统工具（`internal/` 分域文件，20 枚）
@@ -74,7 +76,7 @@ tools/
 
 | 工具 | 作用 |
 |---|---|
-| `agent_class_create` / `agent_class_update` / `agent_class_list` | 创建（新名 = 变体并存）/ 更新（同名覆盖；tools 增量、只许收敛——硬门禁在 `kernel.updateAgentClass`；系统机制类·user 根类拒绝；**只影响后续实例**）/ 列出——均回写 `.stem/agent/`（ClassStore 注入时） |
+| `agent_class_create` / `agent_class_update` / `agent_class_list` | 创建（新名 = 变体并存）/ 更新（同名覆盖；tools 增量、只许收敛——**硬门禁在 `kernel.updateAgentClass`**，工具层同尺预检换 agent 文案；系统机制类·user 根类拒绝；**只影响后续实例**）/ 列出——均回写 `.stem/agent/`（ClassStore 注入时） |
 | `telemetry_query` | 运行日志观测（进化闭环"观测"翼）：可见域 = 自身 + 族谱后代（canReach）；行式压缩 + 类型前缀通配 + 时间窗 + limit 截尾 |
 | `agent_instantiate` / `agent_list` / `agent_inspect` | 创建实例（父=调用者；可继承父上下文；模型路径只能收敛；**wait=true 创建并等待回信**——配对原子完成竞态绝迹，可配 waitTimeoutMs）/ 列出 / 详情（族谱链/状态/轮次/成本/生效权限表） |
 | `agent_ancestry` / `agent_descendants` / `agent_terminate` | 祖先链 / 后代子树（BFS）/ 终止（销毁权 + recursive） |
@@ -107,6 +109,9 @@ tools/
 
 - `config.tools.outputLimit`（字符口径）；**0/未设 = 不启用**（默认零行为变更）。
 - 超限：头部截断 + 省略说明。错误渲染 `[ToolError <kind>] <细节>`，细节退化链 message → feedback → accessKey → tool。
+- **错误守卫**：`isToolError`（kind ∈ `TOOL_ERROR_KINDS`）替代任意带 kind 对象的鸭子判定；`formatToolOutput` 只认真 ToolError。执行通道对领域错误（KernelError 等）仍原样透传（工具是通道不是转换器）。
+- **`errorBrief(cause)`**：任意异常 → `{kind?, message}` 投影（runtime halt 等），杜绝裸对象 `String()` 成 `[object Object]`。
+- **`ToolPhase = called|success|error`**：ToolRecord / LogEvent / PilotEvent.tool 共用单源。
 - 历史顶层 `tools` 数组形态 = 可行动迁移错误（清单请用 `user.tools` / `extensions.tools`）。
 
 ## 9. 加工具 / 加矩阵资源

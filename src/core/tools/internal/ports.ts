@@ -12,47 +12,36 @@
 //   AccessPort  —— ask 审批回复（access_reply）
 // ============================================================
 
-import type { EffortLevel, ModelRef } from '../../gateway'
+import type { EffortLevel, ModelBinding, ModelRef } from '../../gateway'
 import type { LogEvent } from '../../logging'
 import type { AccessReplyInput, ToolAccess } from '../types'
 
 // ---------- 中性 DTO ----------
 
-/** 类模板视图（agent_class_list / agent_class_update 读取面；与 AgentClassGenes 对齐）。 */
-export interface AgentClassView {
-  readonly name: string
-  readonly description: string
+/** 类基因可选面（与 kernel AgentClassGenes 字段同集；新增基因改这里 + attributes）。 */
+export interface AgentClassGenesView {
   readonly tools?: Readonly<Record<string, ToolAccess>>
   readonly contextStrategy?: string
   readonly model?: ModelRef
   readonly sendCountdown?: number
   readonly temperature?: number
   readonly effort?: EffortLevel
+}
+
+/** 类模板视图（agent_class_list / agent_class_update 读取面）。 */
+export interface AgentClassView extends AgentClassGenesView {
+  readonly name: string
+  readonly description: string
 }
 
 /** 类创建入参（agent_class_create）。 */
-export interface AgentClassInput {
-  readonly name: string
-  readonly description: string
+export interface AgentClassInput extends AgentClassView {
   readonly systemPrompt: string
-  readonly tools?: Readonly<Record<string, ToolAccess>>
-  readonly contextStrategy?: string
-  readonly model?: ModelRef
-  readonly sendCountdown?: number
-  readonly temperature?: number
-  readonly effort?: EffortLevel
 }
 
 /** 类更新 patch（agent_class_update；只做增量合并）。 */
-export interface AgentClassPatchInput {
-  readonly description?: string
+export type AgentClassPatchInput = Partial<AgentClassGenesView> & {
   readonly systemPrompt?: string
-  readonly tools?: Readonly<Record<string, ToolAccess>>
-  readonly contextStrategy?: string
-  readonly model?: ModelRef
-  readonly sendCountdown?: number
-  readonly temperature?: number
-  readonly effort?: EffortLevel
 }
 
 /** 实例视图（agent_list / agent_inspect 读取面）。 */
@@ -94,7 +83,7 @@ export interface AgentUpdateRequest {
 
 /** 生效配置视图（agent_inspect：模型四级律 + 权限物化面）。 */
 export interface AgentConfigView {
-  readonly model?: { readonly provider: string; readonly id: string; readonly origin: string }
+  readonly model?: ModelBinding
   readonly access?: {
     readonly explicit: Readonly<Record<string, ToolAccess>>
     readonly fallback?: ToolAccess

@@ -107,6 +107,32 @@ export type ToolError =
   | { readonly kind: 'invalid_arguments'; readonly tool: string; readonly message: string }
   | { readonly kind: 'execution_failed'; readonly tool: string; readonly message: string; readonly cause?: unknown }
 
+/** ToolError.kind 全集（isToolError 守卫用——拒绝任意带 kind 的对象冒充）。 */
+export const TOOL_ERROR_KINDS: ReadonlySet<string> = new Set([
+  'tool_not_found',
+  'tool_already_registered',
+  'access_denied',
+  'access_rejected',
+  'access_timeout',
+  'access_aborted',
+  'invalid_arguments',
+  'execution_failed',
+])
+
+/** 是否为合法 ToolError（替代 `'kind' in cause` 鸭子判定——KernelError/ContextError 不得混入）。 */
+export function isToolError(value: unknown): value is ToolError {
+  return (
+    value !== null &&
+    typeof value === 'object' &&
+    'kind' in value &&
+    typeof (value as { kind: unknown }).kind === 'string' &&
+    TOOL_ERROR_KINDS.has((value as { kind: string }).kind)
+  )
+}
+
+/** 工具执行相位（ToolRecord / LogEvent / PilotEvent.tool 共用单源）。 */
+export type ToolPhase = 'called' | 'success' | 'error'
+
 // ---------- 工具访问确认（AccessManager 领域） ----------
 
 /** 挂起中的访问确认请求（ask 时产生，交面板弹窗确认）。 */
@@ -166,7 +192,7 @@ export interface ToolRecord {
   /** 与调用关联的执行上下文（含 agentId）。 */
   readonly ctx: ToolContext
   /** called=已触发；success=执行成功；error=执行失败。 */
-  readonly status: 'called' | 'success' | 'error'
+  readonly status: ToolPhase
   readonly result?: ToolResult
   readonly error?: ToolError
   readonly at: number

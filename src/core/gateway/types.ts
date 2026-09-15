@@ -14,6 +14,23 @@ export interface ModelRef {
 /** 模型思考强度（写 reasoning_effort；缺省 none = 压延迟）。 */
 export type EffortLevel = 'none' | 'low' | 'medium' | 'high'
 
+/** 模型解析命中层（四级律；agent_inspect 谱系出示）。 */
+export type ModelOrigin =
+  /** 实例行显式值（出生 model 参 / set_model 改写）。 */
+  | 'explicit'
+  /** 所属类的基因（AgentClass.model；非根类）。 */
+  | 'class'
+  /** 父档案继承而来（父的生效模型下传）。 */
+  | 'inherited'
+  /** 家学 = 根（user#0）的类模型（config.user.model，全链锚点）。 */
+  | 'home'
+
+/** 模型绑定 = 生效模型 + 解析命中层（git-blame 语义）。 */
+export interface ModelBinding {
+  readonly ref: ModelRef
+  readonly origin: ModelOrigin
+}
+
 /**
  * `提供商/模型` 字符串 → ModelRef（两段皆非空；严格格式，无归属不受理）。
  * 单一解析点：tools 工具参数 / kernel 类字段归一 / webui 写口共用。

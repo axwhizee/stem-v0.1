@@ -104,23 +104,10 @@ export interface AgentClass {
 }
 
 // ---------- 模型解析相（S6/R6 四级律；lineage 树与实例行共用形状） ----------
+// 形状住 gateway（模型域）；kernel re-export 供领域消费。
 
-/** 模型解析命中层（agent_inspect 谱系出示）。 */
-export type ModelOrigin =
-  /** 实例行显式值（agent_instantiate model 参 / set_model 改写）。 */
-  | 'explicit'
-  /** 所属类的基因（AgentClass.model；非根类）。 */
-  | 'class'
-  /** 父档案继承而来（父的生效模型下传）。 */
-  | 'inherited'
-  /** 家学 = 根（user#0）的类模型（config.user.model，全链锚点）。 */
-  | 'home'
-
-/** 模型绑定 = 生效模型 + 解析命中层（git-blame 语义）。 */
-export interface ModelBinding {
-  readonly ref: ModelRef
-  readonly origin: ModelOrigin
-}
+export type { ModelOrigin, ModelBinding } from '../gateway'
+import type { ModelBinding } from '../gateway'
 
 // ---------- AgentInstance（运行时原子单位） ----------
 

@@ -7,7 +7,7 @@
 
 - **组合根**：`createStemSystem(deps)` 装配配置/工具注册表/Kernel/工具记录 sink/internal 工具/装载管线/Pilot。
 - **工具装配**：`registerInternalTools`（internal 唯一出入口 `createInternalTools`：系统工具 + 注入 `shellRunner` 才装配的 bash）+ `attachToolRecordSink`（工具三相位 → 事件流 `tool` 变体 + 仓库记录/历史行）。Kernel 不认识 bash。
-- **装载管线**：`runInit(deps)` 三维资源矩阵（internal → extension → custom，后层同名覆盖）。
+- **装载管线**：`runInit(deps)` 三维资源矩阵（internal → extension → custom，后层同名覆盖）；工具/类/策略注册循环同构收成 `registerAll`（冲突 → issue 不中断）。
 - **agent 执行器**：`DefaultRuntime`——送信驱动轮循环，Kernel 经 `RuntimePort` 接口消费。
 - **端口适配**：`createSystemToolHost(kernel)`（tools 的 internal 宿主，实住 `kernel/toolHost.ts`）、`createSystemFacade(kernel)`（pilot 的系统门面）。
 
@@ -29,7 +29,7 @@
 - 不是同步 run：由快递员送信回调驱动（`processDelivery`）。
 - 状态机：`idle →(送信)→ thinking →(LLM 返回)→ holding`；`interrupted`（可恢复）。
 - 收完整上下文（`AgentDelivery`）→ 发 LLM → 工具轮（并行执行，结果按 index 回填；`contextWait` 命中则收束轮循环不空转）→ 每轮 assistant 消息复制入仓库 → 最终纯文本回复投递**创建者**（= 族谱父；发送者戳由管理员生成）。
-- 中断控制器 + 多层 try/catch + `halt` 消息闭合（见 architecture 2.5）；各 agent 独立 AsyncGenerator 天然并发。
+- 中断控制器 + 多层 try/catch + `halt` 消息闭合（见 architecture 2.5）；错误日志走 `errorBrief` 投影（结构化 kind 保留，杜绝 `[object Object]`）；各 agent 独立 AsyncGenerator 天然并发。
 
 ## 装配顺序（`createStemSystem`，固定）
 

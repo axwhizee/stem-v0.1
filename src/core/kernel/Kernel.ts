@@ -301,26 +301,69 @@ export class Kernel {
       }
       // 类缺失：先以兜底接线，再 realign 留痕（与旧构造期接线+补对齐同语义）。
       const missingClass = !isRoot && !template
-      forget(this.contextManager.register({
-        agentId: instance.id,
-        sendCountdownMs: isRoot ? template?.sendCountdown ?? 0 : template?.sendCountdown,
+      this.registerBox(instance, template, {
+        isRoot,
         assemble: instance.assemble ?? (!isRoot && true),
-        contextStrategy: missingClass ? undefined : template?.contextStrategy,
         restore: this.repository.has(instance.id),
         initialSentIds: this.repository.has(instance.id) ? this.repository.list(instance.id).map((m) => m.id) : [],
-        ...(isRoot ? {} : { systemPrompt: template?.systemPrompt ?? '' }),
+        missingClass,
+      }).catch(() => {}) // restore 路径内部已 forget；此调用仅为类型统一
+      if (missingClass) {
+        await this.contextManager.realign(instance.id, { contextStrategy: '' })
+      }
+    }
+  }
+
+  /**
+   * 上下文箱注册（根 / 恢复 / 实例化三路共用）：组装开关、策略、信件回调、hold。
+   * 面板（assemble=false）不组装不跑轮，信件由扮演模块消费。
+   */
+  private async registerBox(
+    instance: AgentInstance,
+    template: { systemPrompt?: string; sendCountdown?: number; contextStrategy?: string } | undefined,
+    opts: {
+      readonly isRoot?: boolean
+      readonly assemble: boolean
+      readonly restore?: boolean
+      readonly initialSentIds?: readonly string[]
+      readonly missingClass?: boolean
+    },
+  ): Promise<void> {
+    const isRoot = opts.isRoot === true
+    // 根恢复：仓库已有 system 行，不重复注入；根出生/普通实例照常带人格。
+    const systemPrompt =
+      opts.restore === true && isRoot ? undefined : (template?.systemPrompt ?? '')
+    // 恢复接线失败不挡启动（forget）；出生/实例化 fail-fast（await 上抛——未知策略等）。
+    const register = () =>
+      this.contextManager.register({
+        agentId: instance.id,
+        sendCountdownMs: isRoot ? (template?.sendCountdown ?? 0) : template?.sendCountdown,
+        assemble: opts.assemble,
+        contextStrategy: opts.missingClass === true ? undefined : template?.contextStrategy,
+        ...(opts.restore === true
+          ? {
+              restore: true,
+              initialSentIds: opts.initialSentIds ?? this.repository.list(instance.id).map((m) => m.id),
+            }
+          : {}),
+        ...(systemPrompt !== undefined ? { systemPrompt } : {}),
         onDelivery: isRoot
           ? (delivery) => {
               if (delivery.kind !== 'user') return
               this.events.emit({ type: 'letter', agentId: delivery.agentId, letters: delivery.letters, at: Date.now() })
             }
-          : (delivery) => this.handleDelivery(delivery),
-        ...(isRoot ? {} : { onHold: (id: string) => forget(this.runtime.notifyHold(makeAgentID(id)), 'kernel:notifyHold', (event) => this.emitLog(event)) }),
-      }), 'kernel:registerContext', (event) => this.emitLog(event))
-      if (missingClass) {
-        await this.contextManager.realign(instance.id, { contextStrategy: '' })
-      }
+          : opts.assemble
+            ? (delivery) => this.handleDelivery(delivery)
+            : () => {},
+        ...(isRoot || !opts.assemble
+          ? {}
+          : { onHold: (id: string) => forget(this.runtime.notifyHold(makeAgentID(id)), 'kernel:notifyHold', (event) => this.emitLog(event)) }),
+      })
+    if (opts.restore === true) {
+      forget(register(), 'kernel:registerContext', (event) => this.emitLog(event))
+      return
     }
+    await register()
   }
 
   /** 某 agent 的族谱绑定条目（权限 steps + 模型原始层/已落地绑定）。 */
@@ -436,18 +479,7 @@ export class Kernel {
     // 出生称呼：显式参数 > config.user.name > 'user'。
     const rootName = name ?? this.rootName
     if (rootName !== instance.name) await this.instances.update(instance.id, { name: rootName })
-    await this.contextManager.register({
-      agentId: instance.id,
-      systemPrompt: template.systemPrompt,
-      sendCountdownMs: template.sendCountdown ?? 0,
-      assemble: false,
-      contextStrategy: template.contextStrategy,
-      onDelivery: (delivery) => {
-        if (delivery.kind !== 'user') return
-        // 来信统一经事件流发布（letter 事件；含 access_request 消息化申请）。
-        this.events.emit({ type: 'letter', agentId: delivery.agentId, letters: delivery.letters, at: Date.now() })
-      },
-    })
+    await this.registerBox(instance, template, { isRoot: true, assemble: false })
     return instance.id
   }
 
@@ -540,17 +572,8 @@ export class Kernel {
 
     // 模块扮演面板（创建方 assemble=false）：不组装、不跑 LLM 轮，
     // 信件由扮演模块消费（信箱配对 waitForReply / 审计），与根面板同构。
-    const isPanel = instance.assemble === false
-    await this.contextManager.register({
-      agentId: instance.id,
-      systemPrompt: template.systemPrompt,
-      sendCountdownMs: template.sendCountdown,
-      assemble: !isPanel,
-      contextStrategy: template.contextStrategy,
-      onDelivery: isPanel
-        ? () => {}
-        : (delivery) => this.handleDelivery(delivery),
-      ...(isPanel ? {} : { onHold: (id: string) => forget(this.runtime.notifyHold(makeAgentID(id)), 'kernel:notifyHold', (event) => this.emitLog(event)) }),
+    await this.registerBox(instance, template, {
+      assemble: instance.assemble !== false,
     })
 
     // 上下文传递：父 agent 指定的仓库消息 id 列表，深拷贝导入新实例上下文空间。

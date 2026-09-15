@@ -149,7 +149,7 @@ export function agentUpdate(host: SystemToolHost): ToolCapability {
         throw e
       }
       const cfg = host.agents.getAgentConfig(target)
-      const modelEcho = cfg?.model !== undefined ? `${cfg.model.provider}/${cfg.model.id}·${cfg.model.origin}` : '-'
+      const modelEcho = cfg?.model !== undefined ? `${cfg.model.ref.provider}/${cfg.model.ref.id}·${cfg.model.origin}` : '-'
       return { text: `已更新 ${host.agents.displayOf(target)}（下一轮送信生效）。现模型 = ${modelEcho}。` }
     },
   }
@@ -205,7 +205,7 @@ export function agentInspect(host: SystemToolHost): ToolCapability {
         `  children: ${children.length > 0 ? children.map((id) => host.agents.displayOf(id)).join(', ') : '-'}`,
         `  ancestry: ${ancestors.length > 0 ? ancestors.map((id) => host.agents.displayOf(id)).join(' → ') : '（树根）'}`,
         `  status: ${instance.status}  turns: ${instance.turnCount}  cost: ${instance.totalCost}`,
-        `  model: ${node?.model !== undefined ? `${node.model.provider}/${node.model.id}（${MODEL_ORIGIN_LABELS[node.model.origin] ?? node.model.origin}）` : '（全链无锚——检查 config.user.model）'}`,
+        `  model: ${node?.model !== undefined ? `${node.model.ref.provider}/${node.model.ref.id}（${MODEL_ORIGIN_LABELS[node.model.origin] ?? node.model.origin}）` : '（全链无锚——检查 config.user.model）'}`,
         `  access: ${formatEffectiveAccess(node?.access)}`,
       ]
       return { text: lines.join('\n') }

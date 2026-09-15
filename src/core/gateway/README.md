@@ -6,7 +6,7 @@
 
 - 定义模型访问契约 `ModelGateway`（`chat(request, {signal}) → AsyncIterable<LLMEvent>`）。
 - 提供 OpenAI 兼容 provider 实现（`providers/openaiCompatible.ts`）与测试用 `FakeGateway`。
-- 领域类型 `ChatMessage`/`LLMRequest`/`LLMEvent`/`UsageEvent`/`ModelRef` + 错误判别联合（`GatewayError`/`isGatewayError`/`isAbortError`）。
+- 领域类型 `ChatMessage`/`LLMRequest`/`LLMEvent`/`UsageEvent`/`ModelRef`/`EffortLevel`/`ModelOrigin`/`ModelBinding` + `parseModelRef`（`提供商/模型` 单一解析点）+ 错误判别联合（`GatewayError`/`isGatewayError`/`isAbortError`）。
 
 ## 文件
 

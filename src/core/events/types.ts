@@ -21,4 +21,4 @@ export type PilotEvent =
    * **刻意不带 args/result/duration**（裁决：参数摘要不上广播，详情走 DB 面
    * telemetry/logger.query 按需查；耗时 = 客户端 called→success 相减）。
    */
-  | { readonly type: 'tool'; readonly agentId: string; readonly tool: string; readonly phase: 'called' | 'success' | 'error'; readonly at: number }
+  | { readonly type: 'tool'; readonly agentId: string; readonly tool: string; readonly phase: import('../tools').ToolPhase; readonly at: number }

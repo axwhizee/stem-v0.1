@@ -266,10 +266,17 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
       await record('success', { result })
       return result
     } catch (cause) {
+      // 领域错误（KernelError 等带 kind）原样透传——工具层是通道不是转换器；
+      // 非结构化异常收成 execution_failed（errorBrief 防 [object Object]）。
       const error: ToolError =
-        cause !== null && typeof cause === 'object' && 'kind' in cause
+        cause !== null && typeof cause === 'object' && 'kind' in cause && typeof (cause as { kind: unknown }).kind === 'string'
           ? (cause as ToolError)
-          : { kind: 'execution_failed', tool: tool.id, message: cause instanceof Error ? cause.message : String(cause), cause }
+          : {
+              kind: 'execution_failed',
+              tool: tool.id,
+              message: cause instanceof Error ? cause.message : String(cause),
+              cause,
+            }
       this.onLog?.log({
         type: 'tool.invoked',
         at: Date.now(),

@@ -20,7 +20,7 @@
 | `ContextManager.ts` | 管理员 |
 | `Courier.ts` | 快递员 |
 | `wait.ts` | 统一挂起原语（ask/hold/reply/pause 共用） |
-| `stamp.ts` | 信件戳 `<sender id="name#id" at="yymmdd.hhmm">` |
+| `stamp.ts` | 信件戳写读单源：`stampSender` / `parseStamp` / `stripSenderStamp` / `hasSenderStamp` |
 | `legalize.ts` | 消息序列合法化（网关发送前必经） |
 | `strategies/` | `classic` / `cortex/` / `none` + registry |
 

@@ -9,6 +9,21 @@
 // ============================================================
 
 import type { ToolError, ToolResult } from './types'
+import { isToolError } from './types'
+
+/**
+ * 任意错误 → 可日志投影（halt/forget 共用）。
+ * 结构化对象保留 kind；Error 取 message；其余 String()——杜绝 `[object Object]`。
+ */
+export function errorBrief(cause: unknown): { readonly kind?: string; readonly message: string } {
+  if (cause instanceof Error) return { message: cause.message }
+  if (cause !== null && typeof cause === 'object') {
+    const o = cause as { kind?: unknown; message?: unknown }
+    const message = typeof o.message === 'string' && o.message !== '' ? o.message : JSON.stringify(cause)
+    return typeof o.kind === 'string' ? { kind: o.kind, message } : { message }
+  }
+  return { message: String(cause) }
+}
 
 /** 输出成形选项（来自 `config.tools`）。 */
 export interface ToolOutputOptions {
@@ -21,7 +36,7 @@ export interface ToolOutputOptions {
  * @param input 成功结果（ToolResult）或判别联合错误（ToolError）
  */
 export function formatToolOutput(input: ToolResult | ToolError, opts: ToolOutputOptions = {}): string {
-  const text = 'kind' in input ? formatToolError(input) : input.text
+  const text = isToolError(input) ? formatToolError(input) : (input as ToolResult).text
   return clip(text, opts.outputLimit)
 }
 

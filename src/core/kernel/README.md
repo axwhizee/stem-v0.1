@@ -5,9 +5,10 @@
 ## 职责
 
 - 持有并暴露领域聚合：`TemplateRegistry`（类表）、`InstanceManager`（实例）、`LineageTree`（族谱/能力）、`Repository`/`ContextManager`/`Courier`（邮局）、`Waiter`（统一挂起）、`RuntimePort`（执行器接口）、`ToolCapabilityRegistry`、`AccessAskBus`、`EventHub`、`Logger`。
-- 定义运行期写通道：`updateAgent`（name/model/temperature/effort 唯一写面，无全树 replay）、`terminateAgent`（含 `waiter.cancelOwner`）、`interruptAgent`、`instantiateInSpace`、`registerAgentClass`/`updateAgentClass`。
+- 定义运行期写通道：`updateAgent`（name/model/temperature/effort 唯一写面，无全树 replay）、`terminateAgent`（含 `waiter.cancelOwner`）、`interruptAgent`、`instantiateInSpace`、`registerAgentClass`/`updateAgentClass`（**tools 收敛硬门禁在写入面本层**——webui/组合根直调不可绕过）。
 - 提供端口适配器：`toolHost.ts`（`SystemToolHost`）、`runtimePort.ts`（接口声明）、`systemFacade.ts`（接口声明）。
 - **不自接线**：工具记录 sink 与 internal 工具装配由组合根 `main/toolWiring.ts` 完成（Kernel 不认识 bash）；Kernel 只注入日志/访问端口（`setLogSink`/`setAccessSink`/`setAccessResolver`）。
+- **上下文箱注册**：`registerBox` 单点（根出生 / 恢复接线 / 实例化三路共用）——组装开关、策略、信件回调、hold；恢复路径 forget 不挡启动，出生路径 fail-fast。
 
 ## 文件
 
@@ -41,7 +42,8 @@
 ## 权限/模型物化
 
 - 实例注册时经 `lineage.attach`/`replay` 物化；写入面走同一代数做拒绝式校验。
-- 模型四级律：实例显式 > 类基因 > 父继承 > 家学（`config.user.model`）；**出生落地 `modelBinding`**，改父不级联。
+- 模型四级律：实例显式 > 类基因 > 父继承 > 家学（`config.user.model`）；**出生落地 `modelBinding`**，改父不级联。形状（`ModelOrigin`/`ModelBinding`/`EffortLevel`）住 `gateway`，kernel re-export。
+- 类字段单一真相见 `attributes.ts`（校验/frontmatter 映射/`pickAgentClassGenes`）。
 
 ## 依赖
 

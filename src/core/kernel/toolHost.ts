@@ -102,9 +102,7 @@ export function createSystemToolHost(kernel: Kernel): SystemToolHost {
       const node = kernel.lineage.nodeConfigOf(agentId)
       if (node === undefined) return undefined
       return {
-        ...(node.model !== undefined
-          ? { model: { provider: node.model.ref.provider, id: node.model.ref.id, origin: node.model.origin } }
-          : {}),
+        ...(node.model !== undefined ? { model: node.model } : {}),
         ...(node.access !== undefined ? { access: toAccessView(node.access) } : {}),
       }
     },

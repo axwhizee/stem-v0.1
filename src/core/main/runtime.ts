@@ -16,7 +16,7 @@ import { isAbortError, isGatewayError } from '../gateway'
 import type { AgentDelivery } from '../context'
 import { defaultTimer } from '../context/wait'
 import type { ToolContext, ToolError } from '../tools'
-import { formatToolOutput } from '../tools'
+import { errorBrief, formatToolOutput } from '../tools'
 import type { AgentID, AgentStatus, RuntimePort, RuntimePortDeps } from '../kernel'
 import { makeAgentID, parentIdOf, ROOT_ID } from '../kernel'
 
@@ -212,10 +212,11 @@ export class DefaultRuntime implements RuntimePort {
               }
               return { role: 'tool', content: formatToolOutput(result, { outputLimit: this.deps.toolOutputLimit }), toolCallId: call.id }
             } catch (cause) {
+              // 领域错误（带 kind）原样进会话；非结构化异常收成 execution_failed。
               const error: ToolError =
-                cause !== null && typeof cause === 'object' && 'kind' in cause
+                cause !== null && typeof cause === 'object' && 'kind' in cause && typeof (cause as { kind: unknown }).kind === 'string'
                   ? (cause as ToolError)
-                  : { kind: 'execution_failed', tool: call.name, message: cause instanceof Error ? cause.message : String(cause) }
+                  : { kind: 'execution_failed', tool: call.name, message: errorBrief(cause).message }
               return { role: 'tool', content: formatToolOutput(error, { outputLimit: this.deps.toolOutputLimit }), toolCallId: call.id }
             }
           }),
@@ -269,6 +270,7 @@ export class DefaultRuntime implements RuntimePort {
   ): Promise<void> {
     const aborted = isAbortError(cause)
     const gatewayError = isGatewayError(cause)
+    const brief = errorBrief(cause)
     // 主动中断 → 补 <interrupted> 标记（消息闭合，避免误导模型以为是完整回复）；
     // 其它错误 → 原样保留部分文本（不伪造"完成"标记）。
     const message =
@@ -287,8 +289,8 @@ export class DefaultRuntime implements RuntimePort {
       at: Date.now(),
       agentId: instance.id,
       aborted,
-      errorKind: gatewayError ? cause.kind : undefined,
-      message: gatewayError ? cause.message : aborted ? 'aborted' : String(cause),
+      errorKind: gatewayError ? cause.kind : brief.kind,
+      message: gatewayError ? cause.message : aborted ? 'aborted' : brief.message,
     })
 
     await this.setStatus(instance, 'interrupted')
