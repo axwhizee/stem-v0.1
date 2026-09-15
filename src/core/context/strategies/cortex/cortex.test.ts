@@ -336,7 +336,6 @@ async function cortexHarness(workerTurns: (turn: number) => LLMEvent[]) {
   }
   const agentId = await h.kernel.instantiateAgent(
     { className: makeAgentClassID('mem-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: '开工写 cortex 测试' },
-    '/space',
   )
   await h.deliveries.next()
   h.timers.flushAll()
@@ -474,7 +473,6 @@ describe('cortex 端到端：做梦事务（回信即交付物）', () => {
     // 非 cortex 宿主（经典策略、根表不含笔记键）：拿不到。
     const plainId = await h.kernel.instantiateAgent(
       { className: makeAgentClassID('assistant'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
-      '/space',
     )
     assert.notEqual(h.kernel.lineage.effectiveAccess(plainId, 'cortex_add_note'), 'allow', '非 cortex 类不再白拿')
   })
@@ -533,7 +531,6 @@ describe('策略声明清单审计（定律：ignore 出生 → raise 抬升 →
     const h = await fakeHarness()
     const id = await h.kernel.instantiateAgent(
       { className: makeAgentClassID('fake-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
-      '/space',
     )
     assert.equal(h.kernel.lineage.effectiveAccess(id, 'fake_note'), 'allow')
   })
@@ -544,7 +541,6 @@ describe('策略声明清单审计（定律：ignore 出生 → raise 抬升 →
     await assert.rejects(
       () => h.kernel.instantiateAgent(
         { className: makeAgentClassID('fake-agent-locked'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
-        '/space',
       ),
       (cause: unknown) => {
         const err = cause as { kind: string; violations: string[] }
@@ -560,7 +556,6 @@ describe('策略声明清单审计（定律：ignore 出生 → raise 抬升 →
     await assert.rejects(
       () => h.kernel.instantiateAgent(
         { className: makeAgentClassID('fake-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
-        '/space',
       ),
       (cause: unknown) => {
         const err = cause as { kind: string; violations: string[] }
@@ -577,7 +572,6 @@ describe('策略声明清单审计（定律：ignore 出生 → raise 抬升 →
     const h = await fakeHarness({ tools: { access_reply: 'allow' } } as never)
     const id = await h.kernel.instantiateAgent(
       { className: makeAgentClassID('fake-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
-      '/space',
     )
     assert.equal(h.kernel.lineage.effectiveAccess(id, 'fake_note'), 'allow', 'raise 键在封闭父面下照常抬升（封顶=出生∧父显式，父未列=不锁）')
     assert.equal(h.kernel.lineage.effectiveAccess(id, 'bash'), 'deny', '表外键继承根的本地封闭')

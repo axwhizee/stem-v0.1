@@ -139,7 +139,6 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
     // 进化类即刻可用（实例化携带新基因）。
     const agentId = await revived.kernel.instantiateAgent(
       { className: makeAgentClassID('reviewer'), parentId: ROOT_ID, userPrompt: 'go' },
-      '/proj',
     )
     assert.equal(revived.kernel.lineage.effectiveAccess(agentId, 'bash'), 'deny')
     // 审计链在日志里（观测面可回放书写史）。
@@ -172,7 +171,7 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
     const messages = new MemoryMessageStore()
     const instances = new MemoryInstanceStore()
     const system = await createStemSystem(deps() as never)
-    const petId = await system.pilot.instantiate({ className: 'pet', userPrompt: 'hi' }, '/proj')
+    const petId = await system.pilot.instantiate({ className: 'pet', userPrompt: 'hi' })
     const born = system.kernel.contextManager.boxFacts(petId)
     assert.equal(born?.strategy, 'cortex', '出生即生效（实例化路径 register 看得到类）')
     await system.dispose()

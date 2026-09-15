@@ -39,8 +39,7 @@ async function spawnWorker(h: Awaited<ReturnType<typeof createKernelHarness>>, p
       className: makeAgentClassID('coder'),
       parentId: makeAgentID(ROOT_ID),
       userPrompt: prompt,
-    },
-    '/proj',
+    }
   )
   // coder 类 tools 表放行 echo_pad。
   await h.deliveries.next(0) // user#0 收信（或超时 null）

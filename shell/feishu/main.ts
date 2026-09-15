@@ -241,7 +241,6 @@ async function main(): Promise<void> {
         try {
           const id = await system.pilot.instantiate(
             { className, userPrompt: task === '' ? `（飞书会话开工信）你是本会话的目标 agent，主人经飞书直连指挥你，用一句话确认就位。` : task },
-            PROJECT_ROOT,
           )
           setSessionTarget(state, chatId, id)
           return `已创建并绑定本会话目标：${system.kernel.displayOf(id)}（/use 可切换，/exit 解绑）`
@@ -339,7 +338,6 @@ async function main(): Promise<void> {
         className: config.secretaryClass,
         userPrompt: '（飞书 shell 启动信）你是船长的接待员：主人经飞书来的话都由你转达与办理，能自己办的就办公，办不了的如实说。回话保持简洁（会被原样读给主人）。',
       },
-      PROJECT_ROOT,
     )
   }
 }

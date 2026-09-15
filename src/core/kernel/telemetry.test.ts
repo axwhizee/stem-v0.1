@@ -25,9 +25,9 @@ async function setup() {
     systemPrompt: 'watch',
     tools: { telemetry_query: 'allow' },
   })
-  const A = await kernel.instantiateAgent({ className: makeAgentClassID('observer'), parentId: ROOT_ID, userPrompt: 'x' }, '/p')
-  const A1 = await kernel.instantiateAgent({ className: makeAgentClassID('observer'), parentId: A, userPrompt: 'x' }, '/p')
-  const B = await kernel.instantiateAgent({ className: makeAgentClassID('observer'), parentId: ROOT_ID, userPrompt: 'x' }, '/p')
+  const A = await kernel.instantiateAgent({ className: makeAgentClassID('observer'), parentId: ROOT_ID, userPrompt: 'x' })
+  const A1 = await kernel.instantiateAgent({ className: makeAgentClassID('observer'), parentId: A, userPrompt: 'x' })
+  const B = await kernel.instantiateAgent({ className: makeAgentClassID('observer'), parentId: ROOT_ID, userPrompt: 'x' })
   assert.equal(A, '1')
   assert.equal(A1, '1.1')
   assert.equal(B, '2')

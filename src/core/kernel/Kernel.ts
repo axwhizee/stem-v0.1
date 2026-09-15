@@ -488,8 +488,8 @@ export class Kernel {
     await this.contextManager.deposit(to, { role: 'user', content: payload }, from)
   }
 
-  /** 实例化：创建实例 + 注册上下文（仓库/管理员/快递员）+ 投递首信。 */
-  async instantiateAgent(opts: Omit<InstantiateOptions, 'spaceId' | 'modelBinding'>, project?: ProjectRef): Promise<AgentID> {
+  /** 实例化：创建实例 + 注册上下文（仓库/管理员/快递员）+ 投递首信（单空间）。 */
+  async instantiateAgent(opts: Omit<InstantiateOptions, 'spaceId' | 'modelBinding'>): Promise<AgentID> {
     return this.instantiateInSpace(opts)
   }
 
@@ -659,11 +659,6 @@ export class Kernel {
     this.runtime.abort(target)
   }
 
-  /** 中断所有活跃 agent（进程优雅收尾用；只置中断标志，不等收尾）。 */
-  abortAllAgents(): void {
-    this.runtime.abortAll()
-  }
-
   /** 优雅收尾专用：中断全部活跃轮并**等待** halt 收尾落行
    *（status→interrupted、消息闭合）——storage.close 前必须完成，
    * 否则进行中轮的账目/状态快照被退出吞掉（验收现场 bug）。 */
@@ -724,18 +719,6 @@ export class Kernel {
     })
   }
 
-  /**
-   * 运行改写模型薄壳（pilot/宿主通道）：委托 updateAgent 统一通道。
-   * 不传 by = 跳过可见域判定（历史契约：授权由调用层负责）。
-   */
-  async setAgentModel(agentId: string, model: ModelRef, opts?: { by?: string }): Promise<void> {
-    await this.updateAgent({
-      agentId,
-      model,
-      ...(opts?.by !== undefined ? { by: opts.by } : {}),
-    })
-  }
-
   /** 当前活跃（thinking/进行中）的 agent id 列表。 */
   activeAgents(): readonly AgentID[] {
     return this.runtime.activeAgents()
@@ -750,30 +733,11 @@ export class Kernel {
     const existing = await this.instances.listAll()
     const found = existing.find((agent) => agent.classRef === className)
     if (found) return found.id
-    return this.instantiateAgent(
-      {
-        className,
-        parentId: ROOT_ID,
-        userPrompt: opts?.userPrompt ?? '你好，请做一个简短的自我介绍。',
-      },
-      project,
-    )
-  }
-
-  /**
-   * 导出某 agent 的完整上下文（jsonl）。薄转发到 context 模块（纯格式化）。
-   * 供宿主调试/审计；作为系统工具时由 Kernel 做权限校验（agent 只能看自己的）。
-   */
-  async exportContext(agentId: string): Promise<string> {
-    return this.contextManager.exportJsonl(agentId)
-  }
-
-  /**
-   * 上下文概览（只读反射）。薄转发到 context 模块（纯格式化）。
-   * 通用能力，不依赖任何特定上下文策略。
-   */
-  async contextOverview(agentId: string): Promise<string> {
-    return this.contextManager.overview(agentId)
+    return this.instantiateAgent({
+      className,
+      parentId: ROOT_ID,
+      userPrompt: opts?.userPrompt ?? '你好，请做一个简短的自我介绍。',
+    })
   }
 
   /** 参与者列表（复用实例 + 根，无独立注册表；呈现面统一 name#id——可直接作 mail to）。 */

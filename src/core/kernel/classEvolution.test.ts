@@ -233,7 +233,6 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     await createViaTool(tools, { name: 'runner', description: 'd', systemPrompt: 'p', tools: { bash: 'allow' } })
     const first = await kernel.instantiateAgent(
       { className: makeAgentClassID('runner'), parentId: makeAgentID(ROOT_ID), userPrompt: 'go' },
-      '/proj',
     )
     assert.equal(kernel.lineage.effectiveAccess(first, 'bash'), 'allow')
     // 类降档 bash deny → 只影响未来实例。
@@ -241,7 +240,6 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     assert.equal(kernel.lineage.effectiveAccess(first, 'bash'), 'allow', '现役实例保持出生时物化（防"改类即远程改现役"）')
     const second = await kernel.instantiateAgent(
       { className: makeAgentClassID('runner'), parentId: makeAgentID(ROOT_ID), userPrompt: 'go' },
-      '/proj',
     )
     assert.equal(kernel.lineage.effectiveAccess(second, 'bash'), 'deny', '新实例携带新基因出生')
   })

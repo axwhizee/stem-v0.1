@@ -252,7 +252,6 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
       const userPrompt = rest[1] ?? DEFAULT_USER_PROMPT
       const agentId = await state.kernel.instantiateAgent(
         { className: makeAgentClassID(className), parentId: ROOT_ID, userPrompt },
-        DEFAULT_PROJECT,
       )
       state.currentAgentId = agentId
       console.log(`已创建并切换到: ${state.kernel.displayOf(agentId)} (<${className}>)`)
@@ -309,10 +308,9 @@ async function main(): Promise<number> {
     exiting = true
     const active = state.kernel.activeAgents()
     if (active.length > 0) {
-      state.kernel.abortAllAgents()
       console.log(`\n[${signal}] 已请求中断 ${active.length} 个活跃 agent（消息闭合中）…`)
-      // halt 收尾是异步（消息闭合 + 状态快照落行）：等 boot.system.dispose
-      // 完成再退，超时 5s 兜底强退。
+      // halt 收尾是异步（消息闭合 + 状态快照落行）：dispose 内部 drainForShutdown
+      // 已 abortAll + 等闭合；超时 5s 兜底强退。
       const closing = state.system.dispose().catch((e: unknown) => console.error('[shutdown]', e))
       void Promise.race([closing, new Promise((r) => setTimeout(r, 5000))]).then(() => {
         rl.close()

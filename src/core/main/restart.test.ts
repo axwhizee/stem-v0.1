@@ -94,7 +94,7 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     // ---------- 生命周期 A ----------
     const lettersA: string[] = []
     const systemA = await boot(d, gatewayReplying('你好，我是助手。'), stateStore, lettersA)
-    const childId = await systemA.pilot.instantiate({ className: 'assistant', userPrompt: '你好' }, '/proj')
+    const childId = await systemA.pilot.instantiate({ className: 'assistant', userPrompt: '你好' })
     await systemA.pilot.sendMessage(childId, '在吗')
     await settle()
     assert.ok(lettersA.some((t) => t.includes('我是助手')), 'A：首轮对话回复送达')
@@ -150,7 +150,7 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     const agentsC = await systemC.pilot.listAgents()
     assert.equal(agentsC.length, 1, 'C：仅剩根（child 归档）')
     assert.equal(systemC.kernel.repository.has(childId), false)
-    const newId = await systemC.pilot.instantiate({ className: 'assistant', userPrompt: 'hi' }, '/proj')
+    const newId = await systemC.pilot.instantiate({ className: 'assistant', userPrompt: 'hi' })
     await systemC.pilot.sendMessage(newId, '在吗')
     await settle()
     const freshIds = systemC.kernel.repository.list(newId).map((m) => m.id)
@@ -170,7 +170,6 @@ describe('createStemSystem 重启恢复（持久化 e2e）', () => {
     const systemA = await boot(d, gatewayReplying('a'), stateStore, [])
     const parentId = await systemA.pilot.instantiate(
       { className: 'assistant', userPrompt: '父', model: { provider: 'fake', id: 'birth-p' } },
-      '/proj',
     )
     assert.deepEqual(systemA.kernel.lineage.modelOf(parentId), { ref: { provider: 'fake', id: 'birth-p' }, origin: 'explicit' })
     const parentInstance = systemA.kernel.instances.getSync(makeAgentID(parentId))!
@@ -203,7 +202,7 @@ describe('优雅收尾 drain（验收 P6 回归锚）', () => {
   test('进行中轮挂起时 dispose：abort 后等待 halt 收尾——行归一 interrupted 后才返回', async () => {
     const stateStore = { messages: new MemoryMessageStore(), instances: new MemoryInstanceStore() }
     const system = await boot(makeDeps({ sendCountdown: 0 }), new FakeGateway(hangUntilAbort as never), stateStore, [] as string[])
-    const childId = await system.pilot.instantiate({ className: 'assistant', userPrompt: '写长文' }, '/proj')
+    const childId = await system.pilot.instantiate({ className: 'assistant', userPrompt: '写长文' })
     await new Promise((r) => setTimeout(r, 80)) // 轮进入 thinking 挂起
     await system.dispose()
     const row = stateStore.instances.loadAll().find((i) => i.id === childId)

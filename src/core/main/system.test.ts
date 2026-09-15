@@ -182,7 +182,6 @@ describe('createStemSystem（系统装配组合根）', () => {
     })
     const agentId = await system.pilot.instantiate(
       { className: makeAgentClassID('assistant'), userPrompt: '你好' },
-      '/proj',
     )
     await system.pilot.sendMessage(agentId, '在吗')
     // 等待 Courier 投递 + agent 处理 + 回信（sendCountdown=0 → 立即）。

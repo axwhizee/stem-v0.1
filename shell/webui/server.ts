@@ -96,7 +96,7 @@ async function main(): Promise<void> {
           }
           // 出生称呼（缺省 = 确定性派生 类名-N；撞全局名被拒——pilot 执法）。
           if (typeof body.name === 'string' && body.name.trim() !== '') opts.name = body.name.trim()
-          const agentId = await system.pilot.instantiate(opts, PROJECT_ROOT)
+          const agentId = await system.pilot.instantiate(opts)
           return sendJson(res, { ok: true, agentId })
         }
         if (path === '/api/terminate') {

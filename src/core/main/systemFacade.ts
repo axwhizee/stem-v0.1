@@ -16,7 +16,8 @@ export function createSystemFacade(kernel: Kernel): SystemFacade {
     appendHistory: (agentId, message) => kernel.contextManager.appendHistory(agentId, message),
     sendUserMessage: (agentId, text) => kernel.sendUserMessage(agentId, text),
     instantiate: (opts) => kernel.instantiateInSpace(opts),
-    setAgentModel: (agentId, model, opts) => kernel.setAgentModel(agentId, model, opts),
+    setAgentModel: (agentId, model, opts) =>
+      kernel.updateAgent({ agentId, model, ...(opts?.by !== undefined ? { by: opts.by } : {}) }),
     terminateAgent: (agentId, opts) => kernel.terminateAgent(agentId, opts),
     interruptAgent: (agentId, opts) => kernel.interruptAgent(agentId, opts),
     replyAccess: (input, by) => kernel.access.reply(input, by),
@@ -26,8 +27,8 @@ export function createSystemFacade(kernel: Kernel): SystemFacade {
     getInstanceSync: (agentId) => kernel.instances.getSync(makeAgentID(agentId)),
 
     activeAgents: () => kernel.activeAgents(),
-    contextOverview: (agentId) => kernel.contextOverview(agentId),
-    exportContext: (agentId) => kernel.exportContext(agentId),
+    contextOverview: (agentId) => kernel.contextManager.overview(agentId),
+    exportContext: (agentId) => kernel.contextManager.exportJsonl(agentId),
     runStrategyAction: (agentId, action, args) => kernel.contextManager.runStrategyAction(agentId, action, args),
 
     registerRootAgent: () => kernel.registerRootAgent(),

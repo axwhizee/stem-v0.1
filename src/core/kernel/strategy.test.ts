@@ -65,7 +65,6 @@ describe('上下文策略框架（组装权 / note / fail-fast）', () => {
     })
     const agentId = await kernel.instantiateAgent(
       { className: makeAgentClassID('shout-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hello world' },
-      '/proj',
     )
     await deliveries.next()
 
@@ -102,7 +101,6 @@ describe('上下文策略框架（组装权 / note / fail-fast）', () => {
       () =>
         kernel.instantiateAgent(
           { className: makeAgentClassID('ghost-strategy'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
-          '/proj',
         ),
       (e: { kind?: string }) => e.kind === 'context_strategy_unknown',
     )

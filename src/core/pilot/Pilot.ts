@@ -11,7 +11,7 @@
 // 实现由组合根注入。identity 字段支持未来 as(agentId) 扮演任意 agent（当前恒为根）。
 // ============================================================
 
-import type { AgentID, AgentInstance, ProjectRef, SystemFacade } from '../kernel'
+import type { AgentID, AgentInstance, SystemFacade } from '../kernel'
 import { makeAgentClassID, makeAgentID, ROOT_ID } from '../kernel'
 import type { PilotEvent } from '../events'
 import type { AccessReplyInput, ToolAccess } from '../tools'
@@ -36,7 +36,6 @@ export interface Pilot {
       contextRefs?: readonly string[]
       tools?: Readonly<Record<string, ToolAccess>>
     },
-    project: ProjectRef,
   ) => Promise<AgentID>
   /**
    * 以根身份切换 agent 运行时模型（扮演层通道；agent_update 工具的同权入口，
@@ -102,7 +101,6 @@ export class DefaultPilot implements Pilot {
       contextRefs?: readonly string[]
       tools?: Readonly<Record<string, ToolAccess>>
     },
-    project: ProjectRef,
   ): Promise<AgentID> {
     return this.facade.instantiate({
       className: makeAgentClassID(opts.className),

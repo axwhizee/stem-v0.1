@@ -124,8 +124,8 @@ export function createSystemToolHost(kernel: Kernel): SystemToolHost {
       if (stored === undefined) throw { kind: 'message_not_found', messageId }
       await kernel.repository.updateMessage(agentId, messageId, { ...stored.message, content })
     },
-    exportJsonl: (agentId) => kernel.exportContext(agentId),
-    overview: (agentId) => kernel.contextOverview(agentId),
+    exportJsonl: (agentId) => kernel.contextManager.exportJsonl(agentId),
+    overview: (agentId) => kernel.contextManager.overview(agentId),
   }
 
   const telemetry: TelemetryPort = {

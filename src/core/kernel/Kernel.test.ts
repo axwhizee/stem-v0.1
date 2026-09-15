@@ -58,7 +58,6 @@ describe('Kernel 邮局模式', () => {
     const { kernel, deliveries, timers } = await createKernelHarness(gateway)
     const agentId = await kernel.instantiateAgent(
       { className: makeAgentClassID('assistant'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hello' },
-      '/proj',
     )
 
     // 首信立即送信（初始倒计时 0）→ agent thinking → 回复 → holding
