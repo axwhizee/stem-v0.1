@@ -34,7 +34,7 @@
 ## 装配顺序（`createStemSystem`，固定）
 
 0. （可选 `stateStore` 注入）Kernel 构造内：内存核建好 → 从 store 恢复（实例/消息 + 状态归一化 + id 计数器续接）→ 套 write-through 装饰器；上下文接线延后至 `wireRestoredContexts`（runInit 后）。
-1. 读配置（不存在 = `defaultStemConfig` 内存等效；**家学硬校验 `config.user.model`**）→ 工具注册表 + Kernel（user 类 = config.user 对象；注入 `contextSettings`/`project`/`toolOutputLimit`/`stateStore`/`classStore`）。
+1. 读配置（不存在 = `defaultStemConfig` 内存等效；**user.model 必填校验**）→ 工具注册表 + Kernel（user 类 = config.user 对象；注入 `contextSettings`/`project`/`toolOutputLimit`/`stateStore`/`classStore`）。
 2. 工具记录 sink（`attachToolRecordSink`）→ internal 工具（`registerInternalTools`：系统工具 + 注入 `shellRunner` 才装配的 bash）→ 宿主显式 `hostTools`。
 3. `runInit` 矩阵装载（tools / agent 类 / context 策略 × extension 点名 + custom 扫描；后层同名覆盖；目录即真相，永不回写）。
 4. 策略 `init`（可注册自带工具）→ `wireRestoredContexts`（类/策略载齐后一次完成恢复接线）。

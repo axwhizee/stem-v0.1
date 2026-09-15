@@ -11,7 +11,7 @@
 
 - **全量有效原则**：非已知顶层键 **boot fail-fast**；`custom` 是唯一合法扩展位。历史键 `model`/`agents`/`strategies` 与数组形态 `tools` 出现即报可行动迁移错误（静默丢弃兼容已废除）。
 - `providers`：模型提供商注册表——`base_url`（必填 http(s)）/`key_env`（密钥**环境变量名**，配置文件永不承载明文；缺省 = 匿名端点）/`models`（启用白名单）；一切模型引用的 provider 必须在此注册。
-- `user`：根的完整类对象——`description`/`systemPrompt`/`tools`（纯收敛清单）/`contextStrategy`/`model`（**家学锚点，boot 必填硬校验**——全链缺省的本体）/`sendCountdown`/`temperature`/`effort`/`name`（根出生名，缺省 `user`）。
+- `user`：根的完整类对象——`description`/`systemPrompt`/`tools`（纯收敛清单）/`contextStrategy`/`model`（**user 类模型基因，boot 必填硬校验**）/`sendCountdown`/`temperature`/`effort`/`name`（根出生名，缺省 `user`）。
 - `autoApprove`、`sendCountdown`：运行策略参数。
 - `context`：`window`、`compact{threshold, keepRecentTurns, summarizeModel, instruction, replyTimeoutMs}`。
 - `bash`：`path`/`defaultTimeoutMs`/`maxOutputChars`/`cwd`。

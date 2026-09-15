@@ -4,7 +4,7 @@
 // 门面合一：拓扑 + 能力 + 可见域三相合一。"实例树"仅为概念别名。
 //
 // 模型配置相（出生解析落地）：实例化时一次性求解「显式 > 类基因 >
-// 父继承 > 家学」并物化为节点绑定；改父不动子由已落地绑定天然保证
+// 父继承」并物化为节点绑定；改父不动子由已落地绑定天然保证
 // （无 snapshot 输入层、无运行期全树 replay）。setModel 只重绑节点
 // 自身为 explicit。启动 replay 仅一次（恢复接线）。
 //
@@ -276,7 +276,7 @@ export class DefaultLineageTree implements LineageTree {
     }
   }
 
-  /** 显式 > 已落地绑定 > 类基因 > 父继承 > 家学（根的类层即 home；home 值下传保持 origin）。 */
+  /** 显式 > 已落地绑定 > 类基因 > 父继承（严格父子相对；根的类基因与非根同语义）。 */
   private computeModelBinding(agentId: string): ModelBinding | undefined {
     const record = this.modelInputs.get(agentId)
     if (record === undefined) return undefined
@@ -284,14 +284,14 @@ export class DefaultLineageTree implements LineageTree {
     if (input.instanceModel !== undefined) return { ref: input.instanceModel, origin: 'explicit' }
     // 自包含：已落地绑定优先于类/父链（重启不需类模板；改父不动子）。
     if (input.resolved !== undefined) return input.resolved
-    if (input.classModel !== undefined) return { ref: input.classModel, origin: parentId === null ? 'home' : 'class' }
+    if (input.classModel !== undefined) return { ref: input.classModel, origin: 'class' }
     if (parentId !== null) {
       const parent = this.modelBindings.get(parentId)
       if (parent !== undefined) {
-        return { ref: parent.ref, origin: parent.origin === 'home' ? 'home' : 'inherited' }
+        return { ref: parent.ref, origin: 'inherited' }
       }
     }
-    return undefined // 全链无锚（boot 硬校验 config.user.model 保证正常不发生）
+    return undefined // 全链无锚（boot 硬校验 user 类 model 基因，正常不发生）
   }
 
   // ---------- 可见域 ----------

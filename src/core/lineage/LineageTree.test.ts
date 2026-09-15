@@ -269,15 +269,15 @@ describe('LineageTree.canReach（可见域：自身 ∪ 祖先代查）', () => 
 
 const M = (id: string) => ({ provider: 'test', id })
 
-describe('LineageTree 模型配置相（显式 > 类基因 > 父继承 > 家学）', () => {
-  test('四级律逐级命中与优先级', async () => {
+describe('LineageTree 模型配置相（显式 > 类基因 > 父继承）', () => {
+  test('逐级命中与优先级（严格父子相对）', async () => {
     const { lineage } = await makeTree()
-    // 家学（根的类层 = config.user.model 语义位）
+    // 根的类基因（config.user.model 语义位；与非根同一 class 层）
     lineage.attach({ agentId: '0', parentId: null, model: { classModel: M('home-m') } })
-    assert.deepEqual(lineage.modelOf('0'), { ref: M('home-m'), origin: 'home' })
-    // 父继承：无自身模型 → 家学值下传保持 origin=home（blame 指到锚点）
+    assert.deepEqual(lineage.modelOf('0'), { ref: M('home-m'), origin: 'class' })
+    // 父继承：无自身模型 → 继承父生效表
     lineage.attach({ agentId: 'plain', parentId: '0' })
-    assert.deepEqual(lineage.modelOf('plain'), { ref: M('home-m'), origin: 'home' })
+    assert.deepEqual(lineage.modelOf('plain'), { ref: M('home-m'), origin: 'inherited' })
     // 类基因：非根类模型 → class 层
     lineage.attach({ agentId: 'w', parentId: '0', model: { classModel: M('class-m') } })
     assert.deepEqual(lineage.modelOf('w'), { ref: M('class-m'), origin: 'class' })
@@ -289,7 +289,7 @@ describe('LineageTree 模型配置相（显式 > 类基因 > 父继承 > 家学�
     assert.deepEqual(lineage.modelOf('wc'), { ref: M('class-m'), origin: 'inherited' })
     // 隔代继承链：孙随父走
     lineage.attach({ agentId: 'p2', parentId: 'plain' })
-    assert.deepEqual(lineage.modelOf('p2'), { ref: M('home-m'), origin: 'home' })
+    assert.deepEqual(lineage.modelOf('p2'), { ref: M('home-m'), origin: 'inherited' })
   })
 
   test('全链无锚 → undefined（不伪造兜底模型；boot 硬校验的运行时形态）', async () => {
@@ -302,8 +302,8 @@ describe('LineageTree 模型配置相（显式 > 类基因 > 父继承 > 家学�
 
   test('改父不动子的物化形态 = 出生快照层（重构裁决：setModel 直改口退役，行写+replay 统一）', async () => {
     const { lineage } = await makeTree()
-    const SNAPSHOT = { ref: M('home-m'), origin: 'home' as const }
-    // 出生：p 无显式落 home；oldChild 随 kernel attach 规则写快照
+    const SNAPSHOT = { ref: M('home-m'), origin: 'inherited' as const }
+    // 出生：p 无显式落父继承；oldChild 随 kernel attach 规则写快照
     lineage.attach({ agentId: '0', parentId: null, model: { classModel: M('home-m') } })
     lineage.attach({ agentId: 'p', parentId: '0' })
     lineage.attach({ agentId: 'oldChild', parentId: 'p', model: { resolved: SNAPSHOT } })
@@ -328,7 +328,7 @@ describe('LineageTree 模型配置相（显式 > 类基因 > 父继承 > 家学�
       { agentId: '0', parentId: null, model: { classModel: M('home-m') } },
     ])
     assert.deepEqual(lineage.modelOf('g'), { ref: M('p-class'), origin: 'inherited' })
-    assert.deepEqual(lineage.modelOf('0'), { ref: M('home-m'), origin: 'home' })
+    assert.deepEqual(lineage.modelOf('0'), { ref: M('home-m'), origin: 'class' })
   })
 
   test('replay（模拟重启）：显式层由实例行传入，运行期改档延续', async () => {
@@ -348,7 +348,7 @@ describe('LineageTree 模型配置相（显式 > 类基因 > 父继承 > 家学�
     const { lineage } = await makeTree()
     lineage.attach({ agentId: '0', parentId: null, own: { read: 'allow' }, model: { classModel: M('home-m') } })
     const node = lineage.nodeConfigOf('0')
-    assert.deepEqual(node?.model, { ref: M('home-m'), origin: 'home' })
+    assert.deepEqual(node?.model, { ref: M('home-m'), origin: 'class' })
     assert.equal(node?.access.explicit['read'], 'allow')
     assert.equal(lineage.nodeConfigOf('nobody'), undefined)
     lineage.detach('0')

@@ -4,7 +4,7 @@
 
 ## 职责
 
-- `PilotEvent` 五元：`stream`（LLM 流式事件）/`letter`（来信）/`status`（状态变化）/`tool`（工具触发，只带名字/相位，详情走 DB）/`notice`。
+- `PilotEvent` 四元：`stream`（LLM 流式事件）/`letter`（来信）/`status`（状态变化）/`tool`（工具触发，只带名字/相位，详情走 DB）。
 - `DefaultEventHub`：多订阅者发布/订阅（外部 shell/GUI 订阅面）。
 
 ## 文件

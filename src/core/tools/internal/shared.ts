@@ -37,12 +37,11 @@ export function resolveReachable(
 
 export const MODEL_FORMAT_HINT = 'model 必须是 "提供商/模型" 格式（提供商 = config providers 注册表的键；裸模型名无归属不受理）'
 
-/** 模型解析命中层的中文谱系标签（agent_inspect 出示；R6 四级律）。 */
+/** 模型解析命中层的中文谱系标签（agent_inspect 出示）。 */
 export const MODEL_ORIGIN_LABELS: Record<ModelOrigin, string> = {
   explicit: '实例显式（出生指定或 set_model 改写）',
   class: '类基因',
   inherited: '父继承',
-  home: '家学 = config.user.model',
 }
 
 /** 列出 agent 类。 */

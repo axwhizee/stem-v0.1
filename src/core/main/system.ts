@@ -100,16 +100,16 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   const loaded = await deps.config.store.load()
   // S6/R12：首启零兜底链路的正面表达——config 文件不存在时，等效内存配置 =
   // 首启模板的解析产物（runInit 随后把同一文本落盘；顶层 model 链已拆除，
-  // 家学锚点由模板的 user.model 承载，杜绝"无配置装配出无锚系统"）。
+  // user 类 model 基因由模板的 user.model 承载，杜绝"无配置装配出无锚系统"）。
   const config = loaded.exists ? loaded.config : defaultStemConfig()
 
-  // 家学硬校验（boot fail-fast）：config.user.model = 全体 agent 模型解析链
-  // （显式 > 类基因 > 父继承 > 家学）的链尾锚点，缺失即全系统无缺省模型。
+  // user.model 必填校验（boot fail-fast）：user 类 model 基因
+  // （显式 > 类基因 > 父继承）的链尾锚点，缺失即全系统无缺省模型。
   if (config.user?.model === undefined) {
     throw {
       kind: 'invalid_config',
       message:
-        'user.model 必填（家学锚点 = 全体模型的链尾缺省；模板默认 "opencode-go/deepseek-v4-flash"，请在 .stem/stem.jsonc 的 user.model 补全）',
+        'user.model 必填（user 类 model 基因；模板默认 "opencode-go/deepseek-v4-flash"，请在 .stem/stem.jsonc 的 user.model 补全）',
     } as ConfigError
   }
 

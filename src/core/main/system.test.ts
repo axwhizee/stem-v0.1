@@ -10,7 +10,7 @@ import type { InitFs, InitToolLoader } from './types'
 import { createStemSystem } from './system'
 import { makeAgentClassID, makeAgentID, parentIdOf, ROOT_ID } from '../kernel'
 
-/** 家学锚点（S6/R12 boot 硬校验必填：config.user.model = 全链缺省本体）。 */
+/** user 类 model 基因（boot 必填：config.user.model）。 */
 const HOME: StemConfig = { user: { model: { provider: 'fake', id: 'home-model' } } }
 
 function makeDeps(
@@ -76,10 +76,10 @@ describe('createStemSystem（系统装配组合根）', () => {
     // S6/R11：单空间——kernel.project = paths.projectRoot，无 spaces 表。
     assert.equal(system.kernel.project, '/proj', 'user#0 与后代共享项目身份')
     assert.equal(parentIdOf(rootInst!.id), null)
-    // S6/R6：根绑定即家学层。
+    // 根绑定 = user 类基因（与非根同一 class 层）。
     assert.deepEqual(system.kernel.lineage.modelOf(ROOT_ID), {
       ref: { provider: 'fake', id: 'home-model' },
-      origin: 'home',
+      origin: 'class',
     })
     // 系统工具 + access_reply 已注册；skill 子系统已随 S7 拆除（core 不再有 skill）。
     assert.ok(await system.tools.get('agent_instantiate'))
@@ -191,7 +191,7 @@ describe('createStemSystem（系统装配组合根）', () => {
     await system.dispose()
   })
 
-  test('R12 家学硬校验：缺 config.user.model → boot fail-fast（无兜底模型链）', async () => {
+  test('R12 user 类 model 必填：缺 config.user.model → boot fail-fast', async () => {
     const d = makeDeps({})
     await assert.rejects(
       () =>
@@ -208,7 +208,7 @@ describe('createStemSystem（系统装配组合根）', () => {
     )
   })
 
-  test('首启自举：config 文件不存在 → 内存等效 = 首启模板（家学锚 opencode-go），runInit 落盘同一文本', async () => {
+  test('首启自举：config 文件不存在 → 内存等效 = 首启模板（user.model = opencode-go），runInit 落盘同一文本', async () => {
     let savedText: string | undefined
     const d = makeDeps({}, {}, { exists: false, captureSave: (text) => (savedText = text) })
     const system = await createStemSystem({
@@ -217,10 +217,10 @@ describe('createStemSystem（系统装配组合根）', () => {
       tools: d.loader,
       gateway: d.gateway,
     })
-    // 模板家学 = opencode-go/deepseek-v4-flash（R2 预设 = 模板数据）。
+    // 模板 user.model = opencode-go/deepseek-v4-flash（R2 预设 = 模板数据）。
     assert.deepEqual(system.kernel.lineage.modelOf(ROOT_ID), {
       ref: { provider: 'opencode-go', id: 'deepseek-v4-flash' },
-      origin: 'home',
+      origin: 'class',
     })
     assert.ok(savedText !== undefined && savedText.includes('"providers"'), '首启模板已落盘')
     await system.dispose()

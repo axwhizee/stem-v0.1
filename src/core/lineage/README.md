@@ -6,7 +6,7 @@
 
 - **拓扑**：由 id 路径纯推导（`parentIdOf`：`1.3`→`1`；`3`→`0`；`0`→null）。`getChildren` 扫活体实例 `parentIdOf(child)===parent`；`getAncestors` 逐段去尾；`isAncestorOf` = 前缀律（根是全树祖先）。**父不落库**。
 - **能力物化**：注册期 `attach`/`replay` 把类清单 → [策略 raise 清单] → 实例清单逐层折叠，经出生表 caps 封顶，产出每位 agent 的生效访问档案（`AccessLedger` 内部实现）。
-- **模型配置相**：出生解析落地（显式 > 类基因 > 父继承 > 家学）→ `modelBinding` 随实例行持久；改父不级联；无运行期全树 replay。
+- **模型配置相**：出生解析落地（显式 > 类基因 > 父继承）→ `modelBinding` 随实例行持久；改父不级联；无运行期全树 replay。
 - **可见域唯一谓词**：`canReach(viewer, target)` ⟺ 自身 ∨ viewer 是 target 的祖先。一切跨 agent 操作面（销毁/中断/上下文/telemetry/审批）统一走它。
 
 ## 文件

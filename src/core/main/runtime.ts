@@ -80,7 +80,7 @@ export class DefaultRuntime implements RuntimePort {
   private async runDelivery(delivery: AgentDelivery): Promise<void> {
     const instances = this.deps.instances
     const instance = await instances.get(makeAgentID(delivery.agentId))
-    // S6/R6：本轮模型 = 族谱树四级律快照（setModel 下轮送信自然生效）。
+    // S6/R6：本轮模型 = 父子继承链快照（setModel 下轮送信自然生效）。
     const model = this.deps.resolveModel(instance.id)
     if (model === undefined) {
       // 全链无锚 = 配置事故（boot 硬校验保证正常不发生），中断本轮并点名修复处。

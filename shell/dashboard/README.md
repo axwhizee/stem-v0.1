@@ -1,6 +1,6 @@
 # shell/dashboard —— 空间仪表盘（法医 / 管理员 shell）
 
-> 独立进程、独立端口 4421，与 webui 真并列零共享。定位见 `docs/architecture.md` 4.13。
+> 独立进程、独立端口 4421，与 webui 真并列零共享。定位见 `docs/architecture.md`「stem 空间与 SQLite」。
 
 ## 职责
 

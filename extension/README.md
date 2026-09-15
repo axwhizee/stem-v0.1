@@ -1,7 +1,7 @@
 # extension —— 矩阵 extension 层（目录形态资源）
 
 > 仓库级可选扩展的家：与用户空间 `.stem/` 的 custom 层同构，差别只在**启用方式**（点名 vs 目录即真相）与**归属**（仓库发布物 vs 用户空间）。
-> 装载与覆盖律见 `docs/architecture.md` 4.12 `main/loader` 管线。
+> 装载顺序与覆盖律：internal → extension → custom，后层同名覆盖（`src/core/main/loader.ts`）。
 
 ## 结构（一资源一目录、入口与目录同名）
 

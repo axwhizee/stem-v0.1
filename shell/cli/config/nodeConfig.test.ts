@@ -122,7 +122,7 @@ test('真实 fs：旧镜像 ghost 键 → R12 解析硬错（不再静默丢弃�
   }
 })
 
-test('真实 fs：providers + 家学 user.model 解析（S6/R12 后 config 唯一模型面）', async () => {
+test('真实 fs：providers + user.model 解析（S6/R12 后 config 唯一模型面）', async () => {
   const dir = await makeProjectSpace()
   try {
     await writeFile(

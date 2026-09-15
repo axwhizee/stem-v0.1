@@ -23,7 +23,7 @@ export interface RuntimePortDeps {
   /** 工具注册表（缺省不启用工具轮）。 */
   readonly tools?: ToolCapabilityRegistry
   /**
-   * 模型解析端口（族谱树四级律——显式 > 类基因 > 父继承 > 家学；
+   * 模型解析端口（父子继承链——显式 > 类基因 > 父继承；
    * kernel 接 lineage.modelOf。undefined = 全链无锚，见 processDelivery 防御）。
    */
   readonly resolveModel: (agentId: AgentID) => ModelRef | undefined

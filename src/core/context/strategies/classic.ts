@@ -102,7 +102,7 @@ async function compactNow(api: StrategyApi, trigger: 'auto' | 'manual'): Promise
     const transcript = stale.map(renderForSummary).join('\n')
     const instruction = api.settings.compact.instruction ?? DEFAULT_INSTRUCTION
     // S6/R6：摘要 worker 模型 = 类基因位（config context.compact.summarizeModel）；
-    // 未配置则走出生链（父继承宿主 agent 档案 > 家学），不再有独立兜底常量。
+    // 未配置则走出生链（父继承宿主 agent 档案），不再有独立兜底常量。
     const summarizeModel = api.settings.compact.summarizeModel
     const spec: AgentClass = summarizeModel !== undefined ? { ...SUMMARIZER_SPEC, model: summarizeModel } : SUMMARIZER_SPEC
     const summary = (await api.spawn(`${instruction}\n\n${transcript}`, spec)).trim()

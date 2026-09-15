@@ -201,7 +201,7 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
             : '(未注册——一切 LLM 调用硬错)'
         }`,
       )
-      console.log(`  家学 user.model: ${cfg.user?.model !== undefined ? `${cfg.user.model.provider}/${cfg.user.model.id}` : '(缺失——boot 应已报错)'}`)
+      console.log(`  user.model: ${cfg.user?.model !== undefined ? `${cfg.user.model.provider}/${cfg.user.model.id}` : '(缺失——boot 应已报错)'}`)
       console.log(`  autoApprove: ${cfg.autoApprove ?? false}`)
       console.log(`  sendCountdown: ${cfg.sendCountdown ?? '(未配置)'}`)
       console.log(`  user 类: ${cfg.user?.tools !== undefined ? `tools=${JSON.stringify(cfg.user.tools)}` : '(内置默认表)'}`)

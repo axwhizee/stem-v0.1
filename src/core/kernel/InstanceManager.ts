@@ -33,12 +33,12 @@ export interface InstantiateOptions {
   readonly tools?: Readonly<Record<string, ToolAccess>>
   /**
    * 显式模型（解析链最高层；落实例行 = 持久载体）。
-   * 缺省 = 不显式，落类基因/父继承/家学链。
+   * 缺省 = 不显式，落类基因/父继承。
    */
   readonly model?: ModelRef
-  /** 显式采样温度（缺省 = 类/父/家学链）。 */
+  /** 显式采样温度（缺省 = 类基因/父继承）。 */
   readonly temperature?: number
-  /** 显式思考强度（缺省 = 类/父/家学链）。 */
+  /** 显式思考强度（缺省 = 类基因/父继承）。 */
   readonly effort?: EffortLevel
   /** 面板性（创建方指定；false = 被外部扮演，不组装不跑 LLM）。 */
   readonly assemble?: boolean

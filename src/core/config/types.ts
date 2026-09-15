@@ -13,7 +13,7 @@
 //     `key_env` 密钥注入 + `models` 白名单），代码零端点常量、零兜底；
 //     模型引用一律 `提供商/模型`（如 `opencode-go/deepseek-v4-flash`）。
 //   - **全量有效原则**（S6/R12）：config 即全部配置——未知顶层键 fail-fast，
-//     `custom` 为唯一合法扩展位；顶层 model 链已拆除，家学锚点 = `user.model`。
+//     `custom` 为唯一合法扩展位；顶层 model 链已拆除，`user.model` = user 类模型基因。
 // ============================================================
 
 import type { ToolAccess } from '../tools'
@@ -51,15 +51,15 @@ export interface StemUserClass {
   /** 上下文管理策略（根面板态默认不消费，pilot 未来 as() 扩展预留）。 */
   readonly contextStrategy?: string
   /**
-   * **家学锚点**（S6/R12 必填，boot 硬校验）：全体 agent 模型解析链
-   * （显式 > 类基因 > 父继承 > 家学）的链尾默认值。
+   * user 类 model 基因（boot 必填硬校验）：根与其它 agent 同一套
+   * 显式 > 类基因 > 父继承 解析；本字段是 user 类的类基因层。
    */
   readonly model?: ModelRef
   /** 送信倒计时毫秒（缺省 0 = 直接获得回复）。 */
   readonly sendCountdown?: number
-  /** 采样温度家学缺省。 */
+  /** 采样温度缺省（user 类基因）。 */
   readonly temperature?: number
-  /** 思考强度家学缺省（缺省 none）。 */
+  /** 思考强度缺省（user 类基因）（缺省 none）。 */
   readonly effort?: EffortLevel
   /** 根的出生称呼（B2；缺省 'user' → 全名 user#0。实例参数不上类，运行期改名走 agent_update.name）。 */
   readonly name?: string

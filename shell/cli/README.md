@@ -1,13 +1,13 @@
 # shell/cli —— 参考 shell（平台装配 + SQLite + CLI）
 
 > 宿主层参考实现：把 `core` 的平台能力接口落成 node 实现，供任何 shell 复用。
-> 定位见 `docs/architecture.md` 4.13。
+> 定位见 `docs/architecture.md`「stem 空间与 SQLite」。
 
 ## 职责
 
 - **平台装配 `platform.ts`（`bootStem`）**：config 读 → 构建网关（providers 路由）→ `createStemSystem`（注入 stateStore / classFs / extensionRoots / shellRunner / onEvent）→ 返回可运行系统。任何 shell（webui/dashboard/feishu）复用此装配，只替换 UI 与事件消费。
 - **网关路由 `gateway.ts`**：见下「厂商适配收容所」。
-- **持久化 `storage/`**：`createSqliteStateStore`（`node:sqlite` `DatabaseSync` 实现 `MessageStore`/`InstanceStore` 两端口）；行 = 记录全量 JSON + `agent_id`/`seq` 冗余列；`PRAGMA user_version` 守卫（**当前 v3**：路径 id + name 唯一 + 戳升级原子形制；版本不符 = boot 拒载硬错，零兼容零迁移）；rollback journal（9P/WAL-shm 安全）；默认 `<projectRoot>/.stem/stem.db`（`STEM_DB_PATH` 覆盖，`stateStore:false` 显式纯内存）。**空间语义**：`.stem` = 世界——一进程 = 一空间 = 一 projectRoot = 一 `.stem` = 一 `stem.db`；定位 opencode-style（`stem [path]` > `STEM_PROJECT_ROOT` > cwd），无注册表无切换器。
+- **持久化 `storage/`**：`createSqliteStateStore`（`node:sqlite` `DatabaseSync` 实现 `MessageStore`/`InstanceStore` 两端口）；行 = 记录全量 JSON + `agent_id`/`seq` 冗余列；`PRAGMA user_version` 守卫（**当前 v4**：身份模型换代零兼容，版本不符 = boot 拒载硬错，无迁移脚本）；rollback journal（9P/WAL-shm 安全）；默认 `<projectRoot>/.stem/stem.db`（`STEM_DB_PATH` 覆盖，`stateStore:false` 显式纯内存）。**空间语义**：`.stem` = 世界——一进程 = 一空间 = 一 projectRoot = 一 `.stem` = 一 `stem.db`；定位 opencode-style（`stem [path]` > `STEM_PROJECT_ROOT` > cwd），无注册表无切换器。
 - **配置端口 `config/`**：node fs 实现 `ConfigStore`/`ConfigPaths`。
 - **bash 端口 `bash.ts`**：`ShellRunner` 的 `child_process` 实现（core 只定义端口，执行住这里）。
 - **CLI 命令 `main.ts`**：直接对话 + `/new` `/use` `/agents` `/templates` `/tools` `/config` `/compact` `/stop`。

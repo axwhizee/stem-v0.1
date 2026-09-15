@@ -3,7 +3,7 @@
 //
 // agent_instantiate.model（出生显式层）/ agent_update（R7：
 // 授权 = canReach、internal 缺省 ignore、审计与遥测）/ agent_inspect
-// 的模型谱系（R6 四级律 origin 出示）。
+// 的模型谱系（origin 谱系出示）。
 // ============================================================
 
 import { describe, test } from 'node:test'
@@ -77,12 +77,12 @@ describe('agent_instantiate 显式模型（R6 出生链顶）', () => {
     assert.deepEqual(manager(kernel, 'e2'), undefined, '非法格式不得创建实例')
   })
 
-  test('缺省不显式 → 类基因层 / 无基因落家学（home 传播）', async () => {
+  test('缺省不显式 → 类基因 / 无基因落父继承', async () => {
     const { kernel, tools } = await harness()
     await asUser(tools, 'agent_instantiate', { className: 'gened', userPrompt: 'hi', name: 'g1' })
     assert.deepEqual(kernel.lineage.modelOf(kernel.resolveAgent('g1')), { ref: { provider: 'cfg', id: 'class-m' }, origin: 'class' })
     await asUser(tools, 'agent_instantiate', { className: 'self-model', userPrompt: 'hi', name: 's1' })
-    assert.deepEqual(kernel.lineage.modelOf(kernel.resolveAgent('s1')), { ref: { provider: 'fake', id: 'home-model' }, origin: 'home' })
+    assert.deepEqual(kernel.lineage.modelOf(kernel.resolveAgent('s1')), { ref: { provider: 'fake', id: 'home-model' }, origin: 'inherited' })
   })
 })
 
@@ -140,11 +140,11 @@ describe('agent_update（R7）', () => {
 })
 
 describe('agent_inspect 模型谱系（R6 origin 出示）', () => {
-  test('家学 / 类基因 / 实例显式三态标签', async () => {
+  test('类基因 / 父继承 / 实例显式三态标签', async () => {
     const { tools } = await harness()
     const rootText = (await asUser(tools, 'agent_inspect', { agentId: ROOT_ID })).text
     assert.match(rootText, /agent user#0/)
-    assert.match(rootText, /model: fake\/home-model（家学 = config\.user\.model）/)
+    assert.match(rootText, /model: fake\/home-model（类基因）/)
     await asUser(tools, 'agent_instantiate', { className: 'gened', userPrompt: 'hi', name: 'g9' })
     assert.match((await asUser(tools, 'agent_inspect', { agentId: 'g9' })).text, /cfg\/class-m（类基因）/)
     await asUser(tools, 'agent_instantiate', { className: 'gened', userPrompt: 'hi', name: 'x9', model: 'cfg/x-m' })

@@ -103,7 +103,7 @@ export interface AgentClass {
   readonly effort?: EffortLevel
 }
 
-// ---------- 模型解析相（S6/R6 四级律；lineage 树与实例行共用形状） ----------
+// ---------- 模型解析相（父子继承；lineage 树与实例行共用形状） ----------
 // 形状住 gateway（模型域）；kernel re-export 供领域消费。
 
 export type { ModelOrigin, ModelBinding } from '../gateway'
@@ -143,11 +143,11 @@ export interface AgentInstance {
   readonly toolOverride?: Readonly<Record<string, ToolAccess>>
   /**
    * **模型显式层**：agent_instantiate 显式指定或 agent_update 运行改写
-   * 的落盘载体。缺省 = 无显式值，解析链上溯类基因/父继承/家学。
+   * 的落盘载体。缺省 = 无显式值，解析链上溯类基因/父继承。
    */
   readonly model?: ModelRef
   /**
-   * **出生解析落地**（实例化一次性求解：显式 > 类基因 > 父继承 > 家学）：
+   * **出生解析落地**（实例化一次性求解：显式 > 类基因 > 父继承）：
    * 生效模型 + origin 随行持久，重启不需类模板恢复运行模型。
    * 「改父不动子」由本字段天然保证——改的是节点自身显式层，子女绑定已落地。
    * 出生后必有；旧库缺字段 = restore 期按 model/类基因回填。

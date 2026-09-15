@@ -21,7 +21,7 @@ import { makeAgentClassID, makeAgentID, ROOT_ID } from '../kernel'
 import { messageSeqOf } from '../context'
 
 function makeDeps(config: StemConfig = {}) {
-  // S6/R12：家学锚点必填（boot 硬校验）；用例显式给出的 user 字段优先。
+  // S6/R12：user.model 必填（boot 硬校验）；用例显式给出的 user 字段优先。
   const anchored: StemConfig = { ...config, user: { model: { provider: 'opencode', id: 'test' }, ...config.user } }
   const store: ConfigStore = {
     file: '/proj/.stem/stem.jsonc',

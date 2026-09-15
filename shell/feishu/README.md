@@ -12,7 +12,7 @@
    │ ① 事件推送：走「长连接」——你的进程拨出的那条 WebSocket
    ▼                        ② 你的 shell 调 REST API 回复/发卡（普通 HTTPS 出网）
 shell/feishu（你的主机，本目录）
-   │ pilot.sendMessage / replyAccess      ▲ PilotEvent 订阅（letter/status/notice）
+   │ pilot.sendMessage / replyAccess      ▲ PilotEvent 订阅（letter/status/tool）
    ▼                                      │
 stem core（根 user#0 生态：接待员、organizer、cortex-pet……全部照族谱树运行）
 ```

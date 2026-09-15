@@ -42,7 +42,7 @@
 ## 权限/模型物化
 
 - 实例注册时经 `lineage.attach`/`replay` 物化；写入面走同一代数做拒绝式校验。
-- 模型四级律：实例显式 > 类基因 > 父继承 > 家学（`config.user.model`）；**出生落地 `modelBinding`**，改父不级联。形状（`ModelOrigin`/`ModelBinding`/`EffortLevel`）住 `gateway`，kernel re-export。
+- 模型继承链：实例显式 > 类基因 > 父继承（严格父子相对）；**出生落地 `modelBinding`**，改父不级联。形状（`ModelOrigin`/`ModelBinding`/`EffortLevel`）住 `gateway`，kernel re-export。
 - 类字段单一真相见 `attributes.ts`（校验/frontmatter 映射/`pickAgentClassGenes`）。
 
 ## 依赖

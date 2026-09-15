@@ -1,13 +1,13 @@
 # shell/webui —— WebUIShell（HTTP + SSE + 单页 UI）
 
 > 第一视角浏览器交互：`node:http` + SSE，复用 cli 的 `bootStem` 装配。
-> 定位见 `docs/architecture.md` 4.13。
+> 定位见 `docs/architecture.md`「分层模块化」。
 
 ## 职责
 
 - **服务端 `server.ts`**：`node:http` + SSE（`/api/events`，`/api/health` 供容器 HEALTHCHECK），REST 面（agents/instantiate/send/context/…）。复用 `shell/cli/platform.bootStem`，只做 HTTP/UI。
 - **前端三件套**（零构建，经 sendStatic 直发）：`index.html`（纯结构）/ `style.css`（主题）/ `app.js`（模块脚本）+ `view.js`（纯函数核心，`view.d.ts` 类型、`view.test.ts` node 直测）。
-- **订阅面**：`pilot.subscribe` 消费 PilotEvent（stream/letter/status/tool/notice）→ SSE 推送到浏览器。
+- **订阅面**：`pilot.subscribe` 消费 PilotEvent（stream/letter/status/tool）→ SSE 推送到浏览器。
 
 ## UI 结构（OLED 无边框主题）
 

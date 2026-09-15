@@ -263,7 +263,7 @@ export class Kernel {
       contextManager: this.contextManager,
       repository: this.repository,
       tools: options.tools,
-      // S6/R6：模型解析归口族谱树四级律（defaultModel 单层链已拆除）。
+      // S6/R6：模型解析归口父子继承链（defaultModel 单层链已拆除）。
       resolveModel: (agentId) => this.lineage.modelOf(agentId as string)?.ref,
       maxSteps: options.maxSteps,
       ...(options.toolOutputLimit !== undefined ? { toolOutputLimit: options.toolOutputLimit } : {}),
@@ -459,7 +459,7 @@ export class Kernel {
       userPrompt: '',
     })
     // 能力绑定（根：自身清单 = user 类 tools 整表，物化生效权限；
-    // 模型相：根的类基因 = 家学锚点 config.user.model，全链默认值）。
+    // 模型相：根的类基因 = config.user.model，与非根同一「类基因」语义）。
     this.lineage.attach({
       agentId: instance.id,
       parentId: null,

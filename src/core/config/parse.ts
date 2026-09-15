@@ -36,7 +36,7 @@ const KNOWN_KEYS: ReadonlySet<string> = new Set([
 
 /** 已废除的历史键 → 迁移指路（仍 fail-fast，但错误可行动）。 */
 const RETIRED_KEYS: Readonly<Record<string, string>> = {
-  model: '顶层 model 已拆除（R12）：家学锚点 = user.model（全体缺省的本体）',
+  model: '顶层 model 已拆除（R12）：user 类 model 基因 = user.model（全体缺省的本体）',
   agents: '目录即真相：类文件放入 .stem/agent/ 即自动注册',
   strategies: '目录即真相：策略文件放入 .stem/context/ 即自动注册',
 }

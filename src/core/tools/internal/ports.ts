@@ -81,7 +81,7 @@ export interface AgentUpdateRequest {
   readonly effort?: EffortLevel
 }
 
-/** 生效配置视图（agent_inspect：模型四级律 + 权限物化面）。 */
+/** 生效配置视图（agent_inspect：模型继承链 + 权限物化面）。 */
 export interface AgentConfigView {
   readonly model?: ModelBinding
   readonly access?: {

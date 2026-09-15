@@ -26,7 +26,7 @@ export function agentInstantiate(host: SystemToolHost): ToolCapability {
         className: { type: 'string', description: 'Agent 模板名' },
         userPrompt: { type: 'string', description: '实例化时附带的 user prompt（必填）' },
         name: { type: 'string', description: '出生称呼（可选，全局唯一；撞名被拒不自动后缀。缺省派生 `类名-N`。id 是出生路径，系统全托管）' },
-        model: { type: 'string', description: '显式模型 "提供商/模型"（可选；缺省按 类基因>父继承>家学 解析）' },
+        model: { type: 'string', description: '显式模型 "提供商/模型"（可选；缺省按 类基因>父继承 解析）' },
         contextRefs: { type: 'array', items: { type: 'string' }, description: '父仓库消息索引列表（消息 id 或轮索引），深拷贝传入新实例' },
         tools: { type: 'object', description: '工具清单补充：访问键 → ask/deny（对模板表临时收敛）' },
         wait: { type: 'boolean', description: 'true = 创建并等待该 agent 回信作为本工具结果（推荐用于子任务委托）' },
@@ -205,7 +205,7 @@ export function agentInspect(host: SystemToolHost): ToolCapability {
         `  children: ${children.length > 0 ? children.map((id) => host.agents.displayOf(id)).join(', ') : '-'}`,
         `  ancestry: ${ancestors.length > 0 ? ancestors.map((id) => host.agents.displayOf(id)).join(' → ') : '（树根）'}`,
         `  status: ${instance.status}  turns: ${instance.turnCount}  cost: ${instance.totalCost}`,
-        `  model: ${node?.model !== undefined ? `${node.model.ref.provider}/${node.model.ref.id}（${MODEL_ORIGIN_LABELS[node.model.origin] ?? node.model.origin}）` : '（全链无锚——检查 config.user.model）'}`,
+        `  model: ${node?.model !== undefined ? `${node.model.ref.provider}/${node.model.ref.id}（${MODEL_ORIGIN_LABELS[node.model.origin] ?? node.model.origin}）` : '（全链无锚——检查 user.model）'}`,
         `  access: ${formatEffectiveAccess(node?.access)}`,
       ]
       return { text: lines.join('\n') }

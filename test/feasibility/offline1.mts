@@ -154,22 +154,22 @@ try {
   await waitIdle('S4-cross')
   ok('跨 agent 消息驱动 coder 新轮', (await sys.pilot.exportContext(coderId)).includes('INTER-MESSAGE-2'))
 
-  // ---------- S5 模型四级律 ----------
-  console.log('S5 模型解析（显式>类基因>父继承>家学 + 快照 + 不级联）')
-  await sys.pilot.instantiate({ className: makeAgentClassID('reviewer'), userPrompt: 'hi', name: 'gene-1' }, dir)
+  // ---------- S5 模型继承链 ----------
+  console.log('S5 模型解析（显式>类基因>父继承 + 快照 + 不级联）')
+  await sys.pilot.instantiate({ className: makeAgentClassID('reviewer'), userPrompt: 'hi', name: 'gene-1' })
   const geneModel = sys.kernel.lineage.modelOf(sys.kernel.resolveAgent('gene-1'))
   ok('类基因 origin=class', geneModel?.origin === 'class' && geneModel.ref.id === 'genomic', JSON.stringify(geneModel))
-  const expId = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: 'hi', name: 'exp-1', model: { provider: 'mock', id: 'explicit' } }, dir)
+  const expId = await sys.pilot.instantiate({ className: makeAgentClassID('assistant'), userPrompt: 'hi', name: 'exp-1', model: { provider: 'mock', id: 'explicit' } })
   ok('出生显式 origin=explicit', sys.kernel.lineage.modelOf(expId)?.origin === 'explicit')
-  const inhId = await sys.kernel.instantiateAgent({ className: makeAgentClassID('assistant'), parentId: coderId, userPrompt: 'hi', name: 'inh-1' }, dir)
+  const inhId = await sys.kernel.instantiateAgent({ className: makeAgentClassID('assistant'), parentId: coderId, userPrompt: 'hi', name: 'inh-1' })
   const inhModel = sys.kernel.lineage.modelOf(inhId)
-  ok('家学下传保 origin=home（git-blame 语义，coder 无基因）', inhModel?.origin === 'home' && inhModel.ref.id === 'echo', JSON.stringify(inhModel))
-  ok('根 origin=home', sys.kernel.lineage.modelOf('0')?.origin === 'home')
+  ok('无基因落父继承 origin=inherited（coder 无类基因）', inhModel?.origin === 'inherited' && inhModel.ref.id === 'echo', JSON.stringify(inhModel))
+  ok('根 origin=class（user 类基因）', sys.kernel.lineage.modelOf('0')?.origin === 'class')
   await sys.pilot.setModel(coderId, { provider: 'mock', id: 'hot' })
   await sys.kernel.sendMessage('0', coderId, 'after set model')
   await waitIdle('S5-hot')
   ok('setModel 生效（下轮请求 model=mock/hot）', mock.requests.some((r) => r.body?.model === 'hot'), JSON.stringify(mock.requests.map((r) => r.body?.model)))
-  ok('setModel 不级联（inh-1 仍 home echo 非 hot）', sys.kernel.lineage.modelOf(sys.kernel.resolveAgent('inh-1'))?.ref.id === 'echo')
+  ok('setModel 不级联（inh-1 仍继承 echo 非 hot）', sys.kernel.lineage.modelOf(sys.kernel.resolveAgent('inh-1'))?.ref.id === 'echo')
 
   // ---------- S6 重启恢复 ----------
   console.log('S6 持久化 + 重启恢复')

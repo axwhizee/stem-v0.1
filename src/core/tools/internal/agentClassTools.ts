@@ -29,7 +29,7 @@ export function agentClassCreate(host: SystemToolHost): ToolCapability {
         systemPrompt: { type: 'string', description: '该类的专属系统提示词' },
         tools: { type: 'object', description: '工具清单：访问键 → allow|ask|deny|ignore（键即白名单，对继承面收敛）' },
         contextStrategy: { type: 'string', description: '上下文管理策略（默认 classic）' },
-        model: { type: 'string', description: '模型（"提供商/模型"，可选；缺省沿 父继承>家学 链解析）' },
+        model: { type: 'string', description: '模型（"提供商/模型"，可选；缺省沿 类基因>父继承 解析）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒（可选，缺省 1000）' },
         temperature: { type: 'number', description: '采样温度（可选）' },
         effort: { type: 'string', description: '思考强度 none/low/medium/high（可选，缺省 none）' },

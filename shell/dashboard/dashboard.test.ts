@@ -147,7 +147,7 @@ test('清理工具：孤儿/terminated GC + 定点 purge（active 需 force）+ 
   }
 })
 
-test('资源清单：纯内存标本装配 = 矩阵真实结果（三态分层 + 家学 + init 报告）', async () => {
+test('资源清单：纯内存标本装配 = 矩阵真实结果（三态分层 + user 类基因 + init 报告）', async () => {
   const dir = await mkdtemp(join(tmpdir(), 'stem-dash-inv-'))
   try {
     await mkdir(join(dir, '.stem'), { recursive: true })

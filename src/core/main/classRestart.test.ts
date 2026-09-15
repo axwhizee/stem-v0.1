@@ -31,7 +31,7 @@ function makeMemFs(files: Record<string, string> = {}) {
     file: paths.configFile,
     load: async () => ({
       exists: true,
-      // 家学锚点必填（boot 硬校验）；根清单 = 首启模板实值（agent_class_create/update
+      // user.model 必填（boot 硬校验）；根清单 = 首启模板实值（agent_class_create/update
       // = ask 走 access_reply 授权链——DEFAULT_USER_TOOLS 退役后模板是唯一缺省值源）。
       config: {
         user: { model: { provider: 'opencode', id: 'test' }, tools: defaultStemConfig().user?.tools },
