@@ -27,3 +27,18 @@ export function stampSender(identity: string, at: number, text: string): string 
 export function hasSenderStamp(text: string): boolean {
   return text.startsWith(SENDER_PREFIX)
 }
+
+/**
+ * 解析发送者戳（读侧唯一入口，与 stampSender 同源）。
+ * 兼容有/无 `at` 槽；无戳原文 → sender 空串、body 原样。
+ */
+export function parseStamp(text: string): { sender: string; at: string; body: string } {
+  const match = /^<sender id="([^"]+)"(?: at="([^"]*)")?>([\s\S]*?)<\/sender>$/.exec(text)
+  if (!match) return { sender: '', at: '', body: text }
+  return { sender: match[1] ?? '', at: match[2] ?? '', body: match[3] ?? '' }
+}
+
+/** 剥 sender 戳取正文（无戳 = 原样）。 */
+export function stripSenderStamp(text: string): string {
+  return parseStamp(text).body
+}

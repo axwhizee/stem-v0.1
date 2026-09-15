@@ -9,7 +9,7 @@
 // ============================================================
 
 import { fileURLToPath } from 'node:url'
-import { join } from 'node:path'
+import { join, resolve } from 'node:path'
 import { createNodeConfigBundle } from './config'
 import { createNodeShellRunner } from './bash'
 import { buildGateway } from './gateway'
@@ -31,6 +31,15 @@ export function extensionRoots(): StemSystemDeps['extensionRoots'] {
     agent: join(base, 'agent'),
     context: join(base, 'context'),
   }
+}
+
+/**
+ * 空间定位（各 shell 同一入口）：首个非 flag 位置参数 > STEM_PROJECT_ROOT > cwd。
+ * 一进程 = 一空间 = 一 `.stem`。
+ */
+export function resolveProjectRoot(argv: readonly string[] = process.argv.slice(2)): string {
+  const positional = argv.find((a) => !a.startsWith('-'))
+  return resolve(positional ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
 }
 
 export interface BootOptions {

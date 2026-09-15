@@ -23,8 +23,6 @@
 
 import { createInterface } from 'node:readline/promises'
 import { stdin as input, stdout as output } from 'node:process'
-import { readFile } from 'node:fs/promises'
-import { isAbsolute, resolve } from 'node:path'
 import {
   Kernel,
   makeAgentClassID,
@@ -40,14 +38,13 @@ import { DefaultToolCapabilityRegistry, type ToolCapability } from '../../src/co
 import type { AccessReply } from '../../src/core/tools'
 import type { PilotEvent } from '../../src/core/events'
 import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
-import { bootStem } from './platform'
+import { bootStem, resolveProjectRoot } from './platform'
+import { parseStamp as parseSenderStamp } from '../../src/core/context'
 import type { InitReport, StemSystem } from '../../src/core/main'
 import type { StemConfig } from '../../src/core/config'
 
-/** S6/R11 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（一进程 = 一空间 = 一 .stem）。
- *  取首个非 flag 参数——npm 吞透传 `--` 与否（npm run vs npx）以及后续扩展的
- *  --flags 都不许误入空间位（旧实现把 '--' 当路径在 cwd 长出 './--/' 鬼空间）。 */
-const DEFAULT_PROJECT = resolve(process.argv.slice(2).find((a) => !a.startsWith('-')) ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
+/** 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（platform.resolveProjectRoot 同源）。 */
+const DEFAULT_PROJECT = resolveProjectRoot()
 const DEFAULT_USER_PROMPT = '你好，请做一个简短的自我介绍。'
 
 interface ShellState {
@@ -116,9 +113,8 @@ function formatInitIssue(issue: InitReport['issues'][number]): string {
 
 /** 解析发送者戳，返回（senderId, text）。 */
 function parseStamp(message: string): { sender: string; text: string } {
-  const match = /^<sender id="([^"]+)">([\s\S]*?)<\/sender>$/.exec(message)
-  if (match) return { sender: match[1] ?? '', text: match[2] ?? '' }
-  return { sender: '', text: message }
+  const parsed = parseSenderStamp(message)
+  return { sender: parsed.sender, text: parsed.body }
 }
 
 /** 统一事件流处理：流式输出 / 回信展示 / access_request 弹窗（消息化）。 */

@@ -12,9 +12,10 @@ export type {
   UserDelivery,
   MailDelivery,
 } from './types'
+export { messageText } from './types'
 export { legalize } from './legalize'
 // 信件戳代数（B4：身份全名 + 分钟时刻，打戳/格式断言唯一收口）。
-export { formatStampAt, stampSender, hasSenderStamp, SENDER_PREFIX } from './stamp'
+export { formatStampAt, stampSender, hasSenderStamp, parseStamp, stripSenderStamp, SENDER_PREFIX } from './stamp'
 
 // 上下文策略子模块（契约 + 注册表 + 内置 classic/none）。
 export type {

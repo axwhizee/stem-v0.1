@@ -7,22 +7,21 @@
 //   - 观察：/api/agents、/api/agents/:id/context、/api/templates、/api/events(SSE)、/api/health
 // ============================================================
 
-import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-import { readFile } from 'node:fs/promises'
-import { resolve } from 'node:path'
-import { bootStem } from '../cli/platform'
+import { createServer, type ServerResponse } from 'node:http'
+import { bootStem, resolveProjectRoot } from '../cli/platform'
 import { makeAgentClassID, parentIdOf } from '../../src/core/kernel'
 import type { AgentClass } from '../../src/core/kernel'
 import { parseModelRef } from '../../src/core/gateway'
+import { parseStamp, stripSenderStamp } from '../../src/core/context'
 import type { PilotEvent } from '../../src/core/events'
 import type { StemSystem } from '../../src/core/main'
+import { readJsonBody, sendJson, sendStatic as sendStaticShared } from '../cli/http'
 
 const PORT = Number(process.env.PORT ?? 4321)
 /** 绑定地址：裸机默认仅本机（127.0.0.1）；容器内由 STEM_HOST=0.0.0.0 放开（端口映射需要）。 */
 const HOST = process.env.STEM_HOST ?? '127.0.0.1'
-/** S6/R11 opencode-style 空间定位：位置参数 > STEM_PROJECT_ROOT > cwd（一进程一空间，无切换器）。 */
-// 空间定位与 cli 同规则：首个非 flag 参数（防 '--' 透传符鬼空间）。
-const PROJECT_ROOT = resolve(process.argv.slice(2).find((a) => !a.startsWith('-')) ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
+/** 空间定位与 cli 同律（platform.resolveProjectRoot）。 */
+const PROJECT_ROOT = resolveProjectRoot()
 
 // ---------- SSE 广播 ----------
 
@@ -195,7 +194,8 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
     const rows = [...system.kernel.repository.list(a.id)]
     const lastUser = [...rows].reverse().find((m) => m.message.role === 'user')
     const rawContent = typeof lastUser?.message.content === 'string' ? lastUser.message.content : ''
-    const sender = /^<sender id="([^"]+)"(?: at="[^"]*")?>/.exec(rawContent)?.[1] ?? ''
+    const stamp = parseStamp(rawContent)
+    const sender = stamp.sender
     const facts = system.kernel.contextManager.boxFacts(a.id)
     let lastActive = 0
     for (const m of rows) {
@@ -215,7 +215,7 @@ async function listAgents(system: StemSystem): Promise<Array<Record<string, unkn
       ctxTokens: a.ctxTokens ?? rows.filter((m) => m.valid).reduce((s, m) => s + m.tokens, 0),
       ...(lastActive > 0 ? { lastActive } : {}),
       ...(binding !== undefined ? { model: `${binding.ref.provider}/${binding.ref.id}`, modelOrigin: binding.origin } : {}),
-      ...(rawContent !== '' ? { lastPrompt: rawContent.replace(/^<sender id="[^"]+">/, '').replace(/<\/sender>$/, ''), lastPromptFrom: sender } : {}),
+      ...(rawContent !== '' ? { lastPrompt: stripSenderStamp(rawContent), lastPromptFrom: sender } : {}),
     }
   })
 }
@@ -257,22 +257,7 @@ async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId
 }
 
 function sendStatic(res: ServerResponse, file: string, contentType: string): void {
-  readFile(new URL('./' + file, import.meta.url))
-    .then((buf) => {
-      // no-cache：每次携带协商——升级后浏览器不会拿启发式缓存的新旧混拼 JS
-      // （2026-09 现场：view.js/app.js 混版导致思维链字段错位空流与历史不刷新）。
-      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' })
-      res.end(buf)
-    })
-    .catch(() => {
-      res.writeHead(500)
-      res.end(`${file} 读取失败`)
-    })
-}
-
-function sendJson(res: ServerResponse, body: unknown, status = 200): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
+  sendStaticShared(res, new URL('./' + file, import.meta.url), contentType, { cache: 'no-cache', missingStatus: 500 })
 }
 
 function openSse(res: ServerResponse): void {
@@ -286,22 +271,7 @@ function openSse(res: ServerResponse): void {
   res.on('close', () => clients.delete(res))
 }
 
-function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  return new Promise((resolve, reject) => {
-    let data = ''
-    req.on('data', (chunk: Buffer) => {
-      data += chunk.toString()
-    })
-    req.on('end', () => {
-      try {
-        resolve(data === '' ? {} : (JSON.parse(data) as Record<string, unknown>))
-      } catch (error) {
-        reject(error)
-      }
-    })
-    req.on('error', reject)
-  })
-}
+const readBody = readJsonBody
 
 main()
   .then(() => undefined)

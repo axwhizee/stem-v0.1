@@ -22,6 +22,7 @@ import type { LogEvent } from '../logging'
 import type { Courier, CourierRegistration } from './Courier'
 import type { Repository } from './Repository'
 import type { AgentDelivery, AssembleInput, AssembleResult, MailDelivery, RepositoryState } from './types'
+import { messageText } from './types'
 import { legalize } from './legalize'
 import type { ContextStrategyModule, StrategyApi, StrategyAgentSpec, ContextSettings, StrategyRegistry } from './strategies'
 import type { AgentClass } from '../kernel/types'
@@ -696,7 +697,7 @@ export class DefaultContextManager implements ContextManager {
     const valid = this.repository.listValid(box.agentId)
     for (const stored of valid) {
       if (stored.from === undefined || stored.message.role !== 'user') continue
-      const text = contentOf(stored.message)
+      const text = messageText(stored.message)
       if (hasSenderStamp(text)) continue // 已打戳
       // B4：戳面 = 全名 name#id + 入库时刻（分钟精度）；打戳器唯一在此。
       const stamped: ChatMessage = { role: 'user', content: stampSender(this.identityOf(stored.from), stored.at, text) }
@@ -711,6 +712,4 @@ export class DefaultContextManager implements ContextManager {
   }
 }
 
-function contentOf(message: ChatMessage): string {
-  return typeof message.content === 'string' ? message.content : ''
-}
+

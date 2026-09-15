@@ -10,6 +10,11 @@
 import type { ChatMessage, ToolDefinition } from '../gateway'
 import type { ToolRecord } from '../tools'
 
+/** 消息正文文本（content 为 parts 时退化为空串——当前组装面只吃纯文本）。 */
+export function messageText(message: ChatMessage): string {
+  return typeof message.content === 'string' ? message.content : ''
+}
+
 /** 仓库中的单条消息记录（上下文本体的最小单元）。 */
 export interface StoredMessage {
   readonly id: string

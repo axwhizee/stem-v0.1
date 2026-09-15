@@ -13,6 +13,7 @@
 // ============================================================
 
 import type { AssembleInput, AssembleResult, StoredMessage } from '../types'
+import { messageText } from '../types'
 import type { ContextSettings, ContextStrategyModule, StrategyAgentSpec, StrategyApi } from './types'
 import type { AgentClass } from '../../kernel/types'
 import { makeAgentClassID } from '../../kernel/types'
@@ -20,7 +21,7 @@ import { makeAgentClassID } from '../../kernel/types'
 /** 经典组装：system + 全部有效消息原样直出（压缩由 process 阶段完成）。 */
 export function classicAssemble(input: AssembleInput): AssembleResult {
   const systemIndex = input.messages.findIndex((m) => m.message.role === 'system')
-  const system = systemIndex >= 0 ? contentOf(input.messages[systemIndex]!.message) : ''
+  const system = systemIndex >= 0 ? messageText(input.messages[systemIndex]!.message) : ''
   const rest = input.messages.filter((m) => m.message.role !== 'system')
   return {
     system,
@@ -144,6 +145,4 @@ function renderForSummary(m: StoredMessage): string {
   return `(${String(m.turn)}) ${msg.role}: ${clipped}${calls}`
 }
 
-function contentOf(message: StoredMessage['message']): string {
-  return typeof message.content === 'string' ? message.content : ''
-}
+

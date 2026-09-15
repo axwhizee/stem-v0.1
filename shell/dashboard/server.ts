@@ -13,18 +13,19 @@
 // ============================================================
 
 import { createServer } from 'node:http'
-import type { IncomingMessage, ServerResponse } from 'node:http'
-import { readFile } from 'node:fs/promises'
-import { join, resolve } from 'node:path'
+import type { ServerResponse } from 'node:http'
+import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { cleanupPreview, runCleanup, type CleanupAction } from './cleanup'
 import { dbBytes, dashAgents, listMessages, openDb, rawTable, summary, tokenStats } from './db'
 import { getInventory } from './inventory'
+import { resolveProjectRoot } from '../cli/platform'
+import { readJsonBody, sendJson, sendStatic as sendStaticShared } from '../cli/http'
 
 const PORT = Number(process.env.STEM_DASHBOARD_PORT ?? 4421)
 const HOST = process.env.STEM_HOST ?? '127.0.0.1'
-// 空间定位与 cli 同规则：首个非 flag 参数（--allow-write 不再误占空间位）。
-const PROJECT_ROOT = resolve(process.argv.slice(2).find((a) => !a.startsWith('-')) ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
+// 空间定位与 cli 同律（platform.resolveProjectRoot）。
+const PROJECT_ROOT = resolveProjectRoot()
 const ALLOW_WRITE = process.argv.includes('--allow-write')
 
 const DB_FILE = process.env.STEM_DB_PATH ?? join(PROJECT_ROOT, '.stem', 'stem.db')
@@ -45,32 +46,11 @@ function dbWrite(): DatabaseSync | undefined {
   return writeConn
 }
 
-function sendJson(res: ServerResponse, body: unknown, status = 200): void {
-  res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8' })
-  res.end(JSON.stringify(body))
-}
-
 function sendStatic(res: ServerResponse, file: string, contentType: string): void {
-  readFile(new URL(file, import.meta.url))
-    .then((buf) => {
-      res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' })
-      res.end(buf)
-    })
-    .catch(() => {
-      res.writeHead(404)
-      res.end('not found')
-    })
+  sendStaticShared(res, new URL(file, import.meta.url), contentType, { cache: 'no-store', missingStatus: 404 })
 }
 
-async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
-  const chunks: Buffer[] = []
-  for await (const c of req) chunks.push(c as Buffer)
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as Record<string, unknown>
-  } catch {
-    return {}
-  }
-}
+const readBody = readJsonBody
 
 const server = createServer(async (req, res) => {
   const url = new URL(req.url ?? '/', `http://${req.headers.host ?? 'localhost'}`)

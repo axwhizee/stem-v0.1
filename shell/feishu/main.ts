@@ -13,8 +13,7 @@
 // 运行：FEISHU_APP_ID=cli_xxx FEISHU_APP_SECRET=xxx npm run feishu [空间路径]
 // ============================================================
 
-import { resolve } from 'node:path'
-import { bootStem } from '../cli/platform'
+import { bootStem, resolveProjectRoot } from '../cli/platform'
 import { parentIdOf, ROOT_ID } from '../../src/core/kernel'
 import type { PilotEvent } from '../../src/core/events'
 import { loadFeishuConfig, patchFeishuConfig } from './config'
@@ -36,7 +35,8 @@ import {
 import { approvalCard, approvalDecidedCard } from './cards'
 
 process.on('unhandledRejection', (reason) => {
-  console.error('[unhandledRejection]', String(reason))
+  // 判别联合对象 String() 会变 [object Object]——与 webui 同律 JSON 保真。
+  console.error('[unhandledRejection]', reason instanceof Error ? reason.message : JSON.stringify(reason))
 })
 
 const appId = process.env.FEISHU_APP_ID ?? ''
@@ -46,9 +46,8 @@ if (appId === '' || appSecret === '') {
   process.exit(1)
 }
 
-// 空间定位与 cli/webui 同律：首个非 flag 参数 > STEM_PROJECT_ROOT > cwd。
-const positional = process.argv.slice(2).find((a) => !a.startsWith('-'))
-const PROJECT_ROOT = resolve(positional ?? process.env.STEM_PROJECT_ROOT ?? process.cwd())
+// 空间定位与 cli/webui 同律（platform.resolveProjectRoot）。
+const PROJECT_ROOT = resolveProjectRoot()
 
 async function main(): Promise<void> {
   const config = loadFeishuConfig(PROJECT_ROOT)
@@ -152,7 +151,7 @@ async function main(): Promise<void> {
   }
   await compensate()
 
-  // —— SIGTERM/SIGINT：优雅离线（先告知主人，再退场） ——
+  // —— SIGTERM/SIGINT：优雅离线（先告知主人，再 dispose 收尾） ——
   let shuttingDown = false
   for (const sig of ['SIGTERM', 'SIGINT'] as const) {
     process.on(sig, () => {
@@ -161,7 +160,9 @@ async function main(): Promise<void> {
       const bye = state.ownerChatId !== undefined
         ? platform.sendText(state.ownerChatId, '⚫ stem 离线了（进程收到 ' + sig + '，在途工作已尽力收尾）。').catch(() => {})
         : Promise.resolve()
-      void bye.finally(() => process.exit(0))
+      void bye
+        .then(() => system.dispose().catch((e: unknown) => console.error('[feishu-shell] dispose', e)))
+        .finally(() => process.exit(0))
       setTimeout(() => process.exit(0), 5000).unref()
     })
   }
