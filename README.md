@@ -19,7 +19,7 @@
   - **消息库 tag + 双索引**：为上下文管理策略（压缩/印象/记忆）提供定位，引导从经典组装走向自聚焦/记忆分层。
   - **Logging** 贯穿全系统，记录工具调用/API 请求/上下文组装，驱动评估与进化闭环。
 - **Core 完全解耦**：core 层为纯 TS 领域逻辑，零平台依赖，所有平台能力经接口由宿主注入——已从 VSCode 剥离的独立项目。
-- **单项目空间**：一个进程一个 project root（`ToolContext.spaceId` = 项目路径）；UI 复用 session 模式但一条目 = 一个 Agent 实例，用户可实时观察与接管任何 Agent。
+- **单项目空间**：一个进程一个 project root（宿主接线 `settings.cwd`；UI 复用 session 模式但一条目 = 一个 Agent 实例，用户可实时观察与接管任何 Agent）。
 
 ## 架构一图流
 
@@ -83,7 +83,7 @@
 
 工具按来源分三类（`ToolKind = internal | extension | custom`，kind 是纯 provenance 不参与权限）。权限只有两个来源：**注册表出生声明**（每个工具注册点写死 birth——`access_reply`/`bash` 出生 allow，其余 internal 通例 ignore 背景在场；extension/custom 由 `config.extensions.tools` 点名时给定权限词）与**收敛清单链**（根→类→[策略]→实例逐级收紧）。**模型可见 = allow ∪ ask**。
 
-### ① core 系统工具（`kind=internal`，20 个，`src/core/tools/internal/systemTools.ts`）
+### ① core 系统工具（`kind=internal`，20 个，`src/core/tools/internal/`）
 
 系统自我管理与邮局机制的模型侧能力面；"根清单（模板实值）"列 = 首启模板的 `user.tools` 推荐实值（config 是唯一清单源，代码零缺省表；boot 校验律审判 access_reply=allow 缺位拒启）。
 

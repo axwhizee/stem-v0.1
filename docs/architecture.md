@@ -73,7 +73,7 @@
  - **策略声明清单 = raise 步**（契约字段 `ContextStrategyModule.tools?`）：插在类清单后、实例清单前执行——**只抬不封**（逐键提升表内键，表外键与本地封闭面不动，纯 raise 链继承父封闭形）；封顶公式与白名单步同一把尺（出生 ∧ 链上显式），声明宽即违例 → 写入面**实例化拒绝**、物化面静默钳制——复用收敛检查，"策略与类配置矛盾"由法则自然宣判，零特判；
  - **grant**（仅策略 spawn 通道 `InstantiateOptions.accessMode`）：清单形整表替换 + 逐键父面封顶取严——本质是"白名单自限 + 收紧"的组合便利形，语义不变；
 - **模型可见清单 = allow ∪ ask**（Runtime 组装工具定义时过滤）；`kind` 三分类**降为纯 provenance 元数据**（装载源/信级/审计展示），不参与任何权限推断——审计测试表驱动断言之。
-- **能力物化（算法 = `lineage/AccessLedger.ts`）**：生效权限 = 族谱位置的函数，注册期两步物化 `{explicit, fallback}`（replay 按拓扑序重放，纯派生不入库）；查询 `effectiveAccess(agentId, key)`；`tools` 侧只认注入端口 `AccessResolver`（`ToolContext = {agentId, spaceId, signal?, callId?, parent?}`）。
+- **能力物化（算法 = `lineage/AccessLedger.ts`）**：生效权限 = 族谱位置的函数，注册期两步物化 `{explicit, fallback}`（replay 按拓扑序重放，纯派生不入库）；查询 `effectiveAccess(agentId, key)`；`tools` 侧只认注入端口 `AccessResolver`（`ToolContext = {agentId, signal?, callId?}`）。
 - **boot 校验律（替代一切代码兜底）**：① 根生效表 `access_reply ≠ allow` → 拒启（明示 ask 消息化死锁理由——主权归 config，法只做审判）；② config.extensions.tools 键在装载源解析不到 → 拒启（未知键 fail-fast 同律）；③ 未知 config 顶层键照旧拒启。
 - **ask 消息化**：命中 ask 时 `AccessAskBus` 把申请投递到**申请者族谱根信箱**（`<access_request>` 消息）并挂起；根经 `access_reply` 回复（once/always/reject+feedback）。**无 agent 特判**——根的 ask 发给自己，由扮演它的 shell 确认。
 - **session 豁免备忘**：`always` = 该 `(agentId, accessKey)` 后续 ask 免询问（仅当前实例、不传播）；ask 环节备忘，**非权限层**（不参与收敛单调，绝不豁免 deny/ignore）。

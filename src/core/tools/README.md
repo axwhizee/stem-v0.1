@@ -21,7 +21,7 @@ tools/
 └── internal/                ★ 一切 kind=internal 工具的唯一定义域
     ├── index.ts             createInternalTools(host, bash?) —— internal 唯一出入口
     ├── ports.ts             SystemToolHost + 按域窄端口（Agent/Context/Telemetry/Access）
-    ├── shared.ts            resolveOr / resolveReachable / 模型解析 / 呈现基元
+    ├── shared.ts            resolveOr / resolveReachable / parseModelArg（gateway 单点）/ 呈现基元
     ├── systemTools.ts       createSystemTools 聚合（20 枚工具清单）
     ├── agentClassTools.ts   agent_class_*
     ├── agentInstanceTools.ts agent_instantiate/update/list/inspect/ancestry/descendants/terminate
@@ -68,13 +68,13 @@ tools/
 
 `createInternalTools({ host, bash? })` 是 internal 工具唯一定义入口；bash 端口存在时才装配。
 
-## 5. 系统工具（`internal/systemTools.ts`，20 枚）
+## 5. 系统工具（`internal/` 分域文件，20 枚）
 
-系统自我管理与邮局机制的模型侧能力面；**出生权限逐把声明，通例 `ignore`**——上台面由各级收敛清单显式化（根清单实值 = `config/defaults.ts` 首启模板，非系统兜底）。
+系统自我管理与邮局机制的模型侧能力面；定义按域拆分（`agentClassTools` / `agentInstanceTools` / `mailTools` / `contextTools` / `telemetryTools` / `accessTools`），`systemTools.ts` 只做 `createSystemTools` 聚合。**出生权限逐把声明，通例 `ignore`**——上台面由各级收敛清单显式化（根清单实值 = `config/defaults.ts` 首启模板，非系统兜底）。
 
 | 工具 | 作用 |
 |---|---|
-| `agent_class_create` / `agent_class_update` / `agent_class_list` | 创建（新名 = 变体并存）/ 更新（同名覆盖；tools 增量、只许收敛；系统机制类·user 根类拒绝；**只影响后续实例**）/ 列出——均回写 `.stem/agent/`（ClassStore 注入时） |
+| `agent_class_create` / `agent_class_update` / `agent_class_list` | 创建（新名 = 变体并存）/ 更新（同名覆盖；tools 增量、只许收敛——硬门禁在 `kernel.updateAgentClass`；系统机制类·user 根类拒绝；**只影响后续实例**）/ 列出——均回写 `.stem/agent/`（ClassStore 注入时） |
 | `telemetry_query` | 运行日志观测（进化闭环"观测"翼）：可见域 = 自身 + 族谱后代（canReach）；行式压缩 + 类型前缀通配 + 时间窗 + limit 截尾 |
 | `agent_instantiate` / `agent_list` / `agent_inspect` | 创建实例（父=调用者；可继承父上下文；模型路径只能收敛；**wait=true 创建并等待回信**——配对原子完成竞态绝迹，可配 waitTimeoutMs）/ 列出 / 详情（族谱链/状态/轮次/成本/生效权限表） |
 | `agent_ancestry` / `agent_descendants` / `agent_terminate` | 祖先链 / 后代子树（BFS）/ 终止（销毁权 + recursive） |
@@ -111,7 +111,7 @@ tools/
 
 ## 9. 加工具 / 加矩阵资源
 
-- **internal 工具**：在 `internal/systemTools.ts`（或策略自带工具）定义 `ToolCapability`（id/description/parameters/**birth**/execute），经 `createInternalTools` 或策略 `registerTool`（出生恒 ignore）进入注册表。
+- **internal 工具**：在 `internal/` 对应分域文件定义 `ToolCapability`（id/description/parameters/**birth**/execute），经 `createInternalTools` 或策略 `registerTool`（出生恒 ignore）进入注册表。
 - **extension 工具**：`extension/tools/<名>/<名>.ts` 默认导出 `ToolCapability` 或工厂 `(projectRoot) => ToolCapability`；在 `config.extensions.tools` 点名 `{名: 权限词}`。
 - **custom 工具**：`.stem/tools/<名>.ts` 或 `<名>/<名>.ts`，同样必须点名——未点名 = 不存在于世界。
 - 装载管线：`main/loader.ts`（internal → extension → custom，后层同名覆盖；类/策略目录即真相）。
