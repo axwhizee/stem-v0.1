@@ -220,7 +220,7 @@ describe('Kernel 邮局模式', () => {
     await registerInternalTools(kernel, tools)
 
     // user#0 身份调用：registry/ask 总线经 AccessResolver 查询台账（不再手传权限层）。
-    const adminCtx = { agentId: ROOT_ID, spaceId: 'space-1' }
+    const adminCtx = { agentId: ROOT_ID }
 
     const created = await tools.execute(
       {
@@ -263,7 +263,7 @@ describe('Kernel 邮局模式', () => {
             name: 'agent_class_create',
             input: { name: 'X', description: 'x', systemPrompt: 'x' },
           },
-          { agentId: closedAgent, spaceId: 'space-1' },
+          { agentId: closedAgent },
         ),
       (e: { kind?: string }) => e.kind === 'access_denied',
     )
@@ -320,7 +320,7 @@ describe('Kernel 邮局模式', () => {
     const toolUnsub = kernel.events.subscribe((ev) => {
       if (ev.type === 'tool') toolEvents.push({ tool: ev.tool, phase: ev.phase, agentId: ev.agentId })
     })
-    await tools.execute({ id: 'call_5', name: 'oc_echo', input: { text: 'hi' } }, { agentId: echoAgentId, spaceId: 'space-1' })
+    await tools.execute({ id: 'call_5', name: 'oc_echo', input: { text: 'hi' } }, { agentId: echoAgentId })
     toolUnsub()
     assert.deepEqual(toolEvents, [
       { tool: 'oc_echo', phase: 'called', agentId: echoAgentId },

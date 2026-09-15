@@ -39,7 +39,7 @@ async function setup() {
   ev({ type: 'access.asked', at: t + 3, agentId: A, accessKey: 'edit', action: 'ask' })
   ev({ type: 'context.compacted', at: t + 4, agentId: 'USER', outcome: 'skipped', compactedCount: 0, message: '-' })
   const run = (agentId: string, input: Record<string, unknown>) =>
-    tools.execute({ id: 'tq', name: 'telemetry_query', input }, { agentId, spaceId: 'space-1' })
+    tools.execute({ id: 'tq', name: 'telemetry_query', input }, { agentId })
   return { kernel, tools, run, t, A, A1, B }
 }
 
@@ -105,7 +105,7 @@ describe('telemetry_query（可见域 = 树位置函数）', () => {
     await kernel.templates.register({ name: makeAgentClassID('closed'), description: 'closed', systemPrompt: 's', tools: {} })
     const closed = await kernel.getOrCreateAgent(makeAgentClassID('closed'), '/other')
     await assert.rejects(
-      () => tools.execute({ id: 'tq2', name: 'telemetry_query', input: {} }, { agentId: closed, spaceId: 'space-1' }),
+      () => tools.execute({ id: 'tq2', name: 'telemetry_query', input: {} }, { agentId: closed }),
       (e: unknown) => (e as { kind: string }).kind === 'access_denied',
     )
   })

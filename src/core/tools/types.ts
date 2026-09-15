@@ -20,15 +20,6 @@
 /** 工具访问四态（权限融合进 tools 后的原子状态）。 */
 export type ToolAccess = 'allow' | 'ask' | 'deny' | 'ignore'
 
-/** 单条工具访问规则（访问键 → 动作）。 */
-export interface ToolAccessRule {
-  readonly key: string
-  readonly action: ToolAccess
-}
-
-/** 工具访问规则集（数组；层内最后命中优先，层间取最严格）。 */
-export type ToolAccessRules = readonly ToolAccessRule[]
-
 /** 工具分类：可扩展（未来 mcp 等新增分类自然并入）。 */
 export type ToolCategory =
   | 'business' // 业务工具（外部/扩展工具缺省归类）
@@ -94,25 +85,14 @@ export interface ToolInitContext {
  */
 export interface ToolContext {
   readonly agentId: string
-  /** 项目根路径（单空间；cortex 笔记目录等用。缺省 = 空）。 */
-  readonly spaceId?: string
   readonly signal?: AbortSignal
   /** 本次调用 id（registry 执行时填充，供工具绑定自身 tool_call）。 */
   readonly callId?: string
 }
 
-/** 大输出引用（对接 ContextAssetPool 的 references 存储）。 */
-export interface ToolReference {
-  readonly uri: string
-  readonly summary?: string
-  readonly size?: number
-}
-
 export interface ToolResult {
   /** 进入 LLM 上下文的文本结果。 */
   readonly text: string
-  /** 大输出引用（可空）。 */
-  readonly references?: readonly ToolReference[]
   readonly metadata?: Readonly<Record<string, unknown>>
 }
 
@@ -219,25 +199,4 @@ export interface ToolCapability {
   readonly init?: (ctx: ToolInitContext) => Promise<void> | void
   /** 可选自定义参数校验：返回错误信息或 undefined。 */
   readonly validate?: (input: unknown) => string | undefined
-}
-
-/** 执行生命周期钩子（横切扩展点：telemetry / 审计 / 限流 / MCP 网关）。 */
-export interface ToolHooks {
-  readonly onBeforeExecute?: (
-    invocation: ToolInvocation,
-    tool: ToolCapability,
-    ctx: ToolContext,
-  ) => Promise<void> | void
-  readonly onAfterExecute?: (
-    invocation: ToolInvocation,
-    tool: ToolCapability,
-    ctx: ToolContext,
-    result: ToolResult,
-  ) => Promise<void> | void
-  readonly onError?: (
-    invocation: ToolInvocation,
-    tool: ToolCapability,
-    ctx: ToolContext,
-    error: ToolError,
-  ) => Promise<void> | void
 }

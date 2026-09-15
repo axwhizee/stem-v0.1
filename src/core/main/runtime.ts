@@ -196,7 +196,6 @@ export class DefaultRuntime implements RuntimePort {
         // 工具轮：并行执行（协议原生支持多个 tool_call），结果按调用顺序回填。
         const ctx: ToolContext = {
           agentId: instance.id,
-          spaceId: this.deps.projectRoot ?? '',
           signal: ctl.signal,
         }
         // 挂起语义（S9）：instantiate.wait / agent_pause 命中 contextWait 标记——

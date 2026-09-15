@@ -259,7 +259,7 @@ test('平铺与目录同名 → 目录形态优先（点名解析序）', async 
   })
   await runInit(deps)
   const tool = await deps.toolRegistry.get('twin')
-  assert.equal((await tool.execute({}, { agentId: '', spaceId: '' })).text, 'packed')
+  assert.equal((await tool.execute({}, { agentId: '' })).text, 'packed')
 })
 
 // ---------- extension 层（config.extensions 点名，目录形态唯一） ----------
@@ -349,7 +349,7 @@ test('后层同名覆盖前层 = 装载律（点名 custom 覆盖 pre-registered
   const tool = await deps.toolRegistry.get('override')
   assert.equal(tool.kind, 'custom')
   assert.equal(tool.birth, 'allow', '装载与出生一句话：覆盖者出生 = config 点名词')
-  assert.equal((await tool.execute({}, { agentId: '', spaceId: '' })).text, 'custom-wins')
+  assert.equal((await tool.execute({}, { agentId: '' })).text, 'custom-wins')
 })
 
 // ---------- 用户上下文策略（custom 扫描 + extension 点名） ----------

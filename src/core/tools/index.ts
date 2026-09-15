@@ -11,15 +11,11 @@ export type {
   ToolContext,
   ToolInitContext,
   ToolInitFs,
-  ToolReference,
   ToolResult,
   ToolError,
   ToolRecord,
   ToolCapability,
-  ToolHooks,
   ToolAccess,
-  ToolAccessRule,
-  ToolAccessRules,
   AccessRequest,
   AccessReply,
   AccessReplyInput,
@@ -38,7 +34,7 @@ export { restrictAccess, accessRank, checkToolsConvergence, foldConvergenceSteps
 export type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode, ConvergenceViolation } from './access'
 
 export type { ShellRunOptions, ShellRunResult, ShellRunner, BashToolSettings } from './internal/bash'
-export { createBashTool, formatShellOutput, BASH_DEFAULTS } from './internal/bash'
+export { createBashTool } from './internal/bash'
 
 export type { AccessAskOptions, AccessAskBus } from './accessRequest'
 export { DefaultAccessAskBus, formatAccessRequest } from './accessRequest'

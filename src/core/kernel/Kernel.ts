@@ -155,7 +155,7 @@ export class Kernel {
   readonly logger: Logger
   /** 类回写端口（S5.2 进化书写面；undefined = 仅内存注册，无落盘通道）。 */
   private readonly classStore?: ClassStore
-  /** 项目身份（单空间；ToolContext.spaceId / bash cwd 用）。 */
+  /** 项目身份（单空间；bash cwd 用）。 */
   readonly project: ProjectRef
   /** 启动期从持久化端口恢复出的实例（wireRestoredContexts 接线用；空 = 首启/纯内存）。 */
   private readonly restoredInstances: readonly AgentInstance[]

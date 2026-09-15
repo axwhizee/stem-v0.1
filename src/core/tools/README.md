@@ -17,11 +17,18 @@ tools/
 ├── accessRequest.ts         ask 消息化（DefaultAccessAskBus / formatAccessRequest）
 ├── validate.ts              JSON Schema 子集参数校验
 ├── output.ts                ★ 统一输出成形（成功/失败同入口 + 窗口限制）
-├── ToolCapabilityRegistry.ts 注册表（注册/物化/执行/生命周期钩子）
+├── ToolCapabilityRegistry.ts 注册表（注册/物化/执行/记录 sink）
 └── internal/                ★ 一切 kind=internal 工具的唯一定义域
     ├── index.ts             createInternalTools(host, bash?) —— internal 唯一出入口
     ├── ports.ts             SystemToolHost + 按域窄端口（Agent/Context/Telemetry/Access）
-    ├── systemTools.ts       20 枚系统工具（agent_* / mail_* / context_* / telemetry_* / access_reply）
+    ├── shared.ts            resolveOr / resolveReachable / 模型解析 / 呈现基元
+    ├── systemTools.ts       createSystemTools 聚合（20 枚工具清单）
+    ├── agentClassTools.ts   agent_class_*
+    ├── agentInstanceTools.ts agent_instantiate/update/list/inspect/ancestry/descendants/terminate
+    ├── mailTools.ts         mail_*
+    ├── contextTools.ts      agent_pause + context_*
+    ├── telemetryTools.ts    telemetry_query + 行渲染
+    ├── accessTools.ts       access_reply
     └── bash.ts              bash 工具 + ShellRunner 端口（宿主注入）
 ```
 

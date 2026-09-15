@@ -81,7 +81,7 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
       tools: d.loader,
       gateway,
     })
-    const ctx = { agentId: ROOT_ID, spaceId: 'space-1' }
+    const ctx = { agentId: ROOT_ID }
     // 根表 create/update = ask → 走 access_reply 正规授权链（根答复义务 +
     // per-(agent,key) always 备忘各实弹验证一次）：执行挂起 → 从 ask-bus 取
     // 挂起请求 → 答复 → promise 兑现。

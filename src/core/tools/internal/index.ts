@@ -25,4 +25,4 @@ export function createInternalTools(deps: InternalToolDeps): ToolCapability[] {
   ]
 }
 
-export { createSystemTools, formatTelemetryRow } from './systemTools'
+export { createSystemTools } from './systemTools'

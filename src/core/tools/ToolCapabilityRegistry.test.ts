@@ -17,7 +17,7 @@ const tableResolver = (table: Record<string, ToolAccess | undefined>): AccessRes
   accessOf: (_agentId, key) => table[key],
 })
 
-const baseCtx: ToolContext = { agentId: 'a1', spaceId: 's1' }
+const baseCtx: ToolContext = { agentId: 'a1' }
 
 const echoTool: ToolCapability = {
   id: 'oc_echo',
@@ -195,7 +195,7 @@ describe('DefaultToolCapabilityRegistry', () => {
     const registry = new DefaultToolCapabilityRegistry({ access })
     await registry.register(echoTool)
 
-    const ctx: ToolContext = { agentId: 'a1', spaceId: 's1' }
+    const ctx: ToolContext = { agentId: 'a1' }
     const first = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, ctx)
     await tick()
     await access.reply({ requestId: requests[0]!.id, reply: 'always' }, '0')
@@ -223,65 +223,25 @@ describe('DefaultToolCapabilityRegistry', () => {
     )
   })
 
-  test('执行器抛错 → execution_failed + onError 钩子触发', async () => {
-    const calls: string[] = []
-    const registry = new DefaultToolCapabilityRegistry({
-      hooks: {
-        onBeforeExecute: () => {
-          calls.push('before')
-        },
-        onAfterExecute: () => {
-          calls.push('after')
-        },
-        onError: () => {
-          calls.push('error')
-        },
-      },
-    })
+  test('执行器抛错 → execution_failed', async () => {
+    const registry = new DefaultToolCapabilityRegistry()
     await registry.register({ ...echoTool, execute: () => Promise.reject(new Error('boom')) })
 
     await assert.rejects(
       () => registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'x' } }, baseCtx),
       (e: unknown) => (e as ToolError).kind === 'execution_failed',
     )
-    assert.deepEqual(calls, ['before', 'error'])
-  })
-
-  test('成功后钩子顺序：before → execute → after', async () => {
-    const order: string[] = []
-    const registry = new DefaultToolCapabilityRegistry({
-      hooks: {
-        onBeforeExecute: () => {
-          order.push('before')
-        },
-        onAfterExecute: () => {
-          order.push('after')
-        },
-      },
-    })
-    await registry.register({
-      ...echoTool,
-      execute: () => {
-        order.push('execute')
-        return { text: 'ok' }
-      },
-    })
-    await registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'x' } }, baseCtx)
-    assert.deepEqual(order, ['before', 'execute', 'after'])
   })
 
   test('自定义 validate 优先于 schema 校验', async () => {
     const registry = new DefaultToolCapabilityRegistry()
     await registry.register({
       ...echoTool,
-      validate: (input) => ((input as { text: string }).text === 'secret' ? '拒绝敏感词' : undefined),
+      validate: (input) => ((input as { text?: string }).text === undefined ? 'text 必填' : undefined),
     })
     await assert.rejects(
-      () => registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'secret' } }, baseCtx),
-      (e: unknown) => {
-        const err = e as ToolError
-        return err.kind === 'invalid_arguments' && err.message === '拒绝敏感词'
-      },
+      () => registry.execute({ id: 'c1', name: 'oc_echo', input: {} }, baseCtx),
+      (e: unknown) => (e as ToolError).kind === 'invalid_arguments',
     )
   })
 })

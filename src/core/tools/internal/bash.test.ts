@@ -8,7 +8,7 @@ import { createBashTool, BASH_DEFAULTS } from './bash'
 import type { ShellRunOptions, ShellRunResult, ShellRunner } from './bash'
 import type { ToolContext } from '../types'
 
-const ctx: ToolContext = { agentId: 'a1', spaceId: 's1' }
+const ctx: ToolContext = { agentId: 'a1' }
 
 /** 捕获入参的 fake runner（返回固定结果）。 */
 function fakeRunner(result: Partial<ShellRunResult> & { stdout?: string } = {}): {

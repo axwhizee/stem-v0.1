@@ -31,11 +31,11 @@ const userTools = {
 
 /** 走工具通道创建类（根 身份）。 */
 async function createViaTool(tools: Awaited<ReturnType<typeof createKernelHarness>>['tools'], input: Record<string, unknown>) {
-  return tools.execute({ id: 'call_create', name: 'agent_class_create', input }, { agentId: ROOT_ID, spaceId: 'space-1' })
+  return tools.execute({ id: 'call_create', name: 'agent_class_create', input }, { agentId: ROOT_ID })
 }
 
 async function updateViaTool(tools: Awaited<ReturnType<typeof createKernelHarness>>['tools'], input: Record<string, unknown>) {
-  return tools.execute({ id: 'call_update', name: 'agent_class_update', input }, { agentId: ROOT_ID, spaceId: 'space-1' })
+  return tools.execute({ id: 'call_update', name: 'agent_class_update', input }, { agentId: ROOT_ID })
 }
 
 describe('checkToolsConvergence（纯校验矩阵：序不升 + deny 铁律）', () => {

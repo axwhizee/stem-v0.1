@@ -30,7 +30,6 @@ import type {
   ToolCategory,
   ToolContext,
   ToolError,
-  ToolHooks,
   ToolInitContext,
   ToolInvocation,
   ToolRecord,
@@ -61,7 +60,7 @@ export interface ToolCapabilityRegistry {
   readonly birthOf: (accessKey: string) => ToolAccess | undefined
   /** 物化为 LLM 工具定义（schema）：按调用方生效访问过滤（deny/ignore/未声明 internal 不暴露）。 */
   readonly materialize: (agentId: string, filter?: ToolListFilter) => readonly ToolDefinition[]
-  /** 执行：查工具 → 访问确认 → 参数校验 → 钩子 → 执行器。 */
+  /** 执行：查工具 → 访问确认 → 参数校验 → 执行器。 */
   readonly execute: (invocation: ToolInvocation, ctx: ToolContext) => Promise<ToolResult>
   /** 装配族谱权限查询端口（kernel 接线 AccessLedger；组合根注入点）。 */
   readonly setAccessResolver: (resolver?: AccessResolver) => void
@@ -76,7 +75,6 @@ export interface ToolCapabilityRegistry {
 }
 
 export interface ToolRegistryOptions {
-  readonly hooks?: ToolHooks
   /**
    * 工具调用自动记录（触发 / 成功 / 失败时调用）。
    * 由组合根（kernel）注入 → 转发给邮局，不依赖 runtime 手动发送。
@@ -92,14 +90,12 @@ export interface ToolRegistryOptions {
 
 export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
   private readonly tools = new Map<string, ToolCapability>()
-  private readonly hooks?: ToolHooks
   private onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>
   private onLog?: LogSink
   private access?: AccessAskBus
   private resolver?: AccessResolver
 
   constructor(options: ToolRegistryOptions = {}) {
-    this.hooks = options.hooks
     this.onRecord = options.onRecord
     this.onLog = options.onLog
     this.access = options.access
@@ -125,19 +121,19 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
   async register(tool: ToolCapability, opts?: { readonly replace?: boolean }): Promise<void> {
     assertToolShape(tool)
     if (this.tools.has(tool.id) && opts?.replace !== true) {
-      throw toolError({ kind: 'tool_already_registered', tool: tool.id })
+      throw { kind: 'tool_already_registered', tool: tool.id } satisfies ToolError
     }
     this.tools.set(tool.id, tool)
   }
 
   async unregister(id: string): Promise<void> {
-    if (!this.tools.has(id)) throw toolError({ kind: 'tool_not_found', tool: id })
+    if (!this.tools.has(id)) throw { kind: 'tool_not_found', tool: id } satisfies ToolError
     this.tools.delete(id)
   }
 
   async get(id: string): Promise<ToolCapability> {
     const tool = this.tools.get(id)
-    if (!tool) throw toolError({ kind: 'tool_not_found', tool: id })
+    if (!tool) throw ({ kind: 'tool_not_found', tool: id })
     return tool
   }
 
@@ -191,7 +187,7 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
 
   async execute(invocation: ToolInvocation, ctx: ToolContext): Promise<ToolResult> {
     const tool = this.tools.get(invocation.name)
-    if (!tool) throw toolError({ kind: 'tool_not_found', tool: invocation.name })
+    if (!tool) throw ({ kind: 'tool_not_found', tool: invocation.name })
 
     // 访问统一确认（allow/ignore 通过 / deny 拒绝 / ask 挂起等根信箱回复）。
     const accessKey = tool.accessKey ?? tool.id
@@ -206,10 +202,10 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     } catch (cause) {
       const error = cause as { kind?: string; accessKey?: string; feedback?: string }
       if (error?.kind === 'access_denied') {
-        throw toolError({ kind: 'access_denied', tool: tool.id, accessKey })
+        throw ({ kind: 'access_denied', tool: tool.id, accessKey })
       }
       if (error?.kind === 'access_rejected') {
-        throw toolError({
+        throw ({
           kind: 'access_rejected',
           tool: tool.id,
           accessKey,
@@ -217,24 +213,22 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
         })
       }
       if (error?.kind === 'access_timeout') {
-        throw toolError({ kind: 'access_timeout', tool: tool.id, accessKey })
+        throw ({ kind: 'access_timeout', tool: tool.id, accessKey })
       }
       if (error?.kind === 'access_aborted') {
-        throw toolError({ kind: 'access_aborted', tool: tool.id, accessKey })
+        throw ({ kind: 'access_aborted', tool: tool.id, accessKey })
       }
       throw cause
     }
 
     const customError = tool.validate?.(invocation.input)
     if (customError !== undefined) {
-      throw toolError({ kind: 'invalid_arguments', tool: tool.id, message: customError })
+      throw ({ kind: 'invalid_arguments', tool: tool.id, message: customError })
     }
     const schemaError = validateArgs(invocation.input, tool.parameters)
     if (schemaError !== undefined) {
-      throw toolError({ kind: 'invalid_arguments', tool: tool.id, message: schemaError })
+      throw ({ kind: 'invalid_arguments', tool: tool.id, message: schemaError })
     }
-
-    await this.hooks?.onBeforeExecute?.(invocation, tool, ctx)
     const startedAt = Date.now()
     this.onLog?.log({
       type: 'tool.invoked',
@@ -270,7 +264,6 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
         resultText: result.text,
       })
       await record('success', { result })
-      await this.hooks?.onAfterExecute?.(invocation, tool, ctx, result)
       return result
     } catch (cause) {
       const error: ToolError =
@@ -288,7 +281,6 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
         errorKind: error.kind,
       })
       await record('error', { error })
-      await this.hooks?.onError?.(invocation, tool, ctx, error)
       throw error
     }
   }
@@ -305,6 +297,3 @@ function invalid(message: string): ToolError {
   return { kind: 'execution_failed', tool: '', message }
 }
 
-function toolError(e: ToolError): ToolError {
-  return e
-}
