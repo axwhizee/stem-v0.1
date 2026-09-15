@@ -6,8 +6,9 @@
 
 import type { ToolCapability, ToolAccess } from '../types'
 import type { ModelRef } from '../../gateway'
+import { parseModelRef } from '../../gateway'
 import type { SystemToolHost } from './ports'
-import { parseModelArg, MODEL_FORMAT_HINT, MODEL_ORIGIN_LABELS, resolveOr, resolveReachable, formatEffectiveAccess } from './shared'
+import { MODEL_FORMAT_HINT, MODEL_ORIGIN_LABELS, resolveOr, resolveReachable, formatEffectiveAccess } from './shared'
 
 export function agentInstantiate(host: SystemToolHost): ToolCapability {
   return {
@@ -46,7 +47,7 @@ export function agentInstantiate(host: SystemToolHost): ToolCapability {
       }
       let model: ModelRef | undefined
       if (args.model !== undefined) {
-        const parsed = parseModelArg(args.model)
+        const parsed = parseModelRef(args.model)
         if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
         model = parsed
       }
@@ -128,7 +129,7 @@ export function agentUpdate(host: SystemToolHost): ToolCapability {
       const target = resolved.id
       let model: ModelRef | undefined
       if (args.model !== undefined) {
-        const parsed = parseModelArg(args.model)
+        const parsed = parseModelRef(args.model)
         if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
         model = parsed
       }

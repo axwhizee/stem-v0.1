@@ -287,10 +287,6 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
   }
 }
 
-function truncate(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max)}…`
-}
-
 async function main(): Promise<number> {
   const state = await createShell()
   console.log('====================================================')
@@ -299,9 +295,8 @@ async function main(): Promise<number> {
   console.log(` 配置: ${DEFAULT_PROJECT}/.stem/stem.jsonc（唯一配置文件）`)
   console.log(` 注册用户工具: ${state.init.tools.length > 0 ? state.init.tools.map((t) => t.id).join(', ') : '-'}`)
   console.log(` 注册用户 agent: ${state.init.agents.length > 0 ? state.init.agents.map((a) => a.id).join(', ') : '-'}`)
-  console.log(` 模板: ${BUILTIN_TEMPLATES.map((t) => t.name).join(', ')}, tool-assistant, creator${state.init.agents.length > 0 ? ', ' + state.init.agents.map((a) => a.id).join(', ') : ''}`)
+  console.log(` 模板: ${BUILTIN_TEMPLATES.map((t) => t.name).join(', ')}${state.init.agents.length > 0 ? ', ' + state.init.agents.map((a) => a.id).join(', ') : ''}`)
   console.log(` 当前实例: ${state.currentAgentId} (小助手)`)
-  console.log(' 工具演示: /new tool-assistant 再问 "echo hello"；/new creator 再问 "创建一个助手读取时间"')
   console.log(' 直接输入对话；/help 查看命令；/exit 退出')
   console.log('====================================================')
 

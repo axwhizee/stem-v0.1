@@ -35,8 +35,6 @@ export const ROOT_NAME = 'user'
 /** 模型思考强度（写 reasoning_effort；缺省 none = 压延迟）。 */
 export type EffortLevel = 'none' | 'low' | 'medium' | 'high'
 
-export const DEFAULT_EFFORT: EffortLevel = 'none'
-
 /** 出生路径 id 的合法形：数字段以 `.` 连接（`0`、`1`、`1.3`、`1.3.2`）。 */
 export const AGENT_ID_PATTERN = /^\d+(\.\d+)*$/
 

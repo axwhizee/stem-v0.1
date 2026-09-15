@@ -119,13 +119,11 @@ async function main(): Promise<void> {
     const desc =
       ev.type === 'status'
         ? `[${agentId}] 状态 ${ev.from} → ${ev.to}`
-        : ev.type === 'notice'
-          ? `[notice] ${ev.message}`
-          : ev.type === 'letter'
-            ? `[${agentId}] 收信 x${ev.letters.length}`
-            : ev.type === 'tool'
-              ? `[${agentId}] ⚙ ${ev.tool} ${ev.phase === 'called' ? '执行中…' : ev.phase}`
-              : null
+        : ev.type === 'letter'
+          ? `[${agentId}] 收信 x${ev.letters.length}`
+          : ev.type === 'tool'
+            ? `[${agentId}] ⚙ ${ev.tool} ${ev.phase === 'called' ? '执行中…' : ev.phase}`
+            : null
     if (desc === null || agentId === '') return
     for (const chat of chatsWatching(state, agentId)) push(chat, desc)
   })

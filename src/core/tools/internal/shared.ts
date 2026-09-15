@@ -4,10 +4,7 @@
 // 注册即出生声明；消费方拥有端口（./ports），零 kernel import。
 // ============================================================
 
-import type { ToolCapability, ToolAccess } from '../types'
 import type { SystemToolHost, AgentConfigView } from './ports'
-import type { ModelRef } from '../../gateway'
-import { parseModelRef } from '../../gateway'
 
 export function resolveOr(host: SystemToolHost, ref: string): { id: string } | { text: string } {
   try {
@@ -36,10 +33,6 @@ export function resolveReachable(
   return resolved
 }
 
-
-export function parseModelArg(value: string): ModelRef | undefined {
-  return parseModelRef(value)
-}
 
 export const MODEL_FORMAT_HINT = 'model 必须是 "提供商/模型" 格式（提供商 = config providers 注册表的键；裸模型名无归属不受理）'
 

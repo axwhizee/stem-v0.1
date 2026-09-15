@@ -19,7 +19,6 @@
 
 import type { ChatMessage } from '../gateway'
 import type { LogEvent } from '../logging'
-import type { ToolRecord } from '../tools'
 import type { Courier, CourierRegistration } from './Courier'
 import type { Repository } from './Repository'
 import type { AgentDelivery, AssembleInput, AssembleResult, MailDelivery, RepositoryState } from './types'
@@ -164,8 +163,8 @@ export interface ContextManager {
    * 基线纯内存（重启后首轮重记），compact 天然重置。
    */
   readonly attributeUsage: (agentId: string, usage: { readonly inputTokens: number; readonly outputTokens: number }) => Promise<void>
-  /** 工具调用审计记录（工具模块自动发送）。 */
-  readonly appendToolRecord: (agentId: string, record: ToolRecord) => Promise<void>
+  /** 工具活动时间戳（readyAt 日志用；审计真身在 toolWiring 事件流）。 */
+  readonly markToolActivity: (agentId: string) => Promise<void>
   readonly getState: (agentId: string) => Promise<RepositoryState>
   /** 底层仓库（供 kernel/工具读取）。 */
   readonly repository: Repository
@@ -472,10 +471,9 @@ export class DefaultContextManager implements ContextManager {
     this.tokenBases.set(agentId, { input: usage.inputTokens, output: usage.outputTokens, count: messages.length })
   }
 
-  async appendToolRecord(agentId: string, record: ToolRecord): Promise<void> {
+  async markToolActivity(agentId: string): Promise<void> {
     const box = this.require(agentId)
     box.lastToolAt = Date.now()
-    // 工具审计记录仅占位（工具调用日志由工具模块经 LogSink 上报，见 Kernel 装配）。
   }
 
   async getState(agentId: string): Promise<RepositoryState> {

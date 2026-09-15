@@ -60,8 +60,8 @@ export function attachToolRecordSink(
       at: record.at,
     })
     forget(
-      kernel.contextManager.appendToolRecord(ctx.agentId, record),
-      'main:appendToolRecord',
+      kernel.contextManager.markToolActivity(ctx.agentId),
+      'main:markToolActivity',
       (event) => kernel.logger.log(event),
     )
     if (record.status === 'success' && record.result) {

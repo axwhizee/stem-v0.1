@@ -47,7 +47,6 @@ export {
   asNonNegNumber,
   asString,
   asToolAccessRecord,
-  asFiniteNumber,
   normalizeAgentFields,
   parseModelRefString,
   pickAgentClassGenes,

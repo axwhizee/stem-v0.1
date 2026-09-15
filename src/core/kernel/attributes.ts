@@ -9,7 +9,6 @@
 import type { ModelRef } from '../gateway'
 import { parseModelRef } from '../gateway'
 import type { ToolAccess } from '../tools'
-import type { AgentClass } from './types'
 
 // ---------- 共享校验器 ----------
 
@@ -36,19 +35,6 @@ export function asNonNegNumber(
   if (value === undefined) return undefined
   if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
     fail(`${path} 必须是非负数字`)
-  }
-  return value as number
-}
-
-/** 有限数字字段（可选；maxSteps 允许 ≤0 表示无限）。 */
-export function asFiniteNumber(
-  value: unknown,
-  path: string,
-  fail: (message: string) => never,
-): number | undefined {
-  if (value === undefined) return undefined
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    fail(`${path} 必须是数字`)
   }
   return value as number
 }
@@ -214,16 +200,11 @@ export function normalizeAgentFields(
 }
 
 function isCamelGeneKey(key: string): boolean {
-  return (
-    key === 'description' ||
-    key === 'tools' ||
-    key === 'contextStrategy' ||
-    key === 'model' ||
-    key === 'sendCountdown' ||
-    key === 'temperature' ||
-    key === 'effort'
-  )
+  return CAMEL_GENE_KEYS.has(key)
 }
+
+/** camelCase 基因键集合（与 FRONTMATTER_TO_CAMEL 值域同源，防双表漂移）。 */
+const CAMEL_GENE_KEYS: ReadonlySet<string> = new Set(Object.values(FRONTMATTER_TO_CAMEL))
 
 /**
  * 从任意类基因来源对象挑出 AgentClass 可选字段（toolHost/loader/builtin 共用）。
@@ -249,9 +230,4 @@ export function pickAgentClassGenes(source: {
   }
 }
 
-/** 基因字段并入 AgentClass 骨架（name/systemPrompt 必填由调用方保证）。 */
-export function mergeAgentClass(
-  base: Pick<AgentClass, 'name' | 'description' | 'systemPrompt'> & AgentClassGenes,
-): AgentClass {
-  return { ...base }
-}
+

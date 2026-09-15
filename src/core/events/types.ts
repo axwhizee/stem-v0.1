@@ -22,5 +22,3 @@ export type PilotEvent =
    * telemetry/logger.query 按需查；耗时 = 客户端 called→success 相减）。
    */
   | { readonly type: 'tool'; readonly agentId: string; readonly tool: string; readonly phase: 'called' | 'success' | 'error'; readonly at: number }
-  /** 系统通知（扩展位：init 完成等）。 */
-  | { readonly type: 'notice'; readonly at: number; readonly message: string }

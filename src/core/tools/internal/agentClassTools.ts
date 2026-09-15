@@ -6,9 +6,10 @@
 
 import type { ToolCapability, ToolAccess } from '../types'
 import type { ModelRef } from '../../gateway'
+import { parseModelRef } from '../../gateway'
 import type { SystemToolHost } from './ports'
 import { checkToolsConvergence } from '../access'
-import { parseModelArg, MODEL_FORMAT_HINT, resolveOr } from './shared'
+import { MODEL_FORMAT_HINT, resolveOr } from './shared'
 
 /** 创建新 agent 类（admin 权限，D7/铁律 8）。只承载类属性，不含实例数据（userPrompt 等）。 */
 export function agentClassCreate(host: SystemToolHost): ToolCapability {
@@ -49,7 +50,7 @@ export function agentClassCreate(host: SystemToolHost): ToolCapability {
       }
       let model: ModelRef | undefined
       if (args.model !== undefined) {
-        const parsed = parseModelArg(args.model)
+        const parsed = parseModelRef(args.model)
         if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
         model = parsed
       }
@@ -132,7 +133,7 @@ export function agentClassUpdate(host: SystemToolHost): ToolCapability {
       const mergedTools = args.tools !== undefined ? { ...current.tools, ...args.tools } : undefined
       let model: ModelRef | undefined
       if (args.model !== undefined) {
-        const parsed = parseModelArg(args.model)
+        const parsed = parseModelRef(args.model)
         if (parsed === undefined) return { text: MODEL_FORMAT_HINT }
         model = parsed
       }

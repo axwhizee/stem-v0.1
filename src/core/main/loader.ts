@@ -154,21 +154,21 @@ async function loadNamedTools(
       }
     }
     if (hit === undefined) {
-      throw initError({
+      throw {
         kind: 'tool_unresolvable',
         file: `${dir}/（点名源）`,
         message: `config.extensions.tools 点名的工具 "${name}" 解析不到装载源（extension/tools/ 与 .stem/tools/ 均无 ${name}）——未点名/无名可出的代码不存在于世界，键不可解析 = 拒启`,
-      })
+      } satisfies InitError
     }
     let mod: { readonly default?: unknown }
     try {
       mod = await deps.tools.loadTool(hit)
     } catch (cause) {
-      throw initError({
+      throw {
         kind: 'tool_unresolvable',
         file: hit,
         message: `点名工具 "${name}" 装载失败（文件存在但模块加载出错）：${cause instanceof Error ? cause.message : String(cause)}`,
-      })
+      } satisfies InitError
     }
     const tool = await materialize(mod.default, hit)
     if (tool) result.push({ ...tool, kind: 'custom', birth, file: hit })
@@ -425,8 +425,3 @@ function fileOf(file: string, ...bases: string[]): string {
   return file
 }
 
-function initError(e: InitError): InitError {
-  return e
-}
-
-export { initError }
