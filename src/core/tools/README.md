@@ -51,6 +51,13 @@ tools/
 | **工作** | 模型发起调用 | `execute` + `onBeforeExecute/onAfterExecute/onError` |
 | **输出结果** | 结果落上下文前 | `output.ts` 统一成形（成功与错误同一入口） |
 
+**init 与 execute 能力面分离（无热插拔）**：
+
+- `init?(ToolInitContext)`——**仅装配期**一次：`fs.listFiles/readText` + `projectRoot` + `log`。用途 = 预载空间资产、建目录缓存、可用性检查；幂等与失败策略由工具自管（资产类宜 fail-soft）。
+- `execute(input, ToolContext)`——**仅运行期**：`agentId`/`callId`/`signal`，**无 fs**。就绪态从 init 闭包/字段读取，运行期不重扫空间。
+- 装配序：策略 `init`（可 `registerTool`，新工具仍参加随后 `initAll`）→ boot 校验律 → `tools.initAll`。
+- 典型：custom skill 装载器在 init 扫 `.stem/tools/skill/*/SKILL.md` 建 name/description 索引；execute 只服务清单与按名取正文（渐进披露）。core 无系统级 skill 机制。
+
 **唯一出入口**：`createInternalTools(ports)`（定义）+ `ToolCapabilityRegistry.execute`（执行）+ `output.ts`（成形）。
 
 ## 4. internal 工具宿主端口（DIP）

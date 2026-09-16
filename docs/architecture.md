@@ -13,6 +13,7 @@
 | **族谱树** | 实例树：父 = `parentIdOf(id)` 纯推导；属性节点沿链继承/收敛；可见域 = 自身∨祖先 |
 | **属性表继承-收敛** | 多数属性沿族谱链：继承父表 → 类基因 → 实例化入参 → 节点表；只紧不松 |
 | **工具权限四态** | allow/ask/deny/ignore 专章；键即白名单 + 收敛链（见 2.3） |
+| **工具生命周期** | 出生声明 / init 预载（装配期，可读空间）/ execute（运行期，无 fs）；无热插拔（见 2.3b） |
 | **邮局模型** | 无总线：仓库（存储）→ 管理员（处理/组装）→ 快递员（倒计时送信） |
 | **上下文（记忆）策略** | 每 agent 可挂策略模块（classic/cortex/none…）：决定消息如何整理、压缩、外挂记忆与组装 |
 | **自定义内容** | agent 类、工具、上下文策略、shell 均可扩展；config 点名 / 目录即真相 |
@@ -150,6 +151,28 @@
 - **boot 校验律**：根 `access_reply ≠ allow` 拒启（ask 消息化死锁审判）
 
 细节：`src/core/tools/README.md`、`src/core/lineage/README.md`。
+
+### 2.3b 工具生命周期（出生 / 初始化 / 执行）
+
+**一句话**：工具不只是 call→result 函数，而是**系统装配的参与者**——出生声明定权限封顶，初始化（可选）在装配期用受限宿主能力预载空间资产，执行期只消费就绪状态。**无热插拔**：一切就绪态走 init，运行期不重扫空间。
+
+```
+策略 init（可 registerTool 注入新工具，出生恒 ignore）
+  → boot 校验律
+  → tools.initAll（fs / projectRoot / log 注入；逐工具调用一次 init?）
+  → 运行期 execute（agentId / callId / signal；无 fs）
+```
+
+| 段 | 能力面 | 典型 |
+|---|---|---|
+| **出生声明** `birth` | 注册即封顶，进收敛链 | internal 写死；extension/custom 随 config 点名 |
+| **初始化** `init?` | `ToolInitFs`（listFiles/readText）+ `projectRoot`——**仅装配期** | skill 装载器扫 `.stem/tools/skill/*/SKILL.md` 建目录缓存 |
+| **执行** `execute` | `ToolContext`——**仅运行期**，无 fs | 模型调用 → tool 结果 |
+
+- **能力面刻意不对称**：init 可读文件（宿主注入），execute 不可——预载与调用互不越权。
+- **init 可选、幂等自管**：多数 internal 无 init；有 init 的失败策略由工具自定（资产类 fail-soft 空表，不拒启）。
+- **渐进披露在 execute**：init 只建索引（name/description）；正文按参数才进上下文。
+- **core 不认识 skill**：SKILL.md 兼容 = 普通 custom 工具用好 init（示范 `test/space-demo/.stem/tools/skill/`）。
 
 ### 2.4 邮局模型（context）
 
