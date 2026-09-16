@@ -36,8 +36,17 @@ import type { Logger } from '../logging'
 import { forget, InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
 import type { AccessAskBus, AccessResolver, ToolAccess } from '../tools'
-import { DefaultAccessAskBus, checkToolsConvergence, formatAccessRequest, foldConvergenceSteps } from '../tools'
-import type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode } from '../tools'
+import { DefaultAccessAskBus, formatAccessRequest } from '../tools'
+import type { ConvergenceLayer, ConvergenceStep } from '../tools'
+import {
+  accessStepsOf,
+  labeledSteps,
+  listStep,
+  strategyStep,
+  validateAccessSteps,
+  type LabeledStep,
+} from './convergenceSteps'
+import { registerAgentClass as registerClassWrite, updateAgentClass as updateClassWrite } from './classWrite'
 import type { EventHub, PilotEvent } from '../events'
 import { DefaultEventHub } from '../events'
 
@@ -386,59 +395,33 @@ export class Kernel {
     this.lineage.replay(this.instances.listAllSync().map((instance) => this.bindEntryOf(instance)))
   }
 
-  /** 某 agent 的收敛链步序（类清单 → [策略声明清单 raise] → 实例清单；逐步独立、不做预合并）。 */
-  private accessStepsOf(agentId: AgentID): readonly (ConvergenceStep | undefined)[] {
-    const instance = this.instances.getSync(agentId)
-    if (!instance) return []
-    const template = this.templates.getSync(instance.classRef)
-    return [this.listStep(template?.tools), this.strategyStep(template?.contextStrategy), this.listStep(instance.toolOverride)]
-  }
-
-  /** 白名单步原料（undefined = 该层不设限）。 */
-  private listStep(list: Readonly<Record<string, ToolAccess>> | undefined): ConvergenceStep | undefined {
-    return list === undefined ? undefined : { list }
-  }
-
-  /** 策略声明清单步（raise——只抬不封；策略未声明/解析缺位 = 无此步）。 */
-  private strategyStep(contextStrategy: string | undefined): ConvergenceStep | undefined {
-    if (contextStrategy === undefined) return undefined
-    const tools = this.strategies?.resolve(contextStrategy)?.tools
-    return tools !== undefined && Object.keys(tools).length > 0 ? { list: tools, mode: 'raise' } : undefined
-  }
-
-  /** 出生表（注册行为生成的全局封顶；无注册表面 = 不封顶）。 */
   private birthCaps(): Readonly<Record<string, ToolAccess>> {
     return this.tools?.birthTable() ?? {}
   }
 
-  /**
-   * 写入面拒绝式校验（与物化共用 foldConvergenceSteps 单一代数）：逐步折叠，
-   * 取值宽于封顶（父面显式判定 ∧ 出生值）= 扩张 → 违例带层归因
-   * （"类收敛被拒" ≠ "实例收敛被锁"）。整表缺席的步跳过（= 该层不设限）。
-   */
-  private validateAccessSteps(
-    parent: AccessProfile | undefined,
-    steps: readonly (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>, ConvergenceStepMode | undefined])[],
-  ): string[] {
-    const { violations } = foldConvergenceSteps(parent?.explicit ?? {}, this.birthCaps(), steps)
-    return violations.map(
-      (v) => `${v.layer}被拒 ${v.key}: ${v.wanted}（封顶 ${v.ceiling}——扩张被拒，只许沿 ignore→allow→ask→deny 收紧）`,
+  private accessStepsOf(agentId: AgentID): readonly (ConvergenceStep | undefined)[] {
+    return accessStepsOf(
+      { instances: this.instances, templates: this.templates, ...(this.strategies !== undefined ? { strategies: this.strategies } : {}) },
+      agentId,
     )
   }
 
-  /** 收敛链步序 → 带层标签三元组（层名按链位分配：两步 = 类/实例；三步含策略层）。 */
-  private labeledSteps(
-    steps: readonly (ConvergenceStep | undefined)[],
-    first: ConvergenceLayer,
-  ): (readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>, ConvergenceStepMode | undefined])[] {
-    const labels: ConvergenceLayer[] =
-      steps.length >= 3 ? [first, '策略收敛', '实例收敛'] : [first, '实例收敛']
-    return steps
-      .map((step, i) => (step === undefined ? undefined : [labels[i] ?? '实例收敛', step.list, step.mode] as const))
-      .filter((p): p is readonly [ConvergenceLayer, Readonly<Record<string, ToolAccess>>, ConvergenceStepMode | undefined] => p !== undefined)
+  private listStep(list: Readonly<Record<string, ToolAccess>> | undefined): ConvergenceStep | undefined {
+    return listStep(list)
   }
 
-  /** 注册根 agent：从内置 user 类实例化（parentId=null 即根，与其他实例等同；id = 出生路径 `0`）。 */
+  private strategyStep(contextStrategy: string | undefined): ConvergenceStep | undefined {
+    return strategyStep(this.strategies, contextStrategy)
+  }
+
+  private validateAccessSteps(parent: AccessProfile | undefined, steps: readonly LabeledStep[]): string[] {
+    return validateAccessSteps(parent, this.birthCaps(), steps)
+  }
+
+  private labeledSteps(steps: readonly (ConvergenceStep | undefined)[], first: ConvergenceLayer): LabeledStep[] {
+    return labeledSteps(steps, first)
+  }
+
   /** 存量根的身份对齐（pilot 幂等分支调用）：config.user.name 跨重启生效。 */
   async alignRootName(): Promise<void> {
     const root = this.instances.getSync(ROOT_ID)
@@ -782,54 +765,19 @@ export class Kernel {
     cls: AgentClass,
     opts?: { persist?: boolean; by?: string },
   ): Promise<{ persisted: boolean }> {
-    await this.templates.register(cls)
-    const persisted = await this.persistClass(cls, opts)
-    this.emitLog({
-      type: 'kernel.class.registered',
-      at: Date.now(),
-      classId: cls.name,
-      persisted,
-      ...(opts?.by !== undefined ? { agentId: opts.by } : {}),
-    })
-    return { persisted }
+    return registerClassWrite(this.classWriteDeps(), cls, opts)
   }
 
   /**
    * 更新 agent 类（进化书写面；供 agent_class_update / webui 类页签使用）。
-   * tools 收敛校验在**写入面本层**（checkToolsConvergence——任何直调 kernel
-   * 的通道都不可绕过；工具层另有同尺预检，只为 agent 友好文案）。
-   * 边界：更新只影响**后续实例**——已绑定实例的能力已物化于族谱树。
+   * tools 收敛校验在写入面本层；更新只影响后续实例。
    */
   async updateAgentClass(
     name: AgentClassID,
     patch: Partial<AgentClass>,
     opts?: { persist?: boolean; by?: string },
   ): Promise<{ persisted: boolean; cls: AgentClass }> {
-    if (patch.tools !== undefined) {
-      const current = this.templates.getSync(name)
-      if (current !== undefined) {
-        const violations = checkToolsConvergence(current.tools, patch.tools)
-        if (violations.length > 0) {
-          throw {
-            kind: 'invalid_template',
-            classId: name,
-            message: `工具清单只能收敛：${violations.join('；')}`,
-          } satisfies KernelError
-        }
-      }
-    }
-    await this.templates.update(name, patch)
-    const merged = await this.templates.get(name)
-    const persisted = await this.persistClass(merged, opts)
-    this.emitLog({
-      type: 'kernel.class.updated',
-      at: Date.now(),
-      classId: merged.name,
-      patch: Object.keys(patch).join(','),
-      persisted,
-      ...(opts?.by !== undefined ? { agentId: opts.by } : {}),
-    })
-    return { persisted, cls: merged }
+    return updateClassWrite(this.classWriteDeps(), name, patch, opts)
   }
 
   /** 是否具备类落盘通道（工具文案区分"已落盘 / 仅内存试验田"）。 */
@@ -837,11 +785,12 @@ export class Kernel {
     return this.classStore !== undefined
   }
 
-  /** 落盘一次类（persist 未请求 / 无端口 → false；序列化异常（系统机制红线等）向上抛为工具失败）。 */
-  private async persistClass(cls: AgentClass, opts?: { persist?: boolean }): Promise<boolean> {
-    if (opts?.persist !== true || this.classStore === undefined) return false
-    await this.classStore.save(cls)
-    return true
+  private classWriteDeps() {
+    return {
+      templates: this.templates,
+      ...(this.classStore !== undefined ? { classStore: this.classStore } : {}),
+      emitLog: (event: LogEvent) => this.emitLog(event),
+    }
   }
 
   /** 发送日志事件（直接写入日志记录器，无总线中转）。 */

@@ -14,7 +14,9 @@
 
 | 文件 | 内容 |
 |---|---|
-| `Kernel.ts` | 容器/装配（收 `RuntimePort` 工厂；不 import 具体执行器与 main） |
+| `Kernel.ts` | 容器/装配门面（收 `RuntimePort` 工厂；不 import 具体执行器与 main） |
+| `convergenceSteps.ts` | 收敛链步原料 + 写入面校验（listStep/strategyStep/validate/labeled） |
+| `classWrite.ts` | 类书写面（register/update/persist；tools 收敛硬门禁） |
 | `TemplateRegistry.ts` | 类注册表（name 即 id） |
 | `InstanceManager.ts` | 实例生命周期（id = 出生路径 `x.x`） |
 | `attributes.ts` | 类字段单一真相（校验/frontmatter 映射/normalize） |
