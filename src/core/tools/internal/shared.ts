@@ -44,8 +44,6 @@ export const MODEL_ORIGIN_LABELS: Record<ModelOrigin, string> = {
   inherited: '父继承',
 }
 
-/** 列出 agent 类。 */
-
 export function formatEffectiveAccess(profile: AgentConfigView['access']): string {
   if (!profile) return '（未绑定）'
   const entries = Object.entries(profile.explicit).map(([k, v]) => `${k}:${v}`)

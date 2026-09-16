@@ -4,7 +4,7 @@
 
 ## 职责
 
-「无总线」通信模型：一切消息进入仓库，由管理员处理/组装，快递员定时投递。
+一切消息进入仓库，由管理员处理/组装，快递员定时投递。
 
 - **Repository**：上下文本体唯一存储（内存 + write-through 装饰器）；`markInvalid`/`updateMessage` 支持可逆删除与改写。
 - **ContextManager**：处理（打戳/策略 process/组装 legalize）+ 生命周期 `register`/`unregister`；策略动作 `runStrategyAction`；统一挂起经 `Waiter`。
@@ -45,7 +45,7 @@
 
 - **tag 六元词表**（`''`/`summary`/`cortex`/`ltm`/`note`/`stm`）+ `turn/indexInTurn` 双索引；tokens = 网关真实值差分归位、chars/4 兜底；记忆族 tag 在卸载/清理选择集中恒被排除。
 - **触发 = user_prompt 抵达；终点 = 唤醒快递员**；`deposit` 才唤醒、`appendHistory` 不唤醒（防自回复死循环）。
-- **挂起等待填充**（统一 `Waiter`）：`agent_instantiate{wait}` 回信命中 hold → tool 结果填充 + 唤醒（hold 先于首信注册 = 竞态根除）；`agent_pause` = 纯倒计时；`waitForReply` = `reply:<from>` 事件；`cancelOwner` 挂 unregister/terminate。
+- **挂起等待填充**：`agent_instantiate{wait}` 的**独占消费**住 `ContextManager.holds`（`from` 命中 → tool 结果填充并删除；hold 先于首信注册 = 竞态根除）；**超时自回填**经 `Waiter` 的 `hold:` 键。`waitForReply` = `reply:<from>` 事件；`agent_pause` = 纯倒计时；`cancelOwner` 挂 unregister/terminate。竞态契约见 `hold.test.ts`。
 - 一空间一库一进程；重启 = 装载 + 归一化 + replay + 零重放。
 - `.stem/context/*.ts` 可覆盖内置策略（用户主权）。
 

@@ -157,8 +157,6 @@ export function agentClassUpdate(host: SystemToolHost): ToolCapability {
   }
 }
 
-/** 模型参数解析（S6/R6 严格式）：仅接受 `提供商/模型`，两段非空；非法 → undefined。 */
-
 export function agentClassList(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_class_list',

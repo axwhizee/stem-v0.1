@@ -9,8 +9,9 @@
 //          返回 = 完整上下文就绪 → 才提醒快递员（classic 的 compact 在此）；
 //       4. 组装（策略 assemble 纯函数 + legalize）→ 送信快照；
 //   - 组装权归管理员（快递员只发不组装——策略对真实送信生效的前提）；
-//   - 统一挂起（Waiter）：instantiate.wait / waitForReply / agent_pause
-//     同一原语（reply:/timer: 键 + 倒计时 + 中断）；
+//   - 统一挂起（Waiter）：waitForReply / agent_pause / ask / hold 超时
+//     同一原语（事件键 + 倒计时 + 中断）；instantiate.wait 的独占消费
+//     住 holds Map（deposit 命中即 tool 填充），Waiter 只管超时自回填。
 //   - 策略专有动作入口（runStrategyAction ← pilot / context_apply）。
 //
 // 存储交给仓库（Repository），发送交给快递员（Courier），

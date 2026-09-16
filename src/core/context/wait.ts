@@ -1,9 +1,10 @@
 // ============================================================
 // core/context/wait.ts —— 统一挂起原语（事件 + 倒计时 + 中断）
 //
-// 四套挂起合一：
+// 四套挂起键：
 //   - ask           = wait('ask:'+requestId, owner=申请者)
-//   - instantiate.wait / waitForReply = wait('reply:'+sender)
+//   - waitForReply  = wait('reply:'+sender)（策略 spawn 信箱配对）
+//   - instantiate.wait = wait('hold:'+childId)（仅超时自回填；deposit 独占消费在 ContextManager.holds）
 //   - agent_pause   = wait('timer:'+toolCallId)（纯倒计时）
 // deposit 一次 emit('reply:'+from, letter) 兑现全部同键等待者。
 // cancelOwner 挂 unregister/terminate；timer 经注入 TimerFactory（core 零平台依赖）。
