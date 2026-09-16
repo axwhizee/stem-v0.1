@@ -12,16 +12,13 @@
 // ============================================================
 
 import type { ChatMessage, LLMEvent, LLMRequest, ToolCallEvent, UsageEvent } from '../gateway'
-import { isAbortError, isGatewayError } from '../gateway'
 import type { AgentDelivery } from '../context'
 import { defaultTimer } from '../context/wait'
-import type { ToolContext, ToolError } from '../tools'
-import { errorBrief, formatToolOutput } from '../tools'
+import type { ToolContext } from '../tools'
 import type { AgentID, AgentStatus, RuntimePort, RuntimePortDeps } from '../kernel'
 import { makeAgentID, parentIdOf, ROOT_ID } from '../kernel'
-
-/** 中断后收尾标记（消息闭合：避免出现"assistant 后直接接 user"的非法消息序列）。 */
-const INTERRUPTED_MARKER = '<interrupted>'
+import { haltTurn } from './runtimeHalt'
+import { executeToolRound } from './runtimeToolRound'
 
 export class DefaultRuntime implements RuntimePort {
   private readonly maxSteps: number
@@ -194,35 +191,18 @@ export class DefaultRuntime implements RuntimePort {
         if (roundFinish !== 'tool_calls' || toolCalls.length === 0 || !this.deps.tools) break
 
         // 工具轮：并行执行（协议原生支持多个 tool_call），结果按调用顺序回填。
-        const ctx: ToolContext = {
-          agentId: instance.id,
-          signal: ctl.signal,
-        }
-        // 挂起语义（S9）：instantiate.wait / agent_pause 命中 contextWait 标记——
-        // 该调用本轮**不回填**（等 deposit/到点正规填充仓库行），轮循环收束为
-        // holding 等唤醒；不再空转一轮让模型看悬空调用。
-        let waiting = false
-        const results = await Promise.all(
-          toolCalls.map(async (call): Promise<ChatMessage | null> => {
-            try {
-              const result = await this.deps.tools!.execute({ id: call.id, name: call.name, input: call.input }, ctx)
-              if (result.metadata?.contextWait === true) {
-                waiting = true
-                return null
-              }
-              return { role: 'tool', content: formatToolOutput(result, { outputLimit: this.deps.toolOutputLimit }), toolCallId: call.id }
-            } catch (cause) {
-              // 领域错误（带 kind）原样进会话；非结构化异常收成 execution_failed。
-              const error: ToolError =
-                cause !== null && typeof cause === 'object' && 'kind' in cause && typeof (cause as { kind: unknown }).kind === 'string'
-                  ? (cause as ToolError)
-                  : { kind: 'execution_failed', tool: call.name, message: errorBrief(cause).message }
-              return { role: 'tool', content: formatToolOutput(error, { outputLimit: this.deps.toolOutputLimit }), toolCallId: call.id }
-            }
-          }),
+        const ctx: ToolContext = { agentId: instance.id, signal: ctl.signal }
+        const round = await executeToolRound(
+          {
+            tools: this.deps.tools!,
+            ...(this.deps.toolOutputLimit !== undefined ? { toolOutputLimit: this.deps.toolOutputLimit } : {}),
+          },
+          instance.id,
+          toolCalls,
+          ctx,
         )
-        session = [...session, ...results.filter((r): r is ChatMessage => r !== null)]
-        if (waiting) break
+        session = [...session, ...round.messages]
+        if (round.waiting) break
         if (stepLimit > 0 && steps >= stepLimit) {
           // 步数上限收束（有上限时才可能走到这）：留行动化提示（发新信即可续作）。
           this.deps.onLog?.log({
@@ -251,49 +231,19 @@ export class DefaultRuntime implements RuntimePort {
       }
     } catch (cause) {
       // 中断/错误发生在当前轮 for-await 内部：roundText 持有中断前已产出的部分文本。
-      await this.halt(instance, cause, { partialText: roundText.join(''), partialReasoning: roundReasoning.join('') })
+      await haltTurn(
+        {
+          appendHistory: (id, msg) => this.deps.contextManager.appendHistory(id, msg),
+          ...(this.deps.onLog !== undefined ? { onLog: (e) => this.deps.onLog?.log(e) } : {}),
+          setStatus: (inst, to) => this.setStatus(inst, to),
+        },
+        instance,
+        cause,
+        { partialText: roundText.join(''), partialReasoning: roundReasoning.join('') },
+      )
     } finally {
       this.controllers.delete(instance.id)
     }
-  }
-
-  /**
-   * 中断/错误收尾：保证消息闭合（消息完整性）。
-   * - 主动中断（abort）：已产出的部分 assistant 补 `<interrupted>` 标记入库；
-   * - 网关/工具错误：部分 assistant 原样入库 + 错误日志；
-   * - 状态 → interrupted（实例存活、可恢复）。
-   */
-  private async halt(
-    instance: { readonly id: AgentID; status: AgentStatus },
-    cause: unknown,
-    partial: { partialText: string; partialReasoning: string },
-  ): Promise<void> {
-    const aborted = isAbortError(cause)
-    const gatewayError = isGatewayError(cause)
-    const brief = errorBrief(cause)
-    // 主动中断 → 补 <interrupted> 标记（消息闭合，避免误导模型以为是完整回复）；
-    // 其它错误 → 原样保留部分文本（不伪造"完成"标记）。
-    const message =
-      aborted && partial.partialText !== ''
-        ? `${partial.partialText}\n${INTERRUPTED_MARKER}`
-        : partial.partialText
-
-    // 消息闭合：中断时已有部分 assistant 文本 → 补一条带标记的 assistant 入库，
-    // 避免下一轮组装出现"assistant 后直接接 user"的非法消息序列。
-    if (message !== '') {
-      await this.deps.contextManager.appendHistory(instance.id, { role: 'assistant', content: message })
-    }
-
-    this.deps.onLog?.log({
-      type: 'kernel.instance.interrupted',
-      at: Date.now(),
-      agentId: instance.id,
-      aborted,
-      errorKind: gatewayError ? cause.kind : brief.kind,
-      message: gatewayError ? cause.message : aborted ? 'aborted' : brief.message,
-    })
-
-    await this.setStatus(instance, 'interrupted')
   }
 
   async notifyHold(agentId: AgentID): Promise<void> {

@@ -19,6 +19,8 @@
 | `system.ts` | `createStemSystem` 组合根 + `StemSystem` + `dispose` |
 | `loader.ts` | `runInit` 装载管线 |
 | `runtime.ts` | `DefaultRuntime` / `createRuntime`（被动驱动轮循环） |
+| `runtimeHalt.ts` | 中断/错误收尾（消息闭合） |
+| `runtimeToolRound.ts` | 工具轮并行执行 + contextWait 收束 |
 | `toolWiring.ts` | `registerInternalTools` + `attachToolRecordSink` |
 | `types.ts` | `InitDeps`/`InitFs`/`InitToolLoader`/`ClassFs`/`InitReport`/`InitIssue`… |
 | `systemFacade.ts` | `SystemFacade` 适配器（pilot 扮演面） |
