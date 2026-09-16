@@ -99,8 +99,8 @@ const server = createServer(async (req, res) => {
       if (path === '/api/raw') {
         if (store === undefined) return sendJson(res, { columns: [], rows: [], total: 0 })
         const table = url.searchParams.get('table') ?? 'instances'
-        if (table !== 'messages' && table !== 'instances' && table !== 'spaces') {
-          return sendJson(res, { error: 'table 必须 messages|instances|spaces' }, 400)
+        if (table !== 'messages' && table !== 'instances') {
+          return sendJson(res, { error: 'table 必须 messages|instances' }, 400)
         }
         return sendJson(res, rawTable(store, table, Number(url.searchParams.get('limit') ?? 50), Number(url.searchParams.get('offset') ?? 0)))
       }

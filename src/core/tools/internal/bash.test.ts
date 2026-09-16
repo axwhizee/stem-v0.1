@@ -4,6 +4,7 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { resolve } from 'node:path'
 import { createBashTool, BASH_DEFAULTS } from './bash'
 import type { ShellRunOptions, ShellRunResult, ShellRunner } from './bash'
 import type { ToolContext } from '../types'
@@ -111,11 +112,13 @@ test('工具固有属性：internal / bash 键 / 必填 command', () => {
 
 test('相对 cwd 参数：以 settings.cwd（宿主接线=空间根）为基准解析，不随宿主进程 cwd 漂（验收 P5 回归）', async () => {
   const { runner, calls } = fakeRunner({})
-  const tool = createBashTool({ runner, settings: { cwd: '/space/root' } })
+  // 期望用平台 resolve（Windows 上 resolve('/space/root') 落盘符，与产品 path.resolve 同源）。
+  const rootCwd = resolve('/space/root')
+  const tool = createBashTool({ runner, settings: { cwd: rootCwd } })
   await tool.execute({ command: 'wc', cwd: '.' }, ctx)
-  assert.equal(calls[0]?.cwd, '/space/root')
+  assert.equal(calls[0]?.cwd, rootCwd)
   await tool.execute({ command: 'ls', cwd: 'sub/dir' }, ctx)
-  assert.equal(calls[1]?.cwd, '/space/root/sub/dir')
+  assert.equal(calls[1]?.cwd, resolve(rootCwd, 'sub/dir'))
 })
 
 test('settings.cwd 缺省（纯 core 测试环境）：参数原样透传交 runner 兜底', async () => {

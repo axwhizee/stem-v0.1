@@ -33,7 +33,7 @@ describe('host 文件工具', () => {
   test('read：读取文本文件（带行号）', async () => {
     const tool = createReadTool(root)
     const result = await tool.execute({ path: 'src/a.ts' }, ctx)
-    assert.match(result.text, /src\/a\.ts/)
+    assert.match(result.text, /src[\\/]a\.ts/)
     assert.match(result.text, /1: const x = 1/)
     assert.match(result.text, /2: const hello = 2/)
   })
@@ -92,7 +92,7 @@ describe('host 文件工具', () => {
   test('glob：模式匹配文件', async () => {
     const tool = createGlobTool(root)
     const result = await tool.execute({ pattern: '**/*.ts' }, ctx)
-    assert.match(result.text, /src\/a\.ts/)
+    assert.match(result.text, /src[\\/]a\.ts/)
     assert.doesNotMatch(result.text, /README/)
   })
 })

@@ -41,7 +41,14 @@ export class SqliteStateStore {
     mkdirSync(dirname(file), { recursive: true })
     this.db = new DatabaseSync(file)
     this.db.exec('PRAGMA busy_timeout = 5000')
-    this.ensureSchema()
+    try {
+      this.ensureSchema()
+    } catch (cause) {
+      // 拒载时必须放掉连接（Windows 上句柄不关 → 下游 unlink EBUSY）。
+      this.db.close()
+      this.closed = true
+      throw cause
+    }
   }
 
   // ---------- 消息 ----------

@@ -35,7 +35,6 @@ export interface DashAgentRow {
   readonly classRef: string
   readonly parentId: string | null
   readonly status: string
-  readonly spaceId: string
   readonly turnCount: number
   readonly totalCost: number
   readonly model?: string
@@ -104,7 +103,6 @@ export function dashAgents(db: DatabaseSync): DashAgentRow[] {
       classRef: inst.classRef,
       parentId: parentIdOf(inst.id as import('../../src/core/kernel').AgentID),
       status: inst.status,
-      spaceId: '',
       turnCount: inst.turnCount,
       totalCost: inst.totalCost,
       ...(refText(inst.model) !== undefined ? { model: refText(inst.model) } : {}),
@@ -125,7 +123,6 @@ export interface DashSummary {
   readonly tokensTotal: number
   readonly tokensValid: number
   readonly instances: { total: number; byStatus: Record<string, number> }
-  readonly spaces: number
   readonly schemaVersion: number
   readonly lastActivity: number | null
 }
@@ -150,7 +147,6 @@ export function summary(db: DatabaseSync, file: string): DashSummary {
     tokensTotal: tokens.totalAll,
     tokensValid: tokens.validSum,
     instances: { total: Object.values(byStatus).reduce((a, b) => a + b, 0), byStatus },
-    spaces: one<{ c: number }>('SELECT COUNT(*) AS c FROM spaces').c,
     schemaVersion: (db.prepare('PRAGMA user_version').get() as { user_version: number }).user_version,
     lastActivity: last.at ?? null,
   }
@@ -273,19 +269,19 @@ export function listMessages(
 
 export function rawTable(
   db: DatabaseSync,
-  table: 'messages' | 'instances' | 'spaces',
+  table: 'messages' | 'instances',
   limit = 50,
   offset = 0,
 ): { columns: string[]; rows: Array<Record<string, unknown>>; total: number } {
   const n = Math.min(Math.max(limit, 1), 200)
   const total = (db.prepare(`SELECT COUNT(*) AS c FROM ${table}`).get() as { c: number }).c
   const rows = db.prepare(`SELECT * FROM ${table} ORDER BY rowid LIMIT ? OFFSET ?`).all(n, offset) as Array<Record<string, unknown>>
-  const columns = rows.length > 0 ? Object.keys(rows[0]!) : table === 'messages' ? ['id', 'agent_id', 'seq', 'message', 'archived'] : ['id', table === 'spaces' ? 'space' : 'instance']
+  const columns = rows.length > 0 ? Object.keys(rows[0]!) : table === 'messages' ? ['id', 'agent_id', 'seq', 'message', 'archived'] : ['id', 'instance']
   // JSON 列展开为 pretty 文本（前端 <pre> 呈现）。
   const pretty = rows.map((r) => {
     const out: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(r)) {
-      if (typeof v === 'string' && (k === 'message' || k === 'instance' || k === 'space')) {
+      if (typeof v === 'string' && (k === 'message' || k === 'instance')) {
         try {
           out[k] = JSON.stringify(JSON.parse(v), null, 1)
         } catch {

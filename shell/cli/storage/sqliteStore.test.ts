@@ -166,12 +166,12 @@ async function expectReject(open: () => unknown, found: number): Promise<void> {
     const err = e as { kind?: string; found?: number; supported?: number; message?: string }
     assert.equal(err.kind, 'storage_schema_reject')
     assert.equal(err.found, found)
-    assert.equal(err.supported, 3)
+    assert.equal(err.supported, 4)
     assert.match(String(err.message), /重建/)
   }
 }
 
-describe('schema v3 拒载（零历史兼容）', () => {
+describe('schema 版本拒载（零历史兼容）', () => {
   test('v2 旧库（随机 id + displayName 时代）→ 硬错指路重建', async () => {
     await withTempDb(async (file) => {
       await seedOld(file, 2)

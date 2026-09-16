@@ -62,14 +62,14 @@ function open(file: string) {
 
 test('仪表盘数据层：汇总/族谱/token 账目/语料/原表 全查询面', async () => {
   const { dir, file } = await seedSpace()
+  const db = open(file)
   try {
-    const db = open(file)
     const sum = summary(db, file)
     assert.equal(sum.messages.total, 7) // a1×5 + a2×2（register 自带 system 行）
     assert.equal(sum.tokensTotal, 71) // 67 + 4（system 行按 ceil(chars/4) 估算入账）
     assert.equal(sum.instances.total, 2)
     assert.equal(sum.instances.byStatus.terminated, 1)
-    assert.equal(sum.schemaVersion, 3)
+    assert.equal(sum.schemaVersion, 4)
     assert.ok(sum.lastActivity !== null)
 
     const agents = dashAgents(db)
@@ -103,11 +103,11 @@ test('仪表盘数据层：汇总/族谱/token 账目/语料/原表 全查询面
     assert.ok(typeof raw.rows[0]?.instance === 'string' && String(raw.rows[0]?.instance).startsWith('{'))
 
     // 只读连接拒绝写（法医默认姿态的机制保证）。
-    const ro = openDb(file)!
-    assert.throws(() => ro.prepare('DELETE FROM messages').run())
-    ro.close()
-    db.close()
+    const ro2 = openDb(file)!
+    assert.throws(() => ro2.prepare('DELETE FROM messages').run())
+    ro2.close()
   } finally {
+    db.close()
     await rm(dir, { recursive: true, force: true })
   }
 })
