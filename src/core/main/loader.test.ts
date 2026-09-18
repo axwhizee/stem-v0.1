@@ -13,7 +13,12 @@ import { DefaultToolCapabilityRegistry } from '../tools'
 import { DefaultStrategyRegistry } from '../context'
 import { DefaultTemplateRegistry } from '../kernel'
 import { runInit } from './loader'
-import type { InitDeps, InitFs } from './types'
+import type { InitDeps, InitFs, InitReport } from './types'
+
+/** 模拟 drain：发现清单 → register(replace)（发现段不注册工具）。 */
+async function drainInventory(deps: InitDeps, report: InitReport): Promise<void> {
+  for (const t of report.toolInventory) await deps.toolRegistry.register(t, { replace: true })
+}
 
 function makePaths(toolDir = '/proj/.stem/tools', agentDir = '/proj/.stem/agent', strategyDir = '/proj/.stem/context'): ConfigPaths {
   return {
@@ -134,7 +139,7 @@ test('首次创建：写默认模板；agent 类目录即真相，工具未点�
   const report = await runInit(deps)
   assert.deepEqual(report.tools.map((t) => t.id), [], 'custom 目录扫描已废止——t1 文件存在但未被点名')
   assert.deepEqual(report.agents.map((a) => a.id), ['a1'])
-  assert.equal(report.registeredTools.length, 0)
+  assert.equal(report.toolInventory.length, 0)
   assert.equal(report.registeredAgents.length, 1)
   const text = saved()
   assert.match(text, /extensions/, '模板含 extensions 点名块')
@@ -149,8 +154,7 @@ test('custom 源点名装载：.stem/tools 文件经 config 点名进世界 + �
   })
   const report = await runInit(deps)
   assert.deepEqual(report.tools.map((t) => [t.id, t.layer]), [['t1', 'custom']])
-  const tool = await deps.toolRegistry.get('t1')
-  assert.equal(tool.birth, 'ask', '出生权限 = config 点名权限词（装载与出生一句话）')
+  assert.equal(report.toolInventory[0]?.birth, 'ask', '注册声明 = config 点名权限词（发现段注入）')
 })
 
 test('配置文件已存在：永不回写（管线只读 config）', async () => {
@@ -165,7 +169,7 @@ test('配置文件已存在：永不回写（管线只读 config）', async () =
   })
   const report = await runInit(deps)
   assert.equal(savedCalls(), 0)
-  assert.equal(report.registeredTools.length, 1)
+  assert.equal(report.toolInventory.length, 1)
 })
 
 test('旧 ghost 键不再静默丢弃：R12 全量有效原则 → 解析即硬错（可行动指路）', async () => {
@@ -197,7 +201,7 @@ test('点名工具形状非法 → tool_invalid issue，其余继续', async () 
   const report = await runInit(deps)
   assert.equal(report.issues.length >= 1, true)
   assert.equal(report.issues[0]?.kind, 'tool_invalid')
-  assert.equal(report.registeredTools.length, 1)
+  assert.equal(report.toolInventory.length, 1)
 })
 
 test('agent 文件 frontmatter 非法 → issue，其余继续', async () => {
@@ -241,7 +245,7 @@ test('点名解析：目录形态 `<名>/<名>.ts` 入口 + 附属资源文件�
     toolModules: { '/proj/.stem/tools/pkg/pkg.ts': toolMod('pkg') },
   })
   const report = await runInit(deps)
-  assert.deepEqual(report.registeredTools.map((t) => t.id), ['pkg'])
+  assert.deepEqual(report.toolInventory.map((t) => t.id), ['pkg'])
   assert.deepEqual(report.registeredAgents.map((a) => String(a.name)), ['packed'])
 })
 
@@ -257,7 +261,8 @@ test('平铺与目录同名 → 目录形态优先（点名解析序）', async 
       '/proj/.stem/tools/twin/twin.ts': toolMod('twin', 'packed'),
     },
   })
-  await runInit(deps)
+  const report = await runInit(deps)
+  await drainInventory(deps, report)
   const tool = await deps.toolRegistry.get('twin')
   assert.equal((await tool.execute({}, { agentId: '' })).text, 'packed')
 })
@@ -277,9 +282,9 @@ test('extension 点名装载：kind=extension（provenance）+ 报告标层 + �
   const alpha = report.tools.find((t) => t.id === 'alpha')
   assert.ok(alpha)
   assert.equal(alpha.layer, 'extension')
-  const tool = await deps.toolRegistry.get('alpha')
-  assert.equal(tool.kind, 'extension')
-  assert.equal(tool.birth, 'allow')
+  const inv = report.toolInventory.find((t) => t.id === 'alpha')
+  assert.equal(inv?.kind, 'extension')
+  assert.equal(inv?.birth, 'allow')
 })
 
 test('点名不可解析 = boot 硬错（A1 装载源律：config 键必须有文件兑现）', async () => {
@@ -321,7 +326,7 @@ test('extension 工厂入口形态：default = (projectRoot) => ToolCapability�
   })
   const report = await runInit(deps)
   assert.equal(receivedRoot, '/proj', '工厂应收到 projectRoot')
-  assert.equal(report.registeredTools.length, 1)
+  assert.equal(report.toolInventory.length, 1)
 })
 
 test('宿主未提供 extension 根 = extension 层整体不存在（零 issue）', async () => {
@@ -346,9 +351,10 @@ test('后层同名覆盖前层 = 装载律（点名 custom 覆盖 pre-registered
   })
   const report = await runInit(deps)
   assert.equal(report.issues.length, 0, '覆盖不再是冲突')
+  await drainInventory(deps, report)
   const tool = await deps.toolRegistry.get('override')
   assert.equal(tool.kind, 'custom')
-  assert.equal(tool.birth, 'allow', '装载与出生一句话：覆盖者出生 = config 点名词')
+  assert.equal(tool.birth, 'allow', '注册声明 = config 点名词（drain 覆盖）')
   assert.equal((await tool.execute({}, { agentId: '' })).text, 'custom-wins')
 })
 

@@ -22,7 +22,8 @@ import type { ToolAccess, ToolCapability } from '../tools'
 import { DEFAULT_CONFIG_TEXT, parseAgentFile } from '../config'
 import type { DiscoveredEntry, InitDeps, InitError, InitIssue, InitReport, ResourceEntry } from './types'
 
-/** 运行初始化管线。 */
+/** 运行发现管线（stem 初始化资源发现段）：产出无序工具清单 + 注册类/策略。
+ *  **不注册工具**——工具就绪走组合根 drain（register+init → 冻结）。 */
 export async function runInit(deps: InitDeps): Promise<InitReport> {
   const { config } = deps
   const loaded = await config.store.load()
@@ -31,7 +32,7 @@ export async function runInit(deps: InitDeps): Promise<InitReport> {
   const roots = deps.extensionRoots ?? {}
   const issues: InitIssue[] = []
 
-  // 工具点名装载（extension 源 → custom 源双解析；不可解析 = 抛错拒启）；
+  // 工具发现（extension 源 → custom 源双解析；不可解析 = 抛错拒启）；
   // agent/策略 = extension 点名 + .stem/ 目录扫描。
   const tools = await loadNamedTools(deps, roots.tools, ext.tools ?? {}, issues)
   const extAgents = await loadExtensionAgents(deps, roots.agent, ext.agent ?? [], issues)
@@ -41,10 +42,11 @@ export async function runInit(deps: InitDeps): Promise<InitReport> {
   const agents = [...extAgents, ...cusAgents]
   const strategies = [...extStrategies, ...cusStrategies]
 
-  // 注册到 core（后层同名覆盖前层 = 装载律；issue 不中断）。
-  const registeredTools = await registerTools(deps, tools, issues)
+  // 类/策略入注册表（后层同名覆盖前层 = 装载律；issue 不中断）。
+  // 策略自带工具由组合根在 drain 前经注册表收集（含内置策略）。
   const registeredAgents = await registerAgents(deps, agents, issues)
   registerStrategies(deps, strategies, issues)
+  const toolInventory = [...tools]
 
   // 首次创建时写入初始模板（此后永不回写——config 是用户的，管线只读）。
   if (loaded.raw === undefined) {
@@ -61,7 +63,7 @@ export async function runInit(deps: InitDeps): Promise<InitReport> {
       ...extStrategies.map((s) => entry(s.module.name, s.file, 'extension', config)),
       ...cusStrategies.map((s) => entry(s.module.name, s.file, 'custom', config)),
     ],
-    registeredTools,
+    toolInventory,
     registeredAgents,
     issues,
   }
@@ -337,17 +339,6 @@ async function registerAll<T extends { file: string }>(
     }
   }
   return registered
-}
-
-/** 注册工具（冲突 → issue 不中断；replace = 矩阵装载律）。 */
-async function registerTools(
-  deps: InitDeps,
-  tools: readonly (ToolCapability & { file: string })[],
-  issues: InitIssue[],
-): Promise<ToolCapability[]> {
-  return registerAll(tools, issues, 'tool_invalid', (tool) => deps.toolRegistry.register(tool, { replace: true }), (tool) => {
-    deps.onLog?.log({ type: 'init.tool.registered', at: Date.now(), tool: tool.id, file: tool.file })
-  })
 }
 
 /** 注册 agent 类（冲突 → issue 不中断；replace = 矩阵装载律）。 */

@@ -13,7 +13,9 @@
 | **族谱树** | 实例树：父 = `parentIdOf(id)` 纯推导；属性节点沿链继承/收敛；可见域 = 自身∨祖先 |
 | **属性表继承-收敛** | 多数属性沿族谱链：继承父表 → 类基因 → 实例化入参 → 节点表；只紧不松 |
 | **工具权限四态** | allow/ask/deny/ignore 专章；键即白名单 + 收敛链（见 2.3） |
-| **工具生命周期** | 出生声明 / init 预载（装配期，可读空间）/ execute（运行期，无 fs）；无热插拔（见 2.3b） |
+| **工具生命周期** | 注册声明 → init 预载（可追加入表）→ execute（运行期，无 fs）；drain 后冻结，无热插拔（见 2.3b） |
+| **系统 init** | stem 初始化（定位 + config + 发现无序清单）→ Kernel → 工具 drain（register+init）→ user#0（见 2.8） |
+| **工具三层** | internal = core 薄封装 + bash（唯一对外操作面）；extension = 外部领域（skill / MCP）；custom = stem 空间用户工具 |
 | **邮局模型** | 无总线：仓库（存储）→ 管理员（处理/组装）→ 快递员（倒计时送信） |
 | **上下文（记忆）策略** | 每 agent 可挂策略模块（classic/cortex/none…）：决定消息如何整理、压缩、外挂记忆与组装 |
 | **自定义内容** | agent 类、工具、上下文策略、shell 均可扩展；config 点名 / 目录即真相 |
@@ -134,7 +136,7 @@
 
 ### 2.3 工具权限控制（四态收敛）
 
-**一句话**：权限只有两个来源——**注册即出生声明**（有什么、出身多宽）与**收敛清单**（沿族谱链谁能用到哪级）；ask 审批是**消息交换**。
+**一句话**：权限只有两个来源——**注册声明**（入表时写明该键的访问动作，全局封顶）与**收敛清单**（沿族谱链谁能用到哪级）；ask 审批是**消息交换**。
 
 | 状态 | 暴露给 LLM | 执行时 |
 |---|---|---|
@@ -143,6 +145,7 @@
 | `deny` | ❌ | ❌ `access_denied` |
 | `ignore` | ❌（背景在场） | ✅ 可执行（不设防） |
 
+- **注册即声明**：工具进入注册表时必须带访问动作声明（代码字段名 `birth`，语义 = **注册声明**）；无缺省、无 kind 推导
 - **收敛链**与 2.2 的 tools 列同一把尺
 - **键即白名单**：写了 = 未列出局；**整表缺席 = 完整继承**；空表 = 全关
 - **只紧不松**：严格度总序 `deny ≺ ask ≺ allow ≺ ignore`；扩张即拒（写入面）或静默钳制（物化面）
@@ -152,27 +155,74 @@
 
 细节：`src/core/tools/README.md`、`src/core/lineage/README.md`。
 
-### 2.3b 工具生命周期（出生 / 初始化 / 执行）
+### 2.3b 工具生命周期（注册 / 初始化 / 执行）
 
-**一句话**：工具不只是 call→result 函数，而是**系统装配的参与者**——出生声明定权限封顶，初始化（可选）在装配期用受限宿主能力预载空间资产，执行期只消费就绪状态。**无热插拔**：一切就绪态走 init，运行期不重扫空间。
+**一句话**：工具入表 = **注册 + 初始化**同一条路；init 期可向清单表追加工具；drain 结束后工具表**冻结**。无热插拔——就绪态只认本次 boot 的 init 快照。
 
 ```
-策略 init（可 registerTool 注入新工具，出生恒 ignore）
-  → boot 校验律
-  → tools.initAll（fs / projectRoot / log 注入；逐工具调用一次 init?）
+无序清单表（stem 初始化发现段产出，注册声明已随定义写入）
+  → drain: while (队列非空) { register(t); await t.init?(ctx); /* 可 push */ }
+  → 冻结 = user#0 可用的基础工具表
   → 运行期 execute（agentId / callId / signal；无 fs）
 ```
 
-| 段 | 能力面 | 典型 |
+| 段 | 行为 | 能力面 |
 |---|---|---|
-| **出生声明** `birth` | 注册即封顶，进收敛链 | internal 写死；extension/custom 随 config 点名 |
-| **初始化** `init?` | `ToolInitFs`（listFiles/readText）+ `projectRoot`——**仅装配期** | skill 装载器扫 `.stem/tools/skill/*/SKILL.md` 建目录缓存 |
-| **执行** `execute` | `ToolContext`——**仅运行期**，无 fs | 模型调用 → tool 结果 |
+| **注册** | 入工具表；注册声明随定义写入，进收敛链 | 来源：internal 代码 / config 点名 extension·custom / init 追加 |
+| **初始化** `init?` | 注册后立刻执行；可读空间、可**追加注册** | `ToolInitFs` + `projectRoot` + `log`——**仅装配期** |
+| **执行** `execute` | 模型调用 | `ToolContext`——**仅运行期**，无 fs |
 
-- **能力面刻意不对称**：init 可读文件（宿主注入），execute 不可——预载与调用互不越权。
-- **init 可选、幂等自管**：多数 internal 无 init；有 init 的失败策略由工具自定（资产类 fail-soft 空表，不拒启）。
-- **渐进披露在 execute**：init 只建索引（name/description）；正文按参数才进上下文。
-- **core 不认识 skill**：SKILL.md 兼容 = 普通 custom 工具用好 init（示范 `test/space-demo/.stem/tools/skill/`）。
+- **清单无序**：发现段不区分 internal/extension/custom 优先级；权限不依赖注册顺序。
+- **init 可追加**：MCP 在 init 拉取远程工具清单并投影为 `ToolCapability` 入表；追加项继续同一 drain。
+- **init 可选、失败 fail-soft**：多数 internal 无 init；失败记 issue，工具留在表内，execute 自管未就绪。
+- **能力面不对称**：init 可读文件；execute 不可——预载与调用互不越权。
+
+### 2.3c 工具三层（本质区别）
+
+| 层 | 本质 | 落位 |
+|---|---|---|
+| **internal** | core 内部接口的**薄封装**（系统自我管理面）；**唯一例外 bash** = 最小系统对外操作面（Runner 宿主注入） | `core/tools/internal/` |
+| **extension** | **core外功能扩展**——core 不认识其领域，只认 `ToolCapability` 契约 | `extension/tools/` + config 点名 |
+| **custom** | stem 空间用户自写工具 | `.stem/tools/` + config 点名 |
+
+**skill（extension）**：机制代码住 extension；技能内容住 stem 空间，格式对齐常见 harness 的 **`SKILL.md`**（YAML 头 name/description + 正文）。init 发现并组装工具就绪态/描述；正文仍可 execute 按需披露。
+
+**MCP（extension）**：与 skill 同构——**机制与定义分离**，不在 extension 里按服务器写死工具包。
+
+| 部分 | 是什么 | 住哪 |
+|---|---|---|
+| **机制** | 通用 MCP 客户端（stdio/HTTP 会话、`tools/list` 投影、`tools/call` 转发） | `extension/tools/mcp/`（config 点名启用，仅一枚） |
+| **定义** | MCP 服务器清单，**对齐常见 harness 格式**（见下） | stem 空间 `.stem/mcp.jsonc`（内容真相） |
+| **表内条目** | init 期按各服务器 `tools/list` 投影出的内存 `ToolCapability` | drain 队列；execute 闭包绑定会话 |
+
+**定义格式（通用面 = `mcpServers`）**：Claude Code / Claude Desktop / Cursor / VSCode Copilot 等主流 harness 的项目级 MCP 配置均采用同一形态——顶层服务器名 → 连接参数。stem 以该形态为**规范输入**（类比 skill 读 `SKILL.md`）：
+
+```jsonc
+// .stem/mcp.jsonc
+{
+  "mcpServers": {
+    "github": {
+      "command": "npx",
+      "args": ["-y", "@github/github-mcp-server"],
+      "env": { "GITHUB_TOKEN": "{env:GITHUB_TOKEN}" }
+    },
+    "docs": {
+      "type": "http",
+      "url": "https://docs.example.com/mcp",
+      "headers": { "Authorization": "Bearer {env:DOCS_TOKEN}" }
+    }
+  }
+}
+```
+
+- **本地/stdio**：`command` + 可选 `args` / `env` / `cwd`（无 `type` 或 `type: "stdio"`）。
+- **远程/HTTP·SSE**：`type: "http" | "sse"` + `url` + 可选 `headers`；敏感值走 `{env:NAME}`，密钥只经 env。
+- **可选 stem 字段**（兼容扩展，非 harness 必填）：`enabled`、`access`（本服务器投影工具的注册声明，缺省用 config 对 `mcp` 点名的词）。
+- **次要兼容**：opencode 系 `mcp.servers.<名>` / `type:"local"|"remote"` + `command` 数组 / `environment` 可映射到同一内部形状；规范文档面仍以 `mcpServers` 为准。
+- **不为每个远程工具在 stem 或 extension 落工具源文件**；「目录即真相」在 MCP 上 = **`.stem/mcp.jsonc` + 一枚 extension MCP 机制**。每次 boot 由 init 重新连接并投影，无热插拔。
+- 专用 MCP 工具（如 `websearch` 直连百炼）仍可作为普通 extension 工具并存；通用 `mcp` 机制不取代、不耦合它们。
+
+**策略与工具的边界**：策略模块只被**发现**进 `StrategyRegistry`（契约 = note/role/tools raise/assemble/process/actions），**不参与系统 boot 编排**，无策略级 init 钩子、无 `registerTool`。策略若自带工具面，以模块导出声明并入无序清单，与其它工具同一 drain（实现策略本轮限 classic；cortex 另轮重构）。
 
 ### 2.4 邮局模型（context）
 
@@ -283,6 +333,50 @@ instances (
 ```
 
 中断：`interruptAgent`（自身或祖先）→ Runtime.abort → `halt` 消息闭合（部分文本 + `<interrupted>`）→ `interrupted` 可恢复。进程收尾：`system.dispose()` → `drainForShutdown`。
+
+### 2.8 系统 init（stem 初始化 + 工具 drain）
+
+**一句话**：boot 第一大步是 **stem 初始化**（空间里有什么）；第二大步是 **工具 drain**（如何就绪）；user#0 只消费冻结后的基础工具表。config 解析从属于 stem 初始化，不是独立相位。本节是系统级流程，不隶属工具子系统（工具侧契约见 2.3b）。
+
+> **实现**：`createStemSystem` / `registry.drain` / `runInit`（发现清单 `toolInventory`）。
+
+```
+Ⅰ stem 初始化
+   ① 空间定位（projectRoot；.stem 边界）
+   ② config 解析（stem.jsonc = stem 空间解析的一部分；缺文件 = 首启模板内存等效）
+   ③ 参数落位（user 基因、bash/context/providers…；user.model 必填）
+   ④ 资源发现 → 无序清单表
+        工具：internal 定义 + extension 点名 + custom 点名
+              （每条已带注册声明；表内无层序、无优先级字段）
+        类 / 策略：目录真相 + config 点名 → 只入注册表，无 init 钩子
+Ⅱ Kernel 构造（config 就绪后；工具表尚空。internal execute 经端口用到 Kernel，
+   故 Kernel 必须先于 drain——结构依赖，不是 internal 特权通道）
+Ⅲ 工具 drain（唯一初始化执行面）
+   while (清单/追加队列非空):
+     register(t) → await t.init?(…)   // init 可 push（MCP 投影等）
+   完成 → 冻结
+Ⅳ wireRestoredContexts（类/策略已在发现段入表）
+Ⅴ Pilot / user#0（基础工具表 + config.user；根的 tools 收敛在完整注册声明台账上物化）
+Ⅵ boot 校验律（根 access_reply 必 allow）
+Ⅶ userHooks
+→ 返回 StemSystem { kernel, pilot, tools, config, init, dispose }
+```
+
+| 边界 | 原因 |
+|---|---|
+| 空间定位 **先于** config | config 是该空间的真相文件 |
+| 发现 **只产清单**，不 init | 发现与就绪分离；清单无序 |
+| Kernel **先于** drain | internal 经 `SystemToolHost` 调 kernel；空表构造即可 |
+| drain **先于** user#0 | 根的权限物化需要完整注册声明台账 |
+| 无策略 boot 相位 | 策略 = 接口模块，不编排系统流程 |
+
+**失败语义**：空间/config 非法、点名解析不到、boot 校验失败 = **拒启**；单工具 init 失败 = **issue 留痕，不中断**。
+
+**运行期与 stem 空间**：drain 后工具表不再变更；领域数据书写（如类进化写 `.stem/agent/`）仍可能发生，**不回灌工具表**。
+
+**dispose**（对称收尾）：`drainForShutdown`（中断活跃轮、等消息闭合）→ 关 stateStore。
+
+实现：`src/core/main/system.ts`、`loader.ts`；细节 `src/core/main/README.md`。
 
 ---
 

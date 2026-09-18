@@ -24,10 +24,9 @@ import type { ContextStrategyModule, StrategyApi } from '../types'
 import { DEFAULT_CONTEXT_SETTINGS } from '../types'
 import { classicAssemble } from '../classic'
 import { createBuiltinStrategyRegistry } from '../index'
-import { DefaultToolCapabilityRegistry } from '../../../tools'
+import { createKernelHarness } from '../../../../../test/support/kernelHarness'
 import type { ToolCapability } from '../../../tools'
 import type { StoredMessage } from '../../types'
-import { createKernelHarness } from '../../../../../test/support/kernelHarness'
 import { createCortexStrategy } from './cortex'
 import { resolveDreamAt, validateLtm, validateNoteName, renderToc, firstLineSummary, renderLtm, parseDreamReport, DEFAULT_DREAM_AT } from './schema'
 import type { LtmItem } from './schema'
@@ -316,23 +315,22 @@ async function cortexHarness(workerTurns: (turn: number) => LLMEvent[]) {
   const registry = createBuiltinStrategyRegistry([cortex])
   const fs = fakeFs()
   const settings = { ...DEFAULT_CONTEXT_SETTINGS, window: 100_000 }
-  const staged = new DefaultToolCapabilityRegistry()
-  await cortex.init?.({
-    projectRoot: '/space',
-    fs: fs.api,
-    settings,
-    log: { log: () => {} },
-    registerTool: async (t) => {
-      await staged.register(t, { replace: true })
-    },
-  })
+  const owned =
+    cortex.createOwnedTools?.({ projectRoot: '/space', fs: fs.api, settings }) ??
+    cortex.ownedTools ??
+    []
   const h = await createKernelHarness(gateway, {
     templates: [...BUILTIN_TEMPLATES, cortexTemplate],
     strategies: registry,
     contextSettings: settings,
   })
-  for (const t of await staged.list()) {
+  for (const t of owned) {
     await h.tools.register(t, { replace: true })
+    await t.init?.({
+      fs: { listFiles: fs.api.listFiles, readText: fs.api.readText },
+      projectRoot: '/space',
+      registerMore: () => {},
+    })
   }
   const agentId = await h.kernel.instantiateAgent(
     { className: makeAgentClassID('mem-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: '开工写 cortex 测试' },
@@ -502,7 +500,7 @@ const fakeStrategy: ContextStrategyModule = {
   name: 'fake',
   assemble: classicAssemble,
   tools: { fake_note: 'allow' }, // 声明清单（raise 步）
-  init: async (ctx) => { await ctx.registerTool(FAKE_TOOL) },
+  ownedTools: [FAKE_TOOL],
 }
 
 function fakeTemplate(tools?: AgentClass['tools']): AgentClass {

@@ -1,17 +1,15 @@
 // ============================================================
 // core/main/system.ts —— createStemSystem（系统初始化与装配主入口；组合根）
 //
-// 自治系统组合根：任何 shell（cli/webui）注入平台能力即可装配出
-// 完整可运行的最小系统，避免各 shell 各自装配导致发散。
-// 装配顺序（固定）：
-//   1. 读取唯一配置（.stem/stem.jsonc）；
-//   2. 工具注册表 + Kernel（user 类 = config.user 对象，tools 给出整表替换）；
-//   3. 系统工具（agent_*/bus_*/context_* + access_reply）+ bash（注入 ShellRunner 才装配）；
-//   4. init 管线：三维资源矩阵统一装载（internal 恒在 → extension 点名 →
-//      custom 自动扫描，S7；后层同名覆盖前层）；
-//   5. Pilot 初始化（内部实例化根 agent `0`，user 类）；
-//   6. 工具 initAll 生命周期（projectRoot/fs/log 注入）；
-//   7. 用户注入钩子（init 末尾，深度扩展自定义）。
+// 目标形态（docs/architecture.md 2.8）：
+//   Ⅰ stem 初始化：空间定位（deps.config.paths）→ config 解析 → 参数落位
+//      → 资源发现（runInit：工具入无序清单；类/策略入注册表）
+//   Ⅱ Kernel 构造（工具表尚空；internal execute 经端口用到 Kernel）
+//   Ⅲ 工具 drain：seed = internal 定义 + hostTools + 发现清单 + 策略 ownedTools
+//      while (队列) { register + init }；init 可 registerMore；完成后冻结
+//   Ⅳ wireRestoredContexts → Ⅴ Pilot/user#0 → Ⅵ boot 校验律 → Ⅶ userHooks
+//
+// 策略不参与 boot 编排：无策略 init、无 registerTool。
 // ============================================================
 
 import type { ConfigError, ConfigPaths, ConfigStore, StemConfig } from '../config'
@@ -19,14 +17,15 @@ import { defaultStemConfig } from '../config'
 import type { ModelGateway, UsageEvent } from '../gateway'
 import type { Logger } from '../logging'
 import type { MessageStore, TimerFactory } from '../context'
-import { DEFAULT_CONTEXT_SETTINGS } from '../context'
-import type { StrategyInitFs } from '../context'
+import { DEFAULT_CONTEXT_SETTINGS, type StrategyInitFs } from '../context'
 import type { InstanceStore } from '../kernel'
 import type { ClassStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
 import { DefaultToolCapabilityRegistry } from '../tools'
 import type { ShellRunner } from '../tools'
+import { createInternalTools } from '../tools/internal'
 import { Kernel, ROOT_ID } from '../kernel'
+import { createSystemToolHost } from '../kernel'
 import type { Pilot } from '../pilot'
 import { createPilot } from '../pilot'
 import type { PilotEvent } from '../events'
@@ -34,7 +33,7 @@ import { runInit } from './loader'
 import type { InitDeps, InitReport, ClassFs } from './types'
 import { createRuntime } from './runtime'
 import { createSystemFacade } from './systemFacade'
-import { attachToolRecordSink, registerInternalTools } from './toolWiring'
+import { attachToolRecordSink } from './toolWiring'
 import { agentFileOf, serializeAgentClass } from '../config'
 
 /** 系统上下文（用户注入钩子入参）。 */
@@ -46,8 +45,8 @@ export interface StemSystem {
   /** 生效配置（唯一配置文件读取结果；目录即真相，无镜像回写）。 */
   readonly config: StemConfig
   readonly init: InitReport
-    /** 优雅收尾（中断所有活跃 agent；注入 stateStore 时释放存储句柄）。 */
-    readonly dispose: () => Promise<void>
+  /** 优雅收尾（中断所有活跃 agent；注入 stateStore 时释放存储句柄）。 */
+  readonly dispose: () => Promise<void>
 }
 
 /** 用户注入钩子（init 末尾调用，深度扩展自定义）。 */
@@ -62,49 +61,22 @@ export interface StemSystemDeps {
   readonly timer?: TimerFactory
   readonly maxSteps?: number
   readonly estimateCost?: (usage: UsageEvent | undefined) => number
-  /**
-   * 宿主显式注入的工具（kind 自定；测试与深度定制通道）。
-   * 常规 extension 工具不经此口——由 init 管线按 config.extensions 点名从
-   * `extensionRoots.tools` 装载（S7 矩阵）。
-   */
+  /** 宿主显式注入的工具（随 drain seed 入表）。 */
   readonly hostTools?: readonly ToolCapability[]
-  /**
-   * extension 资源根（S7 矩阵；宿主注入仓库 `extension/` 各资源目录绝对路径，
-   * 配合 config.extensions 点名清单装载）。缺省 = 无 extension 层。
-   */
   readonly extensionRoots?: InitDeps['extensionRoots']
-  /**
-   * shell 执行端口（宿主注入，典型 = node child_process 实现）。
-   * 提供后装配 bash 工具（internal · 最小系统对外操作面，config.bash 供参数）。
-   */
+  /** shell 执行端口（注入后装配 bash）。 */
   readonly shellRunner?: ShellRunner
-  /**
-   * 类回写文件端口（S5.2 进化书写面，宿主注入 node fs 实现）。
-   * 提供后 agent_class_create/update 序列化落盘 `.stem/agent/<name>.md`
-   * （目录即真相：重启由 runInit 扫描装载，进化跨重启生效）；缺省 = 仅内存。
-   */
+  /** 类回写文件端口（进化书写面）。 */
   readonly classFs?: ClassFs
-  /** 用户注入钩子（init 末尾调用）。 */
   readonly userHooks?: readonly UserInitHook[]
-  /** 事件流回调（PilotEvent；pilot 创建后订阅）。 */
   readonly onEvent?: (event: PilotEvent) => void
-  /**
-   * 持久化端口（宿主注入，典型：shell 的 SQLite 实现）。注入后个体层
-   *（消息/实例）write-through 落库并在启动期恢复；缺省纯内存。
-   * 类层持久仍走文件（.stem/agent/*.md 镜像注册表），不进 DB。
-   */
   readonly stateStore?: { readonly messages: MessageStore; readonly instances: InstanceStore }
 }
 
 export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem> {
+  // ---- Ⅰ stem 初始化：config ----
   const loaded = await deps.config.store.load()
-  // S6/R12：首启零兜底链路的正面表达——config 文件不存在时，等效内存配置 =
-  // 首启模板的解析产物（runInit 随后把同一文本落盘；顶层 model 链已拆除，
-  // user 类 model 基因由模板的 user.model 承载，杜绝"无配置装配出无锚系统"）。
   const config = loaded.exists ? loaded.config : defaultStemConfig()
-
-  // user.model 必填校验（boot fail-fast）：user 类 model 基因
-  // （显式 > 类基因 > 父继承）的链尾锚点，缺失即全系统无缺省模型。
   if (config.user?.model === undefined) {
     throw {
       kind: 'invalid_config',
@@ -113,10 +85,8 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     } as ConfigError
   }
 
-  // 工具注册表 + Kernel（user 类 = config.user 全对象；根策略收敛起点）。
   const tools = new DefaultToolCapabilityRegistry()
   const settings = settingsOf(config)
-  // 类回写端口装配（S5.2）：注入 classFs 才建 store；序列化在 core、文件 IO 在宿主。
   const classStore: ClassStore | undefined =
     deps.classFs === undefined
       ? undefined
@@ -127,11 +97,12 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
             await deps.classFs!.writeText(file, serializeAgentClass(cls))
           },
         }
+
+  // ---- Ⅱ Kernel 构造（工具表尚空）----
   const kernel = new Kernel({
     gateway: deps.gateway,
     runtime: createRuntime,
     userClass: config.user,
-    // S6/R11：项目根 = 空间身份（根挂真实空间；.stem 目录即世界）。
     project: deps.config.paths.projectRoot,
     tools,
     defaultCountdownMs: config.sendCountdown,
@@ -144,29 +115,19 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     ...(deps.stateStore !== undefined ? { stateStore: deps.stateStore } : {}),
     ...(classStore !== undefined ? { classStore } : {}),
   })
-
-  // 工具记录 sink（唯一接线点）：工具执行三相位 → 事件流 tool 变体 + 仓库记录/历史行。
   attachToolRecordSink(kernel, tools, config.tools?.outputLimit)
 
-  // 系统工具（agent_*/mail_*/context_* + access_reply）+ （注入 ShellRunner 才装配的）bash，
-  // 统一经 internal 唯一出入口 createInternalTools；bash cwd 缺省 = 空间根
-  //（事故半径三机制之"默认 cwd"；工具参数相对路径以此为基准）。
-  await registerInternalTools(
-    kernel,
-    tools,
-    deps.shellRunner !== undefined
+  // ---- Ⅰ 续：资源发现（类/策略入注册表；工具只入无序清单）----
+  const strategyFs: StrategyInitFs = {
+    listFiles: (dir) => deps.fs.listFiles(dir).catch(() => []),
+    readText: (file) => deps.fs.readText(file),
+    ...(deps.classFs !== undefined
       ? {
-          bash: {
-            runner: deps.shellRunner,
-            settings: { ...(config.bash ?? {}), cwd: config.bash?.cwd ?? deps.config.paths.projectRoot },
-          },
+          writeText: (file: string, content: string) => deps.classFs!.writeText(file, content),
+          ensureDir: (dir: string) => deps.classFs!.ensureDir(dir),
         }
-      : {},
-  )
-  // 宿主显式注入的工具（测试/深度定制通道；常规 extension 工具走 runInit 矩阵装载）。
-  for (const tool of deps.hostTools ?? []) await tools.register(tool)
-
-  // init 管线：三维资源矩阵统一装载（extension 点名 + custom 扫描 → 注册；目录即真相，不回写 config）。
+      : {}),
+  }
   const init = await runInit({
     config: { store: deps.config.store, paths: deps.config.paths },
     fs: deps.fs,
@@ -177,52 +138,65 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     strategyRegistry: kernel.contextManager.strategies,
     ...(deps.logger !== undefined ? { onLog: { log: (event) => deps.logger!.log(event) } } : {}),
   })
+  const issues: import('./types').InitIssue[] = [...init.issues]
 
-  // 策略装载期 init（S8/cortex）：先于工具 initAll——策略经 registerTool
-  // 注入自带工具（custom 信任级），新注册工具照常参与下方 init 生命周期。
-  const strategyRegistry = kernel.contextManager.strategies
-  const strategyInitFs: StrategyInitFs = {
-    listFiles: (dir) => deps.fs.listFiles(dir),
-    readText: (file) => deps.fs.readText(file),
-    ...(deps.classFs !== undefined
-      ? {
-          writeText: (file: string, content: string) => deps.classFs!.writeText(file, content),
-          ensureDir: (dir: string) => deps.classFs!.ensureDir(dir),
-        }
-      : {}),
-  }
-  for (const name of strategyRegistry.names()) {
-    const module = strategyRegistry.resolve(name)
-    if (!module?.init) continue
+  // 策略自带工具（注册表全量，含内置）：发现段物化并入 seed。
+  const strategySeed: ToolCapability[] = []
+  for (const name of kernel.contextManager.strategies.names()) {
+    const module = kernel.contextManager.strategies.resolve(name)
+    if (!module) continue
     try {
-      await module.init({
-        projectRoot: deps.config.paths.projectRoot,
-        fs: strategyInitFs,
-        settings: settings ?? DEFAULT_CONTEXT_SETTINGS,
-        log: { log: (event) => { deps.logger?.log(event) } },
-        registerTool: (tool) => tools.register(tool, { replace: true }),
-      })
+      if (module.createOwnedTools !== undefined) {
+        strategySeed.push(
+          ...module.createOwnedTools({
+            projectRoot: deps.config.paths.projectRoot,
+            settings: settings ?? DEFAULT_CONTEXT_SETTINGS,
+            fs: strategyFs,
+          }),
+        )
+      } else if (module.ownedTools !== undefined) {
+        strategySeed.push(...module.ownedTools)
+      }
     } catch (cause) {
-      deps.logger?.log({
-        type: 'kernel.orphan.error',
-        at: Date.now(),
-        site: `strategy.init(${name})`,
-        error: cause instanceof Error ? cause.message : JSON.stringify(cause),
+      issues.push({
+        kind: 'strategy_invalid',
+        file: name,
+        message: `createOwnedTools 失败：${cause instanceof Error ? cause.message : String(cause)}`,
       })
     }
   }
 
-  // 恢复接线（S10 根治）：类/策略/工具载齐后统一 wire（构造期不接线，
-  // 避免空间类未入表时策略/custom 落错）。
+  // ---- Ⅲ 工具 drain（唯一初始化执行面）----
+  const internalDefs = createInternalTools({
+    host: createSystemToolHost(kernel),
+    ...(deps.shellRunner !== undefined
+      ? {
+          bash: {
+            runner: deps.shellRunner,
+            settings: { ...(config.bash ?? {}), cwd: config.bash?.cwd ?? deps.config.paths.projectRoot },
+          },
+        }
+      : {}),
+  })
+  const seed: ToolCapability[] = [...internalDefs, ...(deps.hostTools ?? []), ...init.toolInventory, ...strategySeed]
+  const drainIssues = await tools.drain(seed, {
+    fs: deps.fs,
+    projectRoot: deps.config.paths.projectRoot,
+    ...(deps.logger !== undefined ? { log: { log: (event) => deps.logger!.log(event) } } : {}),
+  })
+  for (const issue of drainIssues) {
+    issues.push({ kind: 'tool_init_failed', file: issue.tool, message: issue.message })
+  }
+  const initReport: InitReport = { ...init, issues, toolInventory: seed }
+
+  // ---- Ⅳ 恢复接线 ----
   await kernel.wireRestoredContexts()
 
-  // Pilot（根扮演接口）：pilot 初始化内实例化根 agent（user 类普通实例，id `0`）。
+  // ---- Ⅴ Pilot / user#0 ----
   const pilot = await createPilot({ facade: createSystemFacade(kernel) })
   if (deps.onEvent) pilot.subscribe(deps.onEvent)
 
-  // boot 校验律（A3，替代一切代码兜底）：ask 审批是消息交换——根信箱的答复
-  // 通道若不可用，全系统 ask 死锁。根生效表 access_reply ≠ allow = 拒启并
-  // 明示死锁理由（主权归 config.user.tools，法只做审判——DEFAULT_USER_TOOLS 已退役）。
+  // ---- Ⅵ boot 校验律 ----
   const replyExplicit = kernel.lineage.effectiveAccess(ROOT_ID, 'access_reply')
   const replyAccess = replyExplicit ?? tools.birthOf('access_reply')
   if (replyAccess !== 'allow') {
@@ -235,29 +209,20 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     } as ConfigError
   }
 
-  // 工具初始化生命周期（工具参与系统初始化的唯一 hook；fs/projectRoot/log 注入）。
-  await tools.initAll({
-    fs: deps.fs,
-    projectRoot: deps.config.paths.projectRoot,
-    ...(deps.logger !== undefined ? { log: { log: (event) => deps.logger!.log(event) } } : {}),
-  })
-
   const system: StemSystem = {
     kernel,
     pilot,
     tools,
     config,
-    init,
+    init: initReport,
     dispose: async () => {
-      // 中断 + 等待活跃轮收尾落行（旧实现只置标志即关存储，进行轮的
-      // interrupted 归一化与账目快照被退出吞掉——验收现场修复）。
       await kernel.drainForShutdown()
       deps.stateStore?.messages.close?.()
       deps.stateStore?.instances.close?.()
     },
   }
 
-  // 用户注入钩子（init 末尾）。
+  // ---- Ⅶ userHooks ----
   for (const hook of deps.userHooks ?? []) await hook(system)
 
   return system

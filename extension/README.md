@@ -30,4 +30,7 @@ extension/
 | 启用 | config 分键点名 | 工具：点名；类/策略：目录即真相 |
 | 加载 | `main/loader` 同一管线 | 同一管线 |
 
-> **不设系统级 skill 子系统**：SKILL.md 生态兼容降为 custom 工具约定（`.stem/tools/skill/skill.ts` 装载器 + `<技能名>/SKILL.md` 资产）；MCP 类外部能力同样走工具三分类落位，不设第二通道。工具生命周期见 `docs/architecture.md` 2.3b（init 预载 / 无热插拔）。
+> **不设系统级 skill / MCP 子系统**：二者都是 **extension 外部领域工具**——core 只认 `ToolCapability` 契约；机制在 extension，**定义/内容在 stem 空间**，格式对齐常见 harness。
+> **skill**：机制 = `extension/tools/skill/`（config 点名）；内容 = stem 空间 **`SKILL.md`**（与 opencode/claude 等通用格式兼容）。
+> **MCP**：机制 = `extension/tools/mcp/` **一枚通用客户端**（不按服务器写死包）；定义 = stem 空间 **`.stem/mcp.jsonc`**，规范形态 = 主流 harness 的 **`mcpServers`**（stdio：`command/args/env`；http/sse：`type/url/headers`）；init 按各服务器 `tools/list` 投影内存工具入表，**不为远程工具落 stem 源文件**。
+> 工具三层与 init drain 见 `docs/architecture.md` 2.3b / 2.3c / 2.8。

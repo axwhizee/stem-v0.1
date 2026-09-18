@@ -14,7 +14,7 @@
 // ============================================================
 
 import { classicAssemble } from '../classic'
-import type { StrategyApi, StrategyInitContext, StrategyInitFs } from '../types'
+import type { StrategyApi, StrategyInitFs, StrategyOwnContext } from '../types'
 import type { AgentClass } from '../../../kernel/types'
 import { makeAgentClassID } from '../../../kernel/types'
 import type { ContextStrategyModule } from '../types'
@@ -91,32 +91,21 @@ export function createCortexStrategy(): ContextStrategyModule {
       '随时可用 cortex_add_note 沉淀主题笔记、context_remove 裁用完的对话轮、' +
       'context_apply(action="dream") 提前做梦；记忆载入示范与操作细则见上下文头部注入。</stem_context>',
     role: CORTEX_ROLE,
-    // 策略声明清单（raise 步）：本策略注册面两键抬 allow——只有启用
-    // cortex 的宿主自动持有；逐键仍被出生表与祖先显式判定封顶。
+    // 策略声明清单（raise 步）：本策略 ownedTools 两键抬 allow——只有启用
+    // cortex 的宿主自动持有；逐键仍被注册声明与祖先显式判定封顶。
     tools: {
       cortex_add_note: 'allow',
       cortex_del_note: 'allow',
     },
-    // 记忆组是真实行 → 组装恒直出（教学样板在写入端完成，读取端零特殊）。
-    assemble: classicAssemble,
-    init: async (ctx: StrategyInitContext): Promise<void> => {
+    // 发现段物化策略工具（并入无序清单 drain；不走 boot 钩子）。
+    createOwnedTools: (ctx: StrategyOwnContext) => {
       fsRef = ctx.fs
       projectRoot = ctx.projectRoot
-      for (const tool of createCortexTools(runtime, noteSaver)) {
-        await ctx.registerTool(tool)
-      }
-      if (ctx.fs.ensureDir !== undefined) {
-        try {
-          await ctx.fs.ensureDir(`${ctx.projectRoot}/${MEM_DIR_NAME}`)
-        } catch {
-          // 目录建不成 = 只读降级（dream 收口自然跳过落盘，warn 一次在那头）。
-        }
-      }
-      // 全局参数预检（缺省档；宿主级在 process 逐宿主校验）。
-      resolveDreamAt(DEFAULT_DREAM_AT, ctx.settings.window, (message) =>
-        ctx.log.log({ type: 'context.dreamed', at: Date.now(), agentId: '*', consolidated: false, invalidRows: 0, notesTouched: 0, message }),
-      )
+      resolveDreamAt(DEFAULT_DREAM_AT, ctx.settings.window, () => {})
+      return createCortexTools(runtime, noteSaver)
     },
+    // 记忆组是真实行 → 组装恒直出（教学样板在写入端完成，读取端零特殊）。
+    assemble: classicAssemble,
     process: async (api: StrategyApi): Promise<void> => {
       // ① 目录再生（笔记文件真变化才改写 note 行——防语料 churn）。
       if (fsRef !== undefined && api.updateMessage !== undefined) {

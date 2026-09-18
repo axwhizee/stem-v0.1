@@ -28,7 +28,8 @@
 
 - **两段式生命周期**：`process`（异步许可：可摘要/整理、经系统通道造 agent，返回 = 就绪）与 `assemble`（纯函数同步：送信快照）分离——快递员永不异步、只发不组装。`ContextRegistration.contextStrategy` 开辟时确定，未知策略注册期 fail-fast。
 - **契约面**：`note`（systemPrompt 追加）/`role`/`tools`（**收敛链 raise 声明清单，只抬不封**，见 architecture 2.2）/`assemble`/`process`/`actions`/`init`。
-- `init?(ctx)`：装载期钩子（组合根在工具 `initAll` 之前执行）；`StrategyInitContext = {projectRoot, fs, settings, log, registerTool}`——策略自带工具经窄口注册，**出生恒 ignore**；`.stem/context/` 用户策略 provenance = custom 形。
+- **策略不参与系统 boot 编排**：无策略级 init、无 `registerTool`；模块只被发现进注册表。契约 `note/role/tools(raise)/assemble/process/actions`；本轮实现策略限 classic（cortex 另轮重构）。`.stem/context/` 用户策略 provenance = custom 形。
+- **策略自带工具面（目标态）**：以模块导出声明并入工具无序清单，drain 时与其它工具同一 register+init；注册声明恒 ignore，上台面靠 `strategy.tools` raise。
 - `StrategyApi`：`lastWorkerId`/`roleAgentId`/`updateMessage`/`ctxTokens?`（反馈水位）；`spawn(task, spec, opts?)` 回信纠错循环（`opts.validate(reply)` 不合 → role 名义发纠错信再等，缺省 ≤2 轮；**先登记等待者后发信**免竞态，轮尽原样返回末件）。
 - **模块扮演 agent（role）**：创建方传 `assemble:false`（不组装/不跑 LLM/收信由策略消费）的懒生成代理，父 = **宿主 agent**（terminate 级联回收）；worker（`summarizer`/`cortex-dreamer`）是**正常组装 agent**（跑 LLM），经邮局正规往返 + `waitForReply` 配对，用完即 terminate。role 面板 / worker `none` 策略 → 天然断套娃；策略失败 catch + 降级照常唤醒。
 - **用户策略（`.stem/context/*.ts`）**：init 管线扫描默认导出的 `ContextStrategyModule` 注册进注册表（同名覆盖内置 = 用户主权）。

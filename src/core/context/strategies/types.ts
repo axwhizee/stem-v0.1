@@ -106,7 +106,18 @@ export interface StrategyApi {
 /** 策略可上报的日志事件（LogEvent 中去掉管理员补的 at）。 */
 export type StrategyLogEvent = Omit<ContextCompacted, 'at'> | Omit<ContextDreamed, 'at'>
 
-/** 策略 init 期的文件系统能力（宿主注入的窄口；写面缺省 = 空间只读，策略须降级）。 */
+/** 策略自带工具的物化上下文（发现段注入；策略不参与系统 boot 编排）。 */
+export interface StrategyOwnContext {
+  readonly projectRoot: string
+  readonly settings: ContextSettings
+  /** 空间文件窄口（策略数据目录等；写面缺省 = 只读，策略须降级）。 */
+  readonly fs: StrategyInitFs
+}
+
+/**
+ * 策略数据文件窄口（ownedTools 物化 / 策略运行时经闭包持有）。
+ * 写面可选：缺省 = 空间只读，策略须降级。
+ */
 export interface StrategyInitFs {
   readonly listFiles: (dir: string) => Promise<readonly string[]>
   readonly readText: (file: string) => Promise<string>
@@ -114,22 +125,8 @@ export interface StrategyInitFs {
   readonly ensureDir?: (dir: string) => Promise<void>
 }
 
-/**
- * 策略装载期上下文（组合根注入；先于工具 initAll 执行——
- * registerTool 注册的工具可参与 init 生命周期）。
- */
-export interface StrategyInitContext {
-  /** 当前空间根（`.stem/` 所在目录；策略数据目录据此定位）。 */
-  readonly projectRoot: string
-  readonly fs: StrategyInitFs
-  /** 全局上下文配置（window 等——类级 custom 参数经 StrategyApi.custom 逐宿主给）。 */
-  readonly settings: ContextSettings
-  readonly log: LogSink
-  /** 注册策略自带工具（kind='custom'，同策略信任级；同名覆盖幂等）。 */
-  readonly registerTool: (tool: ToolCapability) => Promise<void>
-}
-
-/** 上下文策略模块（独立子模块的统一形状；assemble 必须，其余按策略能力）。 */
+/** 上下文策略模块（独立子模块的统一形状；assemble 必须，其余按策略能力）。
+ *  不参与系统 boot 编排：无策略级 init / registerTool。 */
 export interface ContextStrategyModule {
   /** 策略名（AgentClass.contextStrategy 引用；注册表唯一）。 */
   readonly name: string
@@ -139,10 +136,14 @@ export interface ContextStrategyModule {
   readonly role?: StrategyAgentSpec
   /**
    * 策略声明清单（收敛链 raise 步——启用本策略的宿主沿链把列出的键抬到
-   * 声明值，逐键仍被出生表与祖先显式判定封顶；只抬不封，表外键不动）。
-   * 只应声明**本策略注册的工具**（非策略注册的键 = 声明无效废键）。
+   * 声明值，逐键仍被注册声明与祖先显式判定封顶；只抬不封，表外键不动）。
+   * 只应声明**本策略自带的工具**（ownedTools；非本策略的键 = 声明无效废键）。
    */
   readonly tools?: Readonly<Record<string, ToolAccess>>
+  /** 策略自带工具静态清单（发现段并入无序工具清单；注册声明通例 ignore）。 */
+  readonly ownedTools?: readonly ToolCapability[]
+  /** 策略自带工具工厂（发现段调用，比静态数组多注入 projectRoot/fs/settings）。 */
+  readonly createOwnedTools?: (ctx: StrategyOwnContext) => readonly ToolCapability[]
   /** 纯组装（同步；送信快照）。 */
   readonly assemble: (input: AssembleInput) => AssembleResult
   /**
@@ -152,9 +153,4 @@ export interface ContextStrategyModule {
   readonly process?: (api: StrategyApi) => Promise<void>
   /** 策略专有动作（pilot / context_apply 工具 / CLI 通道调用）。 */
   readonly actions?: Record<string, (api: StrategyApi, args: string) => Promise<string>>
-  /**
-   * 装载期初始化（可选；组合根在工具 initAll 之前逐策略调用一次）：
-   * 建数据目录、registerTool 注册策略自带工具、全局参数校验等。
-   */
-  readonly init?: (ctx: StrategyInitContext) => Promise<void>
 }

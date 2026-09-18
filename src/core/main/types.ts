@@ -66,6 +66,10 @@ export interface InitDeps {
   readonly templateRegistry: import('../kernel').TemplateRegistry
   /** 上下文策略注册表（注册用户 `.stem/context/` 策略；可选）。 */
   readonly strategyRegistry?: import('../context').StrategyRegistry
+  /** 策略 ownedTools 物化用的全局设置（缺省 DEFAULT_CONTEXT_SETTINGS）。 */
+  readonly strategySettings?: import('../context').ContextSettings
+  /** 策略 ownedTools 物化用的文件窄口（缺省只读空实现）。 */
+  readonly strategyFs?: import('../context').StrategyInitFs
   /** 日志出口（组合根注入 → bus → core/logging）。 */
   readonly onLog?: import('../logging').LogSink
 }
@@ -82,6 +86,7 @@ export interface ResourceEntry {
 export type InitIssue =
   | { readonly kind: 'tool_load_failed'; readonly file: string; readonly message: string }
   | { readonly kind: 'tool_invalid'; readonly file: string; readonly message: string }
+  | { readonly kind: 'tool_init_failed'; readonly file: string; readonly message: string }
   | { readonly kind: 'agent_parse_failed'; readonly file: string; readonly message: string }
   | { readonly kind: 'agent_invalid'; readonly file: string; readonly message: string }
   | { readonly kind: 'strategy_load_failed'; readonly file: string; readonly message: string }
@@ -104,9 +109,9 @@ export interface InitReport {
   readonly agents: readonly DiscoveredEntry[]
   /** 扫描发现的用户上下文策略（目录 = `.stem/context/`）。 */
   readonly strategies: readonly DiscoveredEntry[]
-  /** 成功注册的用户工具（ToolCapability 对象）。 */
-  readonly registeredTools: readonly ToolCapability[]
-  /** 成功注册的用户 agent 类。 */
+  /** 发现段产出的工具定义（无序清单；由 drain 注册+init，本报告只读）。 */
+  readonly toolInventory: readonly ToolCapability[]
+  /** 成功注册的用户 agent 类（发现段即入模板表）。 */
   readonly registeredAgents: readonly AgentClass[]
   /** 初始化过程中发现的问题。 */
   readonly issues: readonly InitIssue[]

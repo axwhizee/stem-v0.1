@@ -5,9 +5,9 @@
 
 ## 职责
 
-- **组合根**：`createStemSystem(deps)` 装配配置/工具注册表/Kernel/工具记录 sink/internal 工具/装载管线/Pilot。
-- **工具装配**：`registerInternalTools`（internal 唯一出入口 `createInternalTools`：系统工具 + 注入 `shellRunner` 才装配的 bash）+ `attachToolRecordSink`（工具三相位 → 事件流 `tool` 变体 + 仓库记录/历史行）。Kernel 不认识 bash。
-- **装载管线**：`runInit(deps)` 三维资源矩阵（internal → extension → custom，后层同名覆盖）；工具/类/策略注册循环同构收成 `registerAll`（冲突 → issue 不中断）。
+- **组合根**：`createStemSystem(deps)` 按 stem 初始化 + 工具 drain 装配最小系统（architecture 2.8）。
+- **工具装配**：发现段产出无序清单（internal 定义 + extension/custom 点名）；drain = `register`+`init` 可追加、完成后冻结。`registerInternalTools`（internal 唯一出入口）+ `attachToolRecordSink` 仍在此路径上。Kernel 不认识 bash。
+- **发现管线**：`runInit` 装载类/策略/工具定义（config 点名 + `.stem/` 目录真相；工具清单无序）。**无策略 boot init、无 registerTool**。
 - **agent 执行器**：`DefaultRuntime`——送信驱动轮循环，Kernel 经 `RuntimePort` 接口消费。
 - **端口适配**：`createSystemToolHost(kernel)`（tools 的 internal 宿主，实住 `kernel/toolHost.ts`）、`createSystemFacade(kernel)`（pilot 的系统门面）。
 
@@ -33,17 +33,18 @@
 - 收完整上下文（`AgentDelivery`）→ 发 LLM → 工具轮（并行执行，结果按 index 回填；`contextWait` 命中则收束轮循环不空转）→ 每轮 assistant 消息复制入仓库 → 最终纯文本回复投递**创建者**（= 族谱父；发送者戳由管理员生成）。
 - 中断控制器 + 多层 try/catch + `halt` 消息闭合（见 architecture 2.5）；错误日志走 `errorBrief` 投影（结构化 kind 保留，杜绝 `[object Object]`）；各 agent 独立 AsyncGenerator 天然并发。
 
-## 装配顺序（`createStemSystem`，固定）
+## 装配顺序（architecture 2.8）
 
-0. （可选 `stateStore` 注入）Kernel 构造内：内存核建好 → 从 store 恢复（实例/消息 + 状态归一化 + id 计数器续接）→ 套 write-through 装饰器；上下文接线延后至 `wireRestoredContexts`（runInit 后）。
-1. 读配置（不存在 = `defaultStemConfig` 内存等效；**user.model 必填校验**）→ 工具注册表 + Kernel（user 类 = config.user 对象；注入 `contextSettings`/`project`/`toolOutputLimit`/`stateStore`/`classStore`）。
-2. 工具记录 sink（`attachToolRecordSink`）→ internal 工具（`registerInternalTools`：系统工具 + 注入 `shellRunner` 才装配的 bash）→ 宿主显式 `hostTools`。
-3. `runInit` 矩阵装载（tools / agent 类 / context 策略 × extension 点名 + custom 扫描；后层同名覆盖；目录即真相，永不回写）。
-4. 策略 `init`（可注册自带工具）→ `wireRestoredContexts`（类/策略载齐后一次完成恢复接线）。
-5. `createPilot`（pilot 初始化内实例化根，挂真实项目空间）→ 订阅事件流；boot 校验律（根 `access_reply` 必 allow）。
-6. `tools.initAll`（fs/projectRoot/log 注入）→ 用户注入钩子（`userHooks`）。
+Ⅰ **stem 初始化**：空间定位 → config 解析（缺 = 首启模板内存等效；**user.model 必填**）→ 参数落位 → 资源发现（工具定义入**无序清单** `InitReport.toolInventory`；类/策略入注册表）。
 
-- 返回 `StemSystem { kernel, pilot, tools, config, init, dispose }`；任何 shell 注入平台能力即可装配出完整最小系统。
+Ⅱ **Kernel 构造**（工具表尚空；stateStore 注入时构造内恢复，上下文接线延后）。
+
+Ⅲ **工具 drain**：seed = internal 定义 + hostTools + 发现清单 + 策略 `ownedTools`/`createOwnedTools`。`registry.drain`：`register` + `init`，init 可 `registerMore`；完成 → **冻结**。internal 经端口用到 Kernel，故 Kernel 先于 drain。
+
+Ⅳ `wireRestoredContexts` → Ⅴ `createPilot`（user#0）→ Ⅵ boot 校验律（根 `access_reply` 必 allow）→ Ⅶ `userHooks`。
+
+- 返回 `StemSystem { kernel, pilot, tools, config, init, dispose }`。
+- **无策略 boot 相位、无 tools.initAll**：策略只被发现进注册表；工具就绪只有 drain 一条路。
 
 ## 依赖方向
 

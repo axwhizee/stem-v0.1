@@ -7,9 +7,9 @@ export type {
   ContextStrategyModule,
   StrategyAgentSpec,
   StrategyApi,
-  StrategyInitContext,
   StrategyInitFs,
   StrategyLogEvent,
+  StrategyOwnContext,
   StrategySpawnOpts,
 } from './types'
 export { DEFAULT_CONTEXT_SETTINGS } from './types'
@@ -29,9 +29,9 @@ import { createNoneStrategy } from './none'
 import { createCortexStrategy } from './cortex/index'
 import type { ContextStrategyModule } from './types'
 
-/** 内置策略注册表（classic + none + cortex；用户策略经 init 管线 register）。
- *  cortex 随内置注册但**零副作用**：不激活（须类显式 contextStrategy='cortex'），
- *  init 只建工具与数据目录；writeText 缺位的空间 = 只读降级（warn 一次）。 */
+/** 内置策略注册表（classic + none + cortex；用户策略经发现段 register）。
+ *  cortex 随内置注册但**零副作用**：不激活（须类显式 contextStrategy='cortex'）；
+ *  自带工具经 createOwnedTools 在发现段物化并 drain。 */
 export function createBuiltinStrategyRegistry(extra: readonly ContextStrategyModule[] = []): StrategyRegistry {
   return new DefaultStrategyRegistry([createClassicStrategy(), createNoneStrategy(), createCortexStrategy(), ...extra])
 }

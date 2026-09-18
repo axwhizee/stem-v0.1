@@ -23,9 +23,9 @@ export type {
   ContextStrategyModule,
   StrategyAgentSpec,
   StrategyApi,
-  StrategyInitContext,
   StrategyInitFs,
   StrategyLogEvent,
+  StrategyOwnContext,
   StrategyRegistry,
 } from './strategies'
 export {

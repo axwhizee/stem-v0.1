@@ -77,14 +77,17 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
     assert.equal(report.issues.length, 0, JSON.stringify(report.issues))
     assert.deepEqual(report.tools.map((t) => t.id), ['my_tool'])
     assert.deepEqual(report.agents.map((a) => a.id), ['my-reviewer'])
-    assert.equal(report.registeredTools.length, 1)
+    assert.equal(report.toolInventory.length, 1)
     assert.equal(report.registeredAgents.length, 1)
+
+    // 发现段不注册工具——drain 后入表。
+    for (const t of report.toolInventory) await toolRegistry.register(t, { replace: true })
 
     // 配置已存在 → 永不回写（管线只读）；my_tool 的在场由点名兑现，非镜像登记。
     const text = await readFile(join(dir, '.stem', 'stem.jsonc'), 'utf8')
     assert.match(text, /"my_tool": "allow"/)
 
-    // registry 中可查到用户工具（custom 源解析命中 + 出生 = config 权限词）。
+    // registry 中可查到用户工具（custom 源解析命中 + 注册声明 = config 权限词）。
     const tool = await toolRegistry.get('my_tool')
     assert.equal(tool.kind, 'custom')
     assert.equal(tool.birth, 'allow')

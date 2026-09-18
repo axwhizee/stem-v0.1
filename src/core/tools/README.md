@@ -6,7 +6,7 @@
 ## 1. 职责与依赖
 
 - **对模型**：把注册的工具物化为 LLM tool schema（`materialize`），执行调用并统一成形结果。
-- **对系统**：提供注册即出生声明（birth）、权限四态代数、收敛链折叠、ask 审批消息化。
+- **对系统**：提供注册声明（入表时的访问动作封顶，代码字段名 `birth`）、权限四态代数、收敛链折叠、ask 审批消息化。
 - **依赖**：`gateway`（ToolDefinition schema）、`logging`（日志事件）；**自持端口** `internal/ports.ts`（消费方拥有，kernel 适配器实现，组合根注入）。**本模块不 import kernel**。
 
 ```
@@ -37,28 +37,30 @@ tools/
 `ToolAccess = allow | ask | deny | ignore`，严格度总序 **`deny ≺ ask ≺ allow ≺ ignore`**（按监督度：ignore = 看不见的执行最宽）。一切权限书写面同一把尺，**只许顺链收紧**，藏匿（allow→ignore）判扩张被拒。
 
 - **键即白名单**：类/实例的 `tools` Record 键为工具访问键；未列 = 本地 deny；**未设（undefined）= 完整继承父生效档案**；`{}` = 本地封闭。
-- **出生声明（birth）**：每个工具注册时必带，是收敛链的全局封顶。internal 在 core 注册点写死（`access_reply: allow`、`bash: allow`，其余通例 `ignore`）；extension/custom 由 `config.extensions.tools {名: 权限词}` 点名时注入（装载与出生一句话）。
-- **收敛链**：根清单 → 类清单 → [策略 raise 清单] → 实例清单，逐步折叠、不预合并，逐键被父面显式判定 ∧ 出生值封顶。物化面静默钳制（重启幂等），写入面拒绝式校验（扩张即拒、带层归因）。
+- **注册声明（代码字段 `birth`）**：工具入表时必带的访问动作，是收敛链的全局封顶（描述工具注册行为，不是 agent「出生」）。internal 在 core 注册点写死（`access_reply: allow`、`bash: allow`，其余通例 `ignore`）；extension/custom 由 `config.extensions.tools {名: 权限词}` 点名时注入（发现与注册声明一句话）。
+- **收敛链**：根清单 → 类清单 → [策略 raise 清单] → 实例清单，逐步折叠、不预合并，逐键被父面显式判定 ∧ 注册声明封顶。物化面静默钳制（重启幂等），写入面拒绝式校验（扩张即拒、带层归因）。
 - **模型可见 = allow ∪ ask**；deny 出局；ignore 背景在场（不暴露给模型但可被显式调用路径使用）。
 - **ask 是消息交换**：`access_request` 投递到申请者族谱根信箱 → 根经 `access_reply` 回复 once/always/reject（always 记 per-(agent,key) 豁免备忘，只免询问不破 deny/ignore）。
 
-## 3. 生命周期四段（规范）
+## 3. 生命周期（注册 + init drain；架构卷 2.3b / 2.8）
 
 | 段 | 时机 | 落点 |
 |---|---|---|
-| **初始化** | 系统装配时一次 | `register`（出生声明）+ `init(ctx)` / `registry.initAll`（fs/projectRoot/log 注入） |
+| **发现** | stem 初始化 | 产出无序清单（internal + extension 点名 + custom 点名；注册声明已随定义） |
+| **注册 + 初始化** | 工具 drain | `register(t)` 后立刻 `t.init?(ctx)`；init 可追加注册；drain 完成后**冻结** |
 | **激活** | 每 agent 生效时 | `materialize`（可见 = allow ∪ ask）+ `access.assert`（执行前门禁） |
 | **工作** | 模型发起调用 | `execute` + `onBeforeExecute/onAfterExecute/onError` |
 | **输出结果** | 结果落上下文前 | `output.ts` 统一成形（成功与错误同一入口） |
 
 **init 与 execute 能力面分离（无热插拔）**：
 
-- `init?(ToolInitContext)`——**仅装配期**一次：`fs.listFiles/readText` + `projectRoot` + `log`。用途 = 预载空间资产、建目录缓存、可用性检查；幂等与失败策略由工具自管（资产类宜 fail-soft）。
-- `execute(input, ToolContext)`——**仅运行期**：`agentId`/`callId`/`signal`，**无 fs**。就绪态从 init 闭包/字段读取，运行期不重扫空间。
-- 装配序：策略 `init`（可 `registerTool`，新工具仍参加随后 `initAll`）→ boot 校验律 → `tools.initAll`。
-- 典型：custom skill 装载器在 init 扫 `.stem/tools/skill/*/SKILL.md` 建 name/description 索引；execute 只服务清单与按名取正文（渐进披露）。core 无系统级 skill 机制。
+- `init?(ToolInitContext)`——**仅 drain 期**：`fs.listFiles/readText` + `projectRoot` + `log`；可追加注册新工具（MCP 投影、安装器）。幂等与失败策略由工具自管（fail-soft 为宜）。
+- `execute(input, ToolContext)`——**运行期**：`agentId`/`callId`/`signal`，**无 fs**。就绪态从 init 闭包/字段读取。
+- **策略不参与 boot 编排**：无策略 init 钩子、无 `registerTool`；策略模块只被发现进 StrategyRegistry。
+- **工具三层**：internal = core 薄封装 + bash 例外（对外操作面）；extension = 外部领域（skill / MCP）；custom = stem 空间用户工具。
+- 典型：extension skill 在 init 扫 `SKILL.md` 组装就绪态；extension MCP 读 `.stem/mcp.jsonc`（`mcpServers` 通用格式）并按远程清单投影表内 `ToolCapability`（不落 stem 工具源文件）。
 
-**唯一出入口**：`createInternalTools(ports)`（定义）+ `ToolCapabilityRegistry.execute`（执行）+ `output.ts`（成形）。
+**唯一出入口**：`createInternalTools(ports)`（定义）+ drain 期 `register`+`init` + `ToolCapabilityRegistry.execute`（执行）+ `output.ts`（成形）。
 
 ## 4. internal 工具宿主端口（DIP）
 
@@ -79,7 +81,7 @@ tools/
 
 ## 5. 系统工具（`internal/` 分域文件，20 枚）
 
-系统自我管理与邮局机制的模型侧能力面；定义按域拆分（`agentClassTools` / `agentInstanceTools` / `mailTools` / `contextTools` / `telemetryTools` / `accessTools`），`systemTools.ts` 只做 `createSystemTools` 聚合。**出生权限逐把声明，通例 `ignore`**——上台面由各级收敛清单显式化（根清单实值 = `config/defaults.ts` 首启模板，非系统兜底）。
+系统自我管理与邮局机制的模型侧能力面；定义按域拆分（`agentClassTools` / `agentInstanceTools` / `mailTools` / `contextTools` / `telemetryTools` / `accessTools`），`systemTools.ts` 只做 `createSystemTools` 聚合。**注册声明逐把写明，通例 `ignore`**——上台面由各级收敛清单显式化（根清单实值 = `config/defaults.ts` 首启模板，非系统兜底）。
 
 | 工具 | 作用 |
 |---|---|
@@ -94,17 +96,17 @@ tools/
 | `context_apply` | 执行上下文策略专有动作（如 classic compact；仅自身或祖先） |
 | `access_reply` | 答复访问申请（once/always/reject；授权权 = 申请者的族谱根）——**根义务，删则 ask 死锁** |
 
-> internal 出生实值（盘点定形）：`access_reply: allow` + `bash: allow`，其余通例 `ignore`。策略工具（cortex 笔记两键 `cortex_add_note`/`cortex_del_note`）住策略注册点，出生 `ignore`、经 `strategy.tools` raise 声明清单抬升；`cortex_load_*` 是组装轮里的虚拟名不注册（幻觉点名 = unknown 无害）。
+> internal 注册声明实值（盘点定形）：`access_reply: allow` + `bash: allow`，其余通例 `ignore`。策略自带工具若以模块导出并入清单，注册声明恒 `ignore`、经 `strategy.tools` raise 抬升；`cortex_load_*` 是组装轮里的虚拟名不注册（本轮实现策略限 classic，cortex 另轮重构）。
 
 ## 6. bash 工具（`internal/bash.ts`，kind=internal）
 
-- **最小系统唯一对外操作面**：不采用扩展时，除系统工具外模型触达外部文件/系统的入口只有 bash。core 只定义工具形状与 `ShellRunner` 端口（`run({command,cwd,timeoutMs,shell}) → {stdout,stderr,exitCode,timedOut}`），执行由宿主注入（node `child_process` 实现 = `shell/cli/bash.ts`）——core 零平台依赖不破。
+- **最小系统唯一对外操作面**：internal 的本质是 core 接口薄封装；bash 是唯一例外——core 无「进程/文件系统」域，故必须自带此口。core 只定义工具形状与 `ShellRunner` 端口（`run({command,cwd,timeoutMs,shell}) → {stdout,stderr,exitCode,timedOut}`），执行由宿主注入（node `child_process` 实现 = `shell/cli/bash.ts`）——core 零平台依赖不破。
 - **治理 = 机制 + 分担，非询问**（对齐 pi）：**无 ask、无黑名单**（高频工具询问打断模型循环得不偿失）；事故半径三机制（硬超时缺省 120s / stdout·stderr 各 50k 截断 / cwd 缺省项目根，`config.bash` 可配 `path/defaultTimeoutMs/maxOutputChars/cwd`）；行为规范靠工具描述提示词（非交互式、有专职工具优先）；不想给某 agent shell → 模板白名单不列 `bash` 键（键即自我限定）。非零退出码不是工具失败（输出 + exit code 照常返回，模型自判）。
-- 出生权限 `allow`；宿主未注入 `shellRunner` 则不装配（`bootStem` 缺省注入，`shellRunner:false` 可关）。
+- 注册声明 `allow`；宿主未注入 `shellRunner` 则不装配（`bootStem` 缺省注入，`shellRunner:false` 可关）。
 
 ## 7. 访问确认（`accessRequest.ts`，取代 AccessManager）
 
-- 生效访问经注入 `AccessResolver` 向族谱台账查询（无判定 → 出生值）；`assert`（allow/ignore 通过 / deny 抛错 / ask 投递申请到根信箱并挂起）+ `reply(input, by)`（根授权校验 once/always/reject）。
+- 生效访问经注入 `AccessResolver` 向族谱台账查询（无判定 → 注册声明）；`assert`（allow/ignore 通过 / deny 抛错 / ask 投递申请到根信箱并挂起）+ `reply(input, by)`（根授权校验 once/always/reject）。
 - **在途复核（总序防御）**：reply once/always 落地前重查该键现生效值——挂起期间被 `agent_update` 收敛为 deny 的，迟到的批准被铁律压死（reject 回文本带因，不写 always 备忘；复用 resolvePort，零新依赖）。
 - **无元 agent 短路**：根也是普通 agent，其 ask 发给自己，由扮演它的 shell 经 pilot `replyAccess` 确认。
 - **session 豁免备忘**：`always` = 该 `(agent, accessKey)` 免询问放行（仅本实例，非权限层，不破 deny/ignore）。
@@ -123,7 +125,7 @@ tools/
 
 ## 9. 加工具 / 加矩阵资源
 
-- **internal 工具**：在 `internal/` 对应分域文件定义 `ToolCapability`（id/description/parameters/**birth**/execute），经 `createInternalTools` 或策略 `registerTool`（出生恒 ignore）进入注册表。
-- **extension 工具**：`extension/tools/<名>/<名>.ts` 默认导出 `ToolCapability` 或工厂 `(projectRoot) => ToolCapability`；在 `config.extensions.tools` 点名 `{名: 权限词}`。
+- **internal 工具**：在 `internal/` 对应分域文件定义 `ToolCapability`（id/description/parameters/**注册声明**/execute），经 `createInternalTools` 进入发现清单，drain 时 register+init。
+- **extension 工具**：`extension/tools/<名>/<名>.ts` 默认导出 `ToolCapability` 或工厂 `(projectRoot) => ToolCapability`；在 `config.extensions.tools` 点名 `{名: 权限词}`。skill / MCP 机制住此层（内容定义住 stem 空间）。
 - **custom 工具**：`.stem/tools/<名>.ts` 或 `<名>/<名>.ts`，同样必须点名——未点名 = 不存在于世界。
-- 装载管线：`main/loader.ts`（internal → extension → custom，后层同名覆盖；类/策略目录即真相）。
+- 发现管线：`main/loader.ts`（清单无序；类/策略目录即真相）；就绪 = drain（见 architecture 2.8）。

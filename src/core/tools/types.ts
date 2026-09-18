@@ -67,7 +67,7 @@ export interface ToolInitFs {
   readonly readText: (file: string) => Promise<string>
 }
 
-/** 工具初始化上下文（系统装配完成后经 registry.initAll 注入）。 */
+/** 工具初始化上下文（工具 drain：注册后立刻 init；init 可 registerMore 追加）。 */
 export interface ToolInitContext {
   /** 文件系统能力（宿主注入；需要读文件的自定义工具借此参与初始化）。 */
   readonly fs?: ToolInitFs
@@ -75,6 +75,11 @@ export interface ToolInitContext {
   readonly projectRoot?: string
   /** 日志出口（组合根注入）。 */
   readonly log?: import('../logging').LogSink
+  /**
+   * 追加注册（仅 drain 期间有效）：init 可将投影/派生工具推入同一 drain 队列
+   * （MCP 远程清单、安装器等）。drain 完成后工具表冻结，再调无效。
+   */
+  readonly registerMore: (tool: ToolCapability) => void
 }
 
 /**
@@ -204,11 +209,10 @@ export interface ToolCapability {
   readonly description: string
   readonly parameters: ToolParametersSchema
   /**
-   * **出生权限**（注册即出生声明，必填——无兜底）：该工具在整个收敛链上的
-   * 宽度封顶。internal 在 core 注册点写定（`access_reply: allow`、`bash: allow`，
-   * 其余通例 `ignore`）；extension/custom 由 config.extensions.tools 点名时注入
-   * （装载与出生一句话说完）；策略 registerTool 注册的工具出生恒 `ignore`。
-   * 任何层级的收敛清单取值不得宽于出生值（宽出 = 扩张，物化压回/写入面拒绝）。
+   * **注册声明**（入表时的访问动作封顶，必填——无兜底；代码字段名 `birth`）。
+   * internal 在 core 注册点写定（`access_reply: allow`、`bash: allow`，其余通例 `ignore`）；
+   * extension/custom 由 config.extensions.tools 点名时注入；策略 ownedTools 通例 `ignore`。
+   * 任何层级的收敛清单取值不得宽于注册声明（宽出 = 扩张，物化压回/写入面拒绝）。
    */
   readonly birth: ToolAccess
   /** 访问键（缺省 = 工具 id；多个工具可共享，如 edit/write → 'edit'）。 */
@@ -219,8 +223,9 @@ export interface ToolCapability {
   /** 执行器（实现由适配层/Kernel 注入）。 */
   readonly execute: (input: unknown, ctx: ToolContext) => Promise<ToolResult> | ToolResult
   /**
-   * 工具初始化钩子（可选）：系统装配完成后调用一次，允许工具参与初始化
-   * （可用性检查、装载同目录资源等）。幂等由工具自身保证。
+   * 初始化钩子（可选）：drain 期注册后立刻调用一次。可读空间资产、组装
+   * 自身就绪态/描述、经 `ctx.registerMore` 追加新工具。幂等与失败策略自管
+   *（fail-soft 为宜）；drain 完成后工具表冻结。
    */
   readonly init?: (ctx: ToolInitContext) => Promise<void> | void
   /** 可选自定义参数校验：返回错误信息或 undefined。 */
