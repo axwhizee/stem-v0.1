@@ -37,7 +37,7 @@ export function createWebSearchTool(deps: WebSearchDeps = {}): ToolCapability {
     description:
       '搜索网页（阿里云百炼 WebSearch），返回编号结果列表（标题/URL/来源/摘要）。适合实时信息、事实核验、开放域资料收集。查询用具体关键词，中英文皆可。',
     kind: 'extension',
-    birth: 'allow', // 自述推荐值；实际出生以 config.extensions.tools 点名权限词为准
+    registerAccess: 'allow', // 自述推荐值；实际注册声明以 config.extensions.tools 点名权限词为准
     category: 'business',
     parameters: {
       type: 'object',

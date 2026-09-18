@@ -35,7 +35,7 @@ const TOOL_TEXT = `import type { ToolCapability } from '../../../src/core/tools'
 
 const tool: ToolCapability = {
   id: 'my_tool',
-  birth: 'ignore', // 自述值仅形状需要——实际出生以 config.extensions.tools 点名词为准
+  registerAccess: 'ignore', // 自述值仅形状需要——实际注册声明以 config.extensions.tools 点名词为准
   description: '测试工具',
   parameters: { type: 'object', properties: {} },
   execute: () => ({ text: 'ok' }),
@@ -69,7 +69,6 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
       config: { store: bundle.store, paths: bundle.paths },
       fs: bundle.fs,
       tools: { loadTool: bundle.loadTool },
-      toolRegistry,
       templateRegistry,
       onLog: { log: () => {} },
     })
@@ -90,7 +89,7 @@ test('真实 fs：init 创建配置、登记工具/agent、注册进 core', asyn
     // registry 中可查到用户工具（custom 源解析命中 + 注册声明 = config 权限词）。
     const tool = await toolRegistry.get('my_tool')
     assert.equal(tool.kind, 'custom')
-    assert.equal(tool.birth, 'allow')
+    assert.equal(tool.registerAccess, 'allow')
     assert.equal(tool.description, '测试工具')
 
     // 模板注册表可查到用户 agent。

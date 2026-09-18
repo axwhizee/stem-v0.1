@@ -1,7 +1,7 @@
 // ============================================================
 // core/tools/internal/telemetryTools.ts —— 遥测查询与行渲染
 //
-// 注册即出生声明；消费方拥有端口（./ports），零 kernel import。
+// 注册即注册声明；消费方拥有端口（./ports），零 kernel import。
 // ============================================================
 
 import type { ToolCapability } from '../types'
@@ -16,7 +16,7 @@ export function telemetryQuery(host: SystemToolHost): ToolCapability {
     description:
       '查询系统运行日志（telemetry 观测面）：工具调用/模型请求/信箱活动/权限交互/上下文动作/类注册与书写审计。可查自身或族谱后代（你是其祖先）；行式压缩输出。进化回路的"观测"支柱。',
     accessKey: 'telemetry_query',
-    birth: 'ignore', // 出生声明（telemetry_query）
+    registerAccess: 'ignore', // 注册声明（telemetry_query）
     kind: 'internal',
     category: 'telemetry',
     parameters: {

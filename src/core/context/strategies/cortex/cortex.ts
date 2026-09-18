@@ -9,7 +9,7 @@
 // 本轮送信照常，新组下拍生效）。手动链：actions.dream（context_apply
 // 模型侧 / pilot / CLI /dream 用户侧，同步等收口拿回报）。
 // 配置：模块公式 dreamAt（窗口×0.003，夹 [64, DEFAULT]）；dreamer 走出生链。
-// 策略 = 纯既有接口组合（s11-c）：工具注册（ignore 出生）+ 声明清单
+// 策略 = 纯既有接口组合（s11-c）：工具注册（registerAccess ignore）+ 声明清单
 // raise + 标准 spawn 回信——对 core 零专属机制索取。
 // ============================================================
 

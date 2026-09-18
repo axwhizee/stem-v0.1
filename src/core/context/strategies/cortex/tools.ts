@@ -4,7 +4,7 @@
 // 生命周期角色（教学样板的"真名"侧；读侧 cortex_load_* 是组装轮里的
 // 虚拟名，不注册——幻觉点名 = unknown 无害）：
 //   cortex_add_note / cortex_del_note —— agent 与 dreamer 双可写。
-//     权限面：出生 ignore（策略注册通例）+ 策略声明清单（cortex.tools
+//     权限面：registerAccess ignore（策略注册通例）+ 策略声明清单（cortex.tools
 //     raise allow）——只有启用 cortex 的宿主自动持有，非 cortex 类不再
 //     白拿（s11 裁决：策略与类配置矛盾 = 实例化拒绝，复用收敛检查）。
 //     归属路由：dreamer 调用（做梦在途且 caller ≠ host）→ 以 **host
@@ -41,7 +41,7 @@ export function createCortexTools(runtime: CortexRuntime, saver: NoteSaver): rea
   const addNote: ToolCapability = {
     id: 'cortex_add_note',
     kind: 'custom',
-    birth: 'ignore', // 策略注册工具出生恒 ignore（上台面走策略声明清单 raise）
+    registerAccess: 'ignore', // 策略注册工具出生恒 ignore（上台面走策略声明清单 raise）
     description:
       '沉淀一篇主题笔记（markdown 文件，脱离上下文长期外挂；主题目录随每次做梦刷新）。' +
       '值得记录的做法/领域知识/参考细节时调用；一主题一篇，文件名小写短横线（如 api-conventions）。' +
@@ -71,7 +71,7 @@ export function createCortexTools(runtime: CortexRuntime, saver: NoteSaver): rea
   const delNote: ToolCapability = {
     id: 'cortex_del_note',
     kind: 'custom',
-    birth: 'ignore', // 策略注册工具出生恒 ignore（上台面走策略声明清单 raise）
+    registerAccess: 'ignore', // 策略注册工具出生恒 ignore（上台面走策略声明清单 raise）
     description: '删除一篇已过时的主题笔记（做梦整理时同款能力）。',
     parameters: {
       type: 'object',

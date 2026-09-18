@@ -4,12 +4,13 @@
 // 提供：手动倒计时（同步触发）、用户收信等待队列、标准 kernel 构造。
 // ============================================================
 
-import { Kernel, makeAgentClassID, ROOT_ID } from '../../src/core/kernel'
-import { attachToolRecordSink, createRuntime } from '../../src/core/main'
+import { Kernel, makeAgentClassID, ROOT_ID, createSystemToolHost } from '../../src/core/kernel'
+import { attachToolRecordSink, createInternalToolDefs, createRuntime } from '../../src/core/main'
 import type { UserDelivery } from '../../src/core/context'
 import type { ContextSettings, StrategyRegistry } from '../../src/core/context'
 import { defaultStemConfig } from '../../src/core/config'
 import { DefaultToolCapabilityRegistry } from '../../src/core/tools'
+import type { ToolCapability } from '../../src/core/tools'
 import type { FakeGateway } from '../../src/core/gateway'
 
 export function manualTimers() {
@@ -90,6 +91,8 @@ export async function createKernelHarness(
     strategies?: StrategyRegistry
     /** 类回写端口（S5.2 测试注入；缺省 = 仅内存注册无落盘）。 */
     classStore?: ConstructorParameters<typeof Kernel>[0]['classStore']
+    /** 与 internal 一并 drain 的额外工具（策略 ownedTools / 测试定制）。 */
+    extraTools?: readonly ToolCapability[]
   } = {},
 ): Promise<Harness> {
   const timers = manualTimers()
@@ -100,7 +103,6 @@ export async function createKernelHarness(
     gateway,
     runtime: createRuntime,
     userClass: {
-      // 缺省根清单 = 模板实值（单一真相源；测试空间与真实首启同形）。
       tools: defaultStemConfig().user?.tools,
       ...opts.userClass,
       model: opts.userClass?.model ?? { provider: 'fake', id: 'home-model' },
@@ -112,15 +114,15 @@ export async function createKernelHarness(
     ...(opts.contextSettings !== undefined ? { contextSettings: opts.contextSettings } : {}),
     ...(opts.strategies !== undefined ? { strategies: opts.strategies } : {}),
     ...(opts.classStore !== undefined ? { classStore: opts.classStore } : {}),
-    // 统一事件流：letter 事件 → 收信队列（UserDelivery 形状兼容）。
     onEvent: (e) => {
       if (e.type === 'letter') deliveries.push({ kind: 'user', agentId: e.agentId, letters: e.letters })
     },
   })
-  // 工具记录 sink（生产由组合根接线；Kernel 构造器不再自接线）——工具相位
-  // 事件流 + 仓库工具记录/历史行（tokenUsage 等测试依赖）。
   attachToolRecordSink(kernel, tools)
   await kernel.registerRootAgent()
+  // 与生产同路径：internal + extra 一并 drain（冻结工具表）。
+  const seed = [...createInternalToolDefs(kernel), ...(opts.extraTools ?? [])]
+  await tools.drain(seed, {})
   return { kernel, timers, deliveries, tools }
 }
 

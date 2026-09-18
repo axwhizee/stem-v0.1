@@ -1,7 +1,7 @@
 // ============================================================
 // core/tools/internal/agentClassTools.ts —— agent 类书写面工具
 //
-// 注册即出生声明；消费方拥有端口（./ports），零 kernel import。
+// 注册即注册声明；消费方拥有端口（./ports），零 kernel import。
 // ============================================================
 
 import type { ToolCapability, ToolAccess } from '../types'
@@ -18,7 +18,7 @@ export function agentClassCreate(host: SystemToolHost): ToolCapability {
     description:
       '创建新的 agent 类（模板）并回写 `.stem/agent/<name>.md`（目录即真相，重启后仍生效——进化书写面）。新名 = 变体并存（供谱系对照与回滚）；同名会被拒绝（覆盖现役请用 agent_class_update）。类定义角色设定（systemPrompt / tools 工具清单 / contextStrategy / model / sendCountdown / temperature / effort），不包含任何实例化数据（如 userPrompt）；实例化请用 agent_instantiate。tools 为工具访问键到访问动作的映射（键即白名单，未列出的工具不可用；对继承面只能收敛）。',
     accessKey: 'agent_class_create',
-    birth: 'ignore', // 出生声明（agent_class_create）
+    registerAccess: 'ignore', // 注册声明（agent_class_create）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -85,7 +85,7 @@ export function agentClassUpdate(host: SystemToolHost): ToolCapability {
     description:
       '更新现役 agent 类并回写 `.stem/agent/<name>.md`（同名覆盖；进化书写面）。缺省目标 = 你所属的类（显式 name 可指向其它类，经 ask 授权）。tools 只能收敛（deny 不可撤销，ask 不得升为 allow/ignore）；systemPrompt/description/model/contextStrategy/sendCountdown 可改。**只影响后续实例**（你的既有权限面不变）。',
     accessKey: 'agent_class_update',
-    birth: 'ignore', // 出生声明（agent_class_update）
+    registerAccess: 'ignore', // 注册声明（agent_class_update）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -162,7 +162,7 @@ export function agentClassList(host: SystemToolHost): ToolCapability {
     id: 'agent_class_list',
     description: '列出全部 agent 类（模板）及关键属性。',
     accessKey: 'agent_class_list',
-    birth: 'ignore', // 出生声明（agent_class_list）
+    registerAccess: 'ignore', // 注册声明（agent_class_list）
     kind: 'internal',
     category: 'system',
     parameters: { type: 'object', properties: {} },

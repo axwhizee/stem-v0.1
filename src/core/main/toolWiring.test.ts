@@ -1,19 +1,19 @@
 // ============================================================
-// core/main/toolWiring.test.ts —— internal 装配 + 工具记录 sink 接线
+// core/main/toolWiring.test.ts —— internal 定义 + drain 路径 + 工具记录 sink
 // ============================================================
 
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { FakeGateway, textEvents } from '../gateway'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
-import { registerInternalTools } from './toolWiring'
+import { createInternalToolDefs } from './toolWiring'
+import { DefaultToolCapabilityRegistry } from '../tools'
 import { ROOT_ID } from '../kernel'
 import type { PilotEvent } from '../events'
 
-describe('registerInternalTools（组合根装配）', () => {
-  test('缺省注入 → 系统工具全量在册；bash 缺省不装配', async () => {
-    const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')))
-    await registerInternalTools(kernel, tools)
+describe('createInternalToolDefs + drain（与生产同路径）', () => {
+  test('harness drain 后系统工具在册；bash 缺省不装配', async () => {
+    const { tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')))
     const ids = (await tools.list()).map((t) => t.id)
     for (const id of [
       'agent_class_create',
@@ -27,32 +27,33 @@ describe('registerInternalTools（组合根装配）', () => {
       assert.ok(ids.includes(id), `缺 ${id}`)
     }
     assert.ok(!ids.includes('bash'), '宿主未注入 ShellRunner → 不装配 bash')
+    assert.ok(tools.frozen(), 'harness drain 完成后工具表冻结')
   })
 
-  test('注入 bash 端口 → bash 在册且出生 allow', async () => {
-    const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')))
-    await registerInternalTools(kernel, tools, {
+  test('注入 bash 端口 → defs 含 bash 且注册声明 allow', async () => {
+    const { kernel } = await createKernelHarness(new FakeGateway(() => textEvents('ok')))
+    const defs = createInternalToolDefs(kernel, {
       bash: { runner: { run: async () => ({ stdout: '', stderr: '', exitCode: 0, timedOut: false }) } },
     })
-    const bash = await tools.get('bash')
-    assert.equal(bash.birth, 'allow')
+    const bash = defs.find((t) => t.id === 'bash')
+    assert.ok(bash)
+    assert.equal(bash.registerAccess, 'allow')
+    const registry = new DefaultToolCapabilityRegistry()
+    await registry.drain(defs, {})
+    assert.ok((await registry.list()).some((t) => t.id === 'bash'))
   })
 })
 
 describe('attachToolRecordSink（harness 已接线；三相位 → 事件流 + 历史行）', () => {
   test('success 非挂起 → tool 事件 + tool 历史行', async () => {
     const { kernel, tools } = await createKernelHarness(new FakeGateway(() => textEvents('ok')))
-    await registerInternalTools(kernel, tools)
 
     const toolEvents: PilotEvent[] = []
     kernel.events.subscribe((e) => {
       if (e.type === 'tool') toolEvents.push(e)
     })
 
-    await tools.execute(
-      { id: 'call_list', name: 'agent_class_list', input: {} },
-      { agentId: ROOT_ID },
-    )
+    await tools.execute({ id: 'call_list', name: 'agent_class_list', input: {} }, { agentId: ROOT_ID })
     await new Promise((r) => setImmediate(r))
 
     assert.ok(

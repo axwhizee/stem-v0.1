@@ -298,7 +298,7 @@ function validateTools(value: unknown, fail: (message: string) => never): StemTo
 }
 
 /**
- * extensions：资源点名面——tools = {名: 权限词}（装载与出生一句话；
+ * extensions：资源点名面——tools = {名: 权限词}（装载与注册声明一句话；
  * 键在 extension/tools/ 或 .stem/tools/ 解析不到 = boot 硬错，由 init 管线执行）；
  * agent/context = 条目名数组（extension/<键>/ 目录形态）。旧数组形态 fail-fast 指路。
  */
@@ -317,7 +317,7 @@ function validateExtensions(value: unknown, fail: (message: string) => never): S
   if (raw.tools !== undefined) {
     if (Array.isArray(raw.tools)) {
       fail(
-        'extensions.tools 数组形态已退役：改为 {名: 权限词} 对象（装载与出生一句话说完），' +
+        'extensions.tools 数组形态已退役：改为 {名: 权限词} 对象（装载与注册声明一句话说完），' +
           '如 { "tools": { "read": "allow", "write": "allow" } }',
       )
     }

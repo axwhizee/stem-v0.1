@@ -31,7 +31,7 @@ export const DEFAULT_CONFIG_TEXT = `{
   //   唯一，这是你的根在族谱里的称呼）。model = **user 类模型基因**（必填）：全体 agent
   //   的模型解析链 显式 > 类基因 > 父继承；user 类 model 基因 = 本字段。
   // tools = 根收敛清单（收敛链第一环：键即白名单，未列一律 deny——缺席 ≠ 否决，
-  //   不锁子孙显式申请；逐键被注册表出生值封顶）。下面是写好的推荐值，按你的
+  //   不锁子孙显式申请；逐键被注册声明表封顶）。下面是写好的推荐值，按你的
   //   主权增删（access_reply 保持 allow，缺位系统拒启——ask 审批闭环的答复义务）。
   "user": {
     // "name": "user",
@@ -68,7 +68,7 @@ export const DEFAULT_CONFIG_TEXT = `{
   // "bash": { "defaultTimeoutMs": 120000, "maxOutputChars": 50000 },
   // 工具结果窗口（进入上下文的字符上限；缺省/0 = 不启用）。
   // "tools": { "outputLimit": 50000 },
-  // 资源点名（装载与出生一句话说完）：tools = {名: 权限词}——名字在
+  // 资源点名（装载与注册声明一句话说完）：tools = {名: 权限词}——名字在
   //   extension/tools/ 或 .stem/tools/ 解析不到 = 拒启；未点名的工具不存在于
   //   世界（.stem/tools/ 目录自动扫描已废止，注入面闭合）。缺省 = 纯 bash 最小系统。
   //   agent/context = extension/<键>/ 下条目名数组（缺省不启用）。

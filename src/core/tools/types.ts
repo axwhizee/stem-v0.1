@@ -5,16 +5,16 @@
 //  1. ToolContext 是开放接口 —— 工具访问层、日志等宿主能力
 //     以「字段注入」方式扩展，core 只定义最小必要字段；
 //  2. 工具访问统一模型（权限融合进 tools）：每个工具声明访问键
-//     （accessKey，如 read/edit/grep/glob/bash）与**出生权限**（birth，
-//     注册即出生声明——工具自报的宽度上界，全链收敛的封顶）；生效权限 =
+//     （accessKey，如 read/edit/grep/glob/bash）与**注册声明**（registerAccess，
+//     注册即注册声明——工具自报的宽度上界，全链收敛的封顶）；生效权限 =
 //     族谱位置的函数（lineage/AccessLedger 台账物化，经 AccessResolver 端口
-//     查询）；族谱链上无显式判定时落出生值（无 kind 推导、无兜底表）；
+//     查询）；族谱链上无显式判定时落注册声明（无 kind 推导、无兜底表）；
 //     always 批准记入 per-agent 豁免备忘（只免询问，不破 deny/ignore）；
 //  3. 执行生命周期暴露 ToolHooks（before/after/error），
 //     供 telemetry、审计、限流等横切能力挂载；
 //  4. kind（internal/extension/custom）是**纯 provenance 元数据**（装载源/
-//     信级/审计展示），不参与任何权限推断——权限只有两个来源：出生声明
-//     （birth）与收敛清单链（见 docs/architecture.md §2.2）。
+//     信级/审计展示），不参与任何权限推断——权限只有两个来源：注册声明
+//     （registerAccess）与收敛清单链（见 docs/architecture.md §2.2）。
 // ============================================================
 
 /** 工具访问四态（权限融合进 tools 后的原子状态）。 */
@@ -31,9 +31,9 @@ export type ToolCategory =
 
 /**
  * 工具来源（**纯 provenance**，不参与权限推断——审计测试表驱动断言之）。
- * 出生权限来自 birth 字段与 config 点名，与 kind 无关：
+ * 注册声明来自 registerAccess 字段与 config 点名，与 kind 无关：
  *   - internal = core 注册点代码（agent_* / context_* / bash / access_reply…）；
- *   - extension = 仓库扩展（`extension/tools/<名>/<名>.ts`，config.extensions.tools 点名装载+出生）；
+ *   - extension = 仓库扩展（`extension/tools/<名>/<名>.ts`，config.extensions.tools 点名装载+注册声明）；
  *   - custom = 用户空间工具（`.stem/tools/`，**同样必须 config 点名**——目录扫描废止）。
  */
 export type ToolKind = 'internal' | 'extension' | 'custom'
@@ -165,7 +165,7 @@ export interface AccessReplyInput {
 /**
  * 族谱权限查询端口：由 lineage/AccessLedger 实现、kernel 接线注入。
  * tools 侧只认本接口（不认识族谱），返回 undefined = 链上无人显式判定，
- * 调用方落该键出生值（注册表 birth——出生即封顶，无 kind 推导）。
+ * 调用方落该键注册声明（注册表 registerAccess——注册即封顶，无 kind 推导）。
  */
 export interface AccessResolver {
   readonly accessOf: (agentId: string, key: string) => ToolAccess | undefined
@@ -175,8 +175,8 @@ export interface AccessResolver {
 export interface AccessAssertInput {
   readonly accessKey: string
   readonly agentId: string
-  /** 该访问键的出生权限（注册表供给；族谱链无显式判定时即生效值——出生即封顶，无兜底推导）。 */
-  readonly birth?: ToolAccess
+  /** 该访问键的注册声明（注册表供给；族谱链无显式判定时即生效值——注册即封顶，无兜底推导）。 */
+  readonly registerAccess?: ToolAccess
   readonly metadata?: Readonly<Record<string, unknown>>
   /** 中断信号（runtime 轮中断 → 未决 ask 一并 aborted）。 */
   readonly signal?: AbortSignal
@@ -209,12 +209,12 @@ export interface ToolCapability {
   readonly description: string
   readonly parameters: ToolParametersSchema
   /**
-   * **注册声明**（入表时的访问动作封顶，必填——无兜底；代码字段名 `birth`）。
+   * **注册声明**（入表时的访问动作封顶，必填——无兜底；字段名 `registerAccess`）。
    * internal 在 core 注册点写定（`access_reply: allow`、`bash: allow`，其余通例 `ignore`）；
    * extension/custom 由 config.extensions.tools 点名时注入；策略 ownedTools 通例 `ignore`。
    * 任何层级的收敛清单取值不得宽于注册声明（宽出 = 扩张，物化压回/写入面拒绝）。
    */
-  readonly birth: ToolAccess
+  readonly registerAccess: ToolAccess
   /** 访问键（缺省 = 工具 id；多个工具可共享，如 edit/write → 'edit'）。 */
   readonly accessKey?: string
   /** 工具来源（纯 provenance，见 ToolKind 注释）。 */
@@ -228,6 +228,11 @@ export interface ToolCapability {
    *（fail-soft 为宜）；drain 完成后工具表冻结。
    */
   readonly init?: (ctx: ToolInitContext) => Promise<void> | void
+  /**
+   * 收尾钩子（可选）：系统 dispose 时由注册表统一调用（如关 MCP 会话）。
+   * 幂等自管；失败记日志不阻断 dispose。
+   */
+  readonly dispose?: () => Promise<void> | void
   /** 可选自定义参数校验：返回错误信息或 undefined。 */
   readonly validate?: (input: unknown) => string | undefined
 }

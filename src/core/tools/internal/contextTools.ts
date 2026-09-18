@@ -1,7 +1,7 @@
 // ============================================================
 // core/tools/internal/contextTools.ts —— 上下文资产与挂起工具
 //
-// 注册即出生声明；消费方拥有端口（./ports），零 kernel import。
+// 注册即注册声明；消费方拥有端口（./ports），零 kernel import。
 // ============================================================
 
 import type { ToolCapability } from '../types'
@@ -15,7 +15,7 @@ export function agentPause(host: SystemToolHost): ToolCapability {
       '挂起自己一段时间：ms 后自动唤醒，期间收到的新信件全部堆积在上下文里，' +
       '醒来时一次组装可见。适合"等待多方消息汇聚再判断"的节奏控制。',
     accessKey: 'agent_pause',
-    birth: 'ignore', // 出生声明（agent_pause）
+    registerAccess: 'ignore', // 注册声明（agent_pause）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -45,7 +45,7 @@ export function contextExport(host: SystemToolHost): ToolCapability {
     id: 'context_export',
     description: '导出指定 agent 的完整上下文为 jsonl（逐行 JSON，含 tag/turn/indexInTurn）。只读，不修改上下文。',
     accessKey: 'context_export',
-    birth: 'ignore', // 出生声明（context_export）
+    registerAccess: 'ignore', // 注册声明（context_export）
     kind: 'internal',
     category: 'context',
     parameters: {
@@ -71,7 +71,7 @@ export function contextOverview(host: SystemToolHost): ToolCapability {
     description:
       '查看指定 agent 的上下文概览：每条消息的 role / turn / tag / token 占比 / 索引。只读反射，不修改上下文。用于 agent 自省上下文构成。',
     accessKey: 'context_overview',
-    birth: 'ignore', // 出生声明（context_overview）
+    registerAccess: 'ignore', // 注册声明（context_overview）
     kind: 'internal',
     category: 'context',
     parameters: {
@@ -96,7 +96,7 @@ export function contextRemove(host: SystemToolHost): ToolCapability {
     description:
       '删除指定 agent 上下文中的过时消息（标记无效，组装时跳过，不物理清除）。可删任意消息（system 除外）；删除后上下文经 legalize 保证消息序列合法。用于清理过时工具结果/过期总结等。',
     accessKey: 'context_remove',
-    birth: 'ignore', // 出生声明（context_remove）
+    registerAccess: 'ignore', // 注册声明（context_remove）
     kind: 'internal',
     category: 'context',
     parameters: {
@@ -130,7 +130,7 @@ export function contextEdit(host: SystemToolHost): ToolCapability {
     id: 'context_edit',
     description: '重写指定 agent 上下文中的某条消息内容（保留 role/索引；system 消息不可改）。',
     accessKey: 'context_edit',
-    birth: 'ignore', // 出生声明（context_edit）
+    registerAccess: 'ignore', // 注册声明（context_edit）
     kind: 'internal',
     category: 'context',
     parameters: {
@@ -164,7 +164,7 @@ export function contextApply(host: SystemToolHost): ToolCapability {
     description:
       '执行该 agent 上下文管理策略的专有动作（如 classic 的 compact 手动压缩历史；cortex 的 dream 提前做梦固化记忆）。action 取值见系统提示中的 <stem_context>。仅能操作自身上下文（祖先可代子孙触发）。',
     accessKey: 'context_apply',
-    birth: 'ignore', // 出生声明（context_apply）
+    registerAccess: 'ignore', // 注册声明（context_apply）
     kind: 'internal',
     category: 'context',
     parameters: {

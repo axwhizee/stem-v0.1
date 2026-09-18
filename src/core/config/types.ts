@@ -7,7 +7,7 @@
 //
 // **装载面二元制**：agent 类/上下文策略 = 目录即真相
 //   （`.stem/agent/`、`.stem/context/` 自动装载，用户主权书写面）；
-//   工具 = config.extensions.tools 点名（装载与出生一句话说完，
+//   工具 = config.extensions.tools 点名（装载与注册声明一句话说完，
 //   未点名 = 不存在于世界——代码注入面闭合）。
 //   - **providers 注册表**（S6/R13）：模型端点全部 config 声明（`base_url` +
 //     `key_env` 密钥注入 + `models` 白名单），代码零端点常量、零兜底；
@@ -44,7 +44,7 @@ export interface StemUserClass {
   /**
    * 工具清单 = 收敛链第一环（键即白名单：未列出的工具对根一律 deny；
    * 对子孙则只供显式判定——缺席 ≠ 否决，显式 deny = 铁律锁子孙）；逐键被
-   * 注册表出生值封顶（越界 = boot 硬错）。缺省 = 完整继承出生表面；
+   * 注册声明表封顶（越界 = boot 硬错）。缺省 = 完整继承注册声明表；
    * 推荐清单实值见首启模板（DEFAULT_CONFIG_TEXT）——模板不是机制。
    */
   readonly tools?: Readonly<Record<string, ToolAccess>>
@@ -104,7 +104,7 @@ export interface StemToolsConfig {
 
 /**
  * extensions 资源点名面：
- *   - tools = **{名: 权限词} 对象**（装载与出生一句话说完：键在
+ *   - tools = **{名: 权限词} 对象**（装载与注册声明一句话说完：键在
  *     `extension/tools/` 或 `.stem/tools/` 解析命中才装载；键不可解析 =
  *     boot 硬错。custom 目录自动扫描已废止——未点名 = 不存在于世界）；
  *   - agent / context = 点名条目名数组（`extension/<键>/` 目录形态）。
@@ -135,7 +135,7 @@ export interface StemConfig {
   /** 全局默认送信倒计时（毫秒；agent 文件/类未指定时使用）。 */
   readonly sendCountdown?: number
   /**
-   * 资源点名清单：tools = {名: 权限词}（装载与出生一句话说完，键不可解析 =
+   * 资源点名清单：tools = {名: 权限词}（装载与注册声明一句话说完，键不可解析 =
    * boot 硬错）；agent/context = `extension/<键>/` 下条目名数组。
    * 工具**未点名 = 不存在于世界**（custom 目录扫描已废止——`.stem/tools/` 放
    * 什么文件都不如本清单点名有权威，代码注入面闭合）。agent 类/策略仍是

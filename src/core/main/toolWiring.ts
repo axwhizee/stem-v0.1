@@ -1,18 +1,15 @@
 // ============================================================
-// core/main/toolWiring.ts —— internal 工具装配 + 工具记录 sink 接线（组合根）
+// core/main/toolWiring.ts —— internal 工具定义 + 工具记录 sink
 //
-// 两件装配职责从 Kernel 构造器上移：
-//   1. `registerInternalTools`：经 `createInternalTools`（internal 唯一出入口）
-//      装载系统工具 + （注入 ShellRunner 才装配的）bash——Kernel 不再认识 bash；
+//   1. `createInternalToolDefs`：经 `createInternalTools`（internal 唯一出入口）
+//      产出系统工具 + （注入 ShellRunner 才装配的）bash 定义；
+//      组合根 / 测试 harness 统一经 **drain** 入表（不再有旁路 register）。
 //   2. `attachToolRecordSink`：工具执行三相位 → 事件流 tool 变体 + 仓库记录/历史行。
-//
-// 实现经 Kernel **公开面**（events/contextManager/logger）接线，kernel 侧
-// 保持与 main 的单向依赖（main → kernel），无反向 import。
 // ============================================================
 
 import type { Kernel } from '../kernel'
 import { createSystemToolHost } from '../kernel'
-import type { BashToolSettings, ShellRunner, ToolCapabilityRegistry } from '../tools'
+import type { BashToolSettings, ShellRunner, ToolCapability, ToolCapabilityRegistry } from '../tools'
 import { formatToolOutput } from '../tools'
 import { createInternalTools } from '../tools/internal'
 import { forget } from '../logging'
@@ -22,29 +19,17 @@ export interface InternalToolWiringOptions {
   readonly bash?: { readonly runner: ShellRunner; readonly settings?: BashToolSettings }
 }
 
-/**
- * 装配 internal 工具（系统工具 + 可选 bash）到注册表。
- * 唯一出入口 `createInternalTools`；bash 端口缺省 = 不装配 bash（事故半径收口）。
- */
-export async function registerInternalTools(
-  kernel: Kernel,
-  registry: ToolCapabilityRegistry,
-  opts: InternalToolWiringOptions = {},
-): Promise<void> {
-  const tools = createInternalTools({
+/** internal 工具定义（系统工具 + 可选 bash）；入表请走 registry.drain。 */
+export function createInternalToolDefs(kernel: Kernel, opts: InternalToolWiringOptions = {}): ToolCapability[] {
+  return createInternalTools({
     host: createSystemToolHost(kernel),
     ...(opts.bash !== undefined ? { bash: opts.bash } : {}),
   })
-  for (const tool of tools) await registry.register(tool)
 }
 
 /**
  * 工具记录 sink（唯一接线点）：工具执行三相位（called/success/error）→
- * 事件流 `tool` 变体（实时监督，只带名字/相位）+ 仓库工具记录/历史行。
- *
- * 上下文回填规则与历史实现一致：success 且非 `contextWait` 挂起通道 → 结果落
- * `tool` 行；error → 错误成形落 `tool` 行；`contextWait`（wait/pause）等待正规
- * 填充，不重复 append。
+ * 事件流 `tool` 变体 + 仓库工具记录/历史行。
  */
 export function attachToolRecordSink(
   kernel: Kernel,
@@ -65,7 +50,7 @@ export function attachToolRecordSink(
       (event) => kernel.logger.log(event),
     )
     if (record.status === 'success' && record.result) {
-      if (record.result.metadata?.contextWait) return // 挂起通道（wait/pause）：等待填充，不 append
+      if (record.result.metadata?.contextWait) return
       forget(
         kernel.contextManager.appendHistory(ctx.agentId, {
           role: 'tool',

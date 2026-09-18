@@ -49,7 +49,7 @@ export function createWebFetchTool(deps: WebFetchDeps = {}): ToolCapability {
     description:
       '抓取指定 URL 的网页内容（默认转 markdown 正文）。用于阅读搜索结果指向的页面、文档站、README 等。需要登录/纯 JS 渲染的页面可能拿不到正文。',
     kind: 'extension',
-    birth: 'allow', // 自述推荐值；实际出生以 config.extensions.tools 点名权限词为准
+    registerAccess: 'allow', // 自述推荐值；实际注册声明以 config.extensions.tools 点名权限词为准
     category: 'business',
     parameters: {
       type: 'object',

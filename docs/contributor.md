@@ -115,7 +115,7 @@
 
 - `ToolAccess = allow | ask | deny | ignore`；严格度总序 **`deny ≺ ask ≺ allow ≺ ignore`**，一切书写面只许顺链收缩。
 - 类 `tools`：**键即白名单**；`{}` = 本地封闭；**未设 = 完整继承父生效档案**。
-- 改工具 shape（含 `birth`）/ `AgentClass.tools` / `ToolContext` 时全量对拍：tools 模块、extension 工具、注册表出生面、系统工具 schema、族谱台账、config 模板、webui/dashboard。
+- 改工具 shape（含 `registerAccess`）/ `AgentClass.tools` / `ToolContext` 时全量对拍：tools 模块、extension 工具、注册表出生面、系统工具 schema、族谱台账、config 模板、webui/dashboard。
 - `grant` = 整表替换 + 逐键祖先封顶，仅策略 spawn 通道使用。
 - ask 是消息交换：改审批 = 改 `<access_request>` 消息形状，考虑根信箱可读性。
 

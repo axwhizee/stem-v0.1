@@ -18,7 +18,7 @@ describe('buildUserClass（根的类配置）', () => {
   test('缺省档 = 无注入清单（DEFAULT_USER_TOOLS 退役；根义务由 boot 律与模板实值分管）', () => {
     const cls = buildUserClass()
     assert.equal(cls.name, USER_CLASS_ID)
-    assert.equal(cls.tools, undefined, '代码零缺省清单——缺省 = 完整继承出生表面')
+    assert.equal(cls.tools, undefined, '代码零缺省清单——缺省 = 完整继承注册声明表')
     assert.equal(cls.sendCountdown, 0)
     assert.equal(cls.systemPrompt, '')
   })

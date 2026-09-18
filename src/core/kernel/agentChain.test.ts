@@ -17,7 +17,6 @@ import type { AgentClass } from './types'
 import { makeAgentClassID, makeAgentID, parentIdOf, ROOT_ID } from './types'
 import { BUILTIN_TEMPLATES } from './Kernel'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
-import { registerInternalTools } from '../main'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
@@ -72,17 +71,18 @@ function timeHandler(): { gateway: FakeGateway; creatorRounds: () => number } {
 describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
   test('端到端：agent_instantiate{wait} 完成取时间闭环（runtime 收束不空转）', async () => {
     const { gateway, creatorRounds } = timeHandler()
-    const { kernel, deliveries, tools, timers } = await createKernelHarness(gateway, {
+    const { kernel, deliveries, timers } = await createKernelHarness(gateway, {
       templates: [...BUILTIN_TEMPLATES, creatorTemplate, toolAgentTemplate],
+      extraTools: [
+        {
+          id: 'oc_get_time',
+          registerAccess: 'ignore',
+          description: 'get time',
+          parameters: { type: 'object', properties: {} },
+          execute: () => ({ text: '当前 UTC 时间: 2026-08-11T12:00:00.000Z' }),
+        },
+      ],
     })
-    await tools.register({
-      id: 'oc_get_time',
-      birth: 'ignore',
-      description: 'get time',
-      parameters: { type: 'object', properties: {} },
-      execute: () => ({ text: '当前 UTC 时间: 2026-08-11T12:00:00.000Z' }),
-    })
-    await registerInternalTools(kernel, tools)
 
     const creatorId = await kernel.instantiateAgent(
       { className: makeAgentClassID('creator'), parentId: makeAgentID(ROOT_ID), userPrompt: '请创建一个能读取时间的助手并让它把时间报告给我。' },
@@ -157,7 +157,6 @@ describe('agent 链：委托 wait 闭环与 pause 攒信', () => {
       templates: [...BUILTIN_TEMPLATES, creatorTemplate],
       countdownMs: 0,
     })
-    await registerInternalTools(kernel, tools)
     const creatorId = await kernel.instantiateAgent(
       { className: makeAgentClassID('creator'), parentId: makeAgentID(ROOT_ID), userPrompt: '先挂起等我攒信' },
     )

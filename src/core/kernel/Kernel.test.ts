@@ -18,10 +18,19 @@ function stamped(identity: string, body: string): RegExp {
 }
 import { makeAgentClassID, makeAgentID, ROOT_ID } from './types'
 import { createKernelHarness } from '../../../test/support/kernelHarness'
-import { registerInternalTools } from '../main'
 import { BUILTIN_TEMPLATES } from './Kernel'
 
 const _model = { provider: 'opencode', id: 'test-model' }
+
+function echoTool() {
+  return {
+    id: 'oc_echo',
+    registerAccess: 'ignore' as const,
+    description: 'echo',
+    parameters: { type: 'object' as const, properties: { text: { type: 'string' as const } }, required: ['text'] },
+    execute: (input: unknown) => ({ text: `Echo: ${(input as { text: string }).text}` }),
+  }
+}
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
@@ -116,13 +125,9 @@ describe('Kernel 邮局模式', () => {
         yield { type: 'finish', reason: 'stop' }
       }
     })
-    const { kernel, deliveries, tools, timers } = await createKernelHarness(gateway, { templates: templatesWithTool })
-    await tools.register({
-      id: 'oc_echo',
-      birth: 'ignore',
-      description: 'echo',
-      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
-      execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
+    const { kernel, deliveries, timers } = await createKernelHarness(gateway, {
+      templates: templatesWithTool,
+      extraTools: [echoTool()],
     })
     const agentId = await kernel.getOrCreateAgent(makeAgentClassID('tool-agent'), '/proj')
 
@@ -153,17 +158,21 @@ describe('Kernel 邮局模式', () => {
         yield { type: 'finish', reason: 'stop' }
       }
     })
-    const { kernel, deliveries, tools, timers } = await createKernelHarness(gateway, { templates: templatesWithTool })
     const executed: string[] = []
-    await tools.register({
-      id: 'oc_echo',
-      birth: 'ignore',
-      description: 'echo',
-      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
-      execute: (input) => {
-        executed.push((input as { text: string }).text)
-        return { text: `Echo: ${(input as { text: string }).text}` }
-      },
+    const { kernel, deliveries, timers } = await createKernelHarness(gateway, {
+      templates: templatesWithTool,
+      extraTools: [
+        {
+          id: 'oc_echo',
+          registerAccess: 'ignore',
+          description: 'echo',
+          parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
+          execute: (input) => {
+            executed.push((input as { text: string }).text)
+            return { text: `Echo: ${(input as { text: string }).text}` }
+          },
+        },
+      ],
     })
     const agentId = await kernel.getOrCreateAgent(makeAgentClassID('tool-agent'), '/proj')
 
@@ -185,13 +194,16 @@ describe('Kernel 邮局模式', () => {
       lastRequest = request
       return textEvents('ok')
     })
-    const { kernel, tools, deliveries, timers } = await createKernelHarness(gateway)
-    await tools.register({
-      id: 'oc_get_time',
-      birth: 'ignore',
-      description: 'get time',
-      parameters: { type: 'object', properties: {} },
-      execute: () => ({ text: 'now' }),
+    const { kernel, deliveries, timers } = await createKernelHarness(gateway, {
+      extraTools: [
+        {
+          id: 'oc_get_time',
+          registerAccess: 'ignore',
+          description: 'get time',
+          parameters: { type: 'object', properties: {} },
+          execute: () => ({ text: 'now' }),
+        },
+      ],
     })
     // 局部封闭类（tools={} → 本地全 deny；internal 占位 assistant 是「继承」形，非封闭）
     await kernel.templates.register({ name: makeAgentClassID('closed'), description: 'closed', systemPrompt: 's', tools: {} })
@@ -216,7 +228,6 @@ describe('Kernel 邮局模式', () => {
         },
       },
     })
-    await registerInternalTools(kernel, tools)
 
     // user#0 身份调用：registry/ask 总线经 AccessResolver 查询台账（不再手传权限层）。
     const adminCtx = { agentId: ROOT_ID }
@@ -270,8 +281,9 @@ describe('Kernel 邮局模式', () => {
 
   test('logging：全链路日志经消息总线路由到记录器', async () => {
     const gateway = new FakeGateway(() => textEvents('ok'))
-    const { kernel, tools, timers, deliveries } = await createKernelHarness(gateway)
-    await registerInternalTools(kernel, tools)
+    const { kernel, tools, timers, deliveries } = await createKernelHarness(gateway, {
+      extraTools: [echoTool()],
+    })
 
     const agentId = await kernel.getOrCreateAgent(makeAgentClassID('assistant'), '/proj')
     await deliveries.next() // 首信回复
@@ -300,13 +312,6 @@ describe('Kernel 邮局模式', () => {
 
     // 工具调用日志（tool.invoked：called/success/error）——
     // 类清单显式声明 oc_echo（白名单语义下"声明即可用"，经台账查询）。
-    await tools.register({
-      id: 'oc_echo',
-      birth: 'ignore',
-      description: 'echo',
-      parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
-      execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
-    })
     await kernel.registerAgentClass({
       name: makeAgentClassID('echo-user'),
       description: 'echo 使用者',

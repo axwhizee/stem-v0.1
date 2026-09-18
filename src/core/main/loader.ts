@@ -3,7 +3,7 @@
 //
 // 流程（纯 TS，fs/import 经 InitDeps 注入）：
 //   1. 读取唯一配置（ConfigStore.load）；
-//   2. 工具 = **config.extensions.tools {名: 权限词} 点名**（装载与出生一句话）：
+//   2. 工具 = **config.extensions.tools {名: 权限词} 点名**（装载与注册声明一句话）：
 //        名字先探 extension/tools/<名>/<名>.ts，再探 .stem/tools/<名>.ts 与
 //        <名>/<名>.ts——**解析不到 = 抛错拒启**（boot 校验律：config 键必须有
 //        装载源兑现）。custom 目录自动扫描已废止（未点名 = 不存在于世界）。
@@ -11,7 +11,7 @@
 //        extension 层按 config.extensions.agent/context 点名。
 //      装载律 internal → extension → custom，后层同名覆盖前层（replace）。
 //   3. 注册到 core：工具 → ToolCapabilityRegistry（kind = 纯 provenance，
-//      birth = config 权限词）；agent 类 → TemplateRegistry；策略 → StrategyRegistry。
+//      registerAccess = config 权限词）；agent 类 → TemplateRegistry；策略 → StrategyRegistry。
 //   4. 仅当配置文件不存在时写入初始模板（不做任何回写同步）。
 // ============================================================
 
@@ -108,8 +108,8 @@ async function loadExtensionEntry(
 /**
  * 点名工具装载（A1）：config.extensions.tools 的 {名: 权限词} 逐个解析——
  * extension 源优先（`extension/tools/<名>/<名>.ts`），custom 源兜底
- * （`.stem/tools/<名>.ts` 或 `<名>/<名>.ts`）。装载与出生一句话说完
- * （kind = provenance 层、birth = config 权限词，文件自述值被覆盖）。
+ * （`.stem/tools/<名>.ts` 或 `<名>/<名>.ts`）。装载与注册声明一句话说完
+ * （kind = provenance 层、registerAccess = config 权限词，文件自述值被覆盖）。
  * 任一名字解析不到 = 抛错（boot 校验律——config 键必须有装载源兑现）。
  */
 async function loadNamedTools(
@@ -130,7 +130,7 @@ async function loadNamedTools(
     }
     return validateTool(def, file, issues)
   }
-  for (const [name, birth] of Object.entries(named)) {
+  for (const [name, registerAccess] of Object.entries(named)) {
     // ① extension 源（目录形态唯一）。
     if (root !== undefined) {
       const file = `${root}/${name}/${name}.ts`
@@ -138,7 +138,7 @@ async function loadNamedTools(
         const mod = await deps.tools.loadTool(file)
         const tool = await materialize(mod.default, file)
         if (tool) {
-          result.push({ ...tool, kind: 'extension', birth, file })
+          result.push({ ...tool, kind: 'extension', registerAccess, file })
           continue
         }
       } catch {
@@ -173,7 +173,7 @@ async function loadNamedTools(
       } satisfies InitError
     }
     const tool = await materialize(mod.default, hit)
-    if (tool) result.push({ ...tool, kind: 'custom', birth, file: hit })
+    if (tool) result.push({ ...tool, kind: 'custom', registerAccess, file: hit })
   }
   return result
 }

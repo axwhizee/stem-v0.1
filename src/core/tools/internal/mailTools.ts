@@ -1,7 +1,7 @@
 // ============================================================
 // core/tools/internal/mailTools.ts —— 邮局通信工具
 //
-// 注册即出生声明；消费方拥有端口（./ports），零 kernel import。
+// 注册即注册声明；消费方拥有端口（./ports），零 kernel import。
 // ============================================================
 
 import type { ToolCapability } from '../types'
@@ -13,7 +13,7 @@ export function mailSend(host: SystemToolHost): ToolCapability {
     id: 'mail_send',
     description: '向指定参与者投递信件（单目标，一对多请并行调用多次）。消息自动添加发送者戳。',
     accessKey: 'mail_send',
-    birth: 'ignore', // 出生声明（mail_send）
+    registerAccess: 'ignore', // 注册声明（mail_send）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -40,7 +40,7 @@ export function mailParticipants(host: SystemToolHost): ToolCapability {
     id: 'mail_participants',
     description: '列出当前邮局在册参与者（全名 `name#id`，可直接作 mail_send 的 to）。',
     accessKey: 'mail_participants',
-    birth: 'ignore', // 出生声明（mail_participants）
+    registerAccess: 'ignore', // 注册声明（mail_participants）
     kind: 'internal',
     category: 'system',
     parameters: { type: 'object', properties: {} },

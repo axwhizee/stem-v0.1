@@ -16,8 +16,11 @@ import { runInit } from './loader'
 import type { InitDeps, InitFs, InitReport } from './types'
 
 /** 模拟 drain：发现清单 → register(replace)（发现段不注册工具）。 */
-async function drainInventory(deps: InitDeps, report: InitReport): Promise<void> {
-  for (const t of report.toolInventory) await deps.toolRegistry.register(t, { replace: true })
+async function drainInventory(
+  toolRegistry: DefaultToolCapabilityRegistry,
+  report: InitReport,
+): Promise<void> {
+  for (const t of report.toolInventory) await toolRegistry.register(t, { replace: true })
 }
 
 function makePaths(toolDir = '/proj/.stem/tools', agentDir = '/proj/.stem/agent', strategyDir = '/proj/.stem/context'): ConfigPaths {
@@ -98,12 +101,13 @@ function makeDeps(opts: {
     fs,
     tools: { loadTool },
     ...(opts.extensionRoots !== undefined ? { extensionRoots: opts.extensionRoots } : {}),
-    toolRegistry: new DefaultToolCapabilityRegistry(),
     templateRegistry: new DefaultTemplateRegistry(),
     strategyRegistry: registry,
     onLog: { log: () => {} },
   }
-  return { deps, saved: () => saved[0] ?? '', savedCalls: () => saved.length, registry }
+  /** 测试用注册表（发现段不写入；drain 模拟时用）。 */
+  const toolRegistry = new DefaultToolCapabilityRegistry()
+  return { deps, toolRegistry, saved: () => saved[0] ?? '', savedCalls: () => saved.length, registry }
 }
 
 /** 工具模块形状（fake 用）。 */
@@ -146,7 +150,7 @@ test('首次创建：写默认模板；agent 类目录即真相，工具未点�
   assert.doesNotMatch(text, /"t1"|"a1"/, '默认模板不含镜像')
 })
 
-test('custom 源点名装载：.stem/tools 文件经 config 点名进世界 + 出生=config 权限词', async () => {
+test('custom 源点名装载：.stem/tools 文件经 config 点名进世界 + 注册声明=config 权限词', async () => {
   const { deps } = makeDeps({
     files: { '/proj/.stem/tools/t1.ts': 'x' },
     toolModules: { '/proj/.stem/tools/t1.ts': toolMod('t1') },
@@ -154,7 +158,7 @@ test('custom 源点名装载：.stem/tools 文件经 config 点名进世界 + �
   })
   const report = await runInit(deps)
   assert.deepEqual(report.tools.map((t) => [t.id, t.layer]), [['t1', 'custom']])
-  assert.equal(report.toolInventory[0]?.birth, 'ask', '注册声明 = config 点名权限词（发现段注入）')
+  assert.equal(report.toolInventory[0]?.registerAccess, 'ask', '注册声明 = config 点名权限词（发现段注入）')
 })
 
 test('配置文件已存在：永不回写（管线只读 config）', async () => {
@@ -250,7 +254,7 @@ test('点名解析：目录形态 `<名>/<名>.ts` 入口 + 附属资源文件�
 })
 
 test('平铺与目录同名 → 目录形态优先（点名解析序）', async () => {
-  const { deps } = makeDeps({
+  const { deps, toolRegistry } = makeDeps({
     configRaw: '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "twin": "allow" } }\n}',
     files: {
       '/proj/.stem/tools/twin.ts': 'x',
@@ -262,14 +266,14 @@ test('平铺与目录同名 → 目录形态优先（点名解析序）', async 
     },
   })
   const report = await runInit(deps)
-  await drainInventory(deps, report)
-  const tool = await deps.toolRegistry.get('twin')
+  await drainInventory(toolRegistry, report)
+  const tool = await toolRegistry.get('twin')
   assert.equal((await tool.execute({}, { agentId: '' })).text, 'packed')
 })
 
 // ---------- extension 层（config.extensions 点名，目录形态唯一） ----------
 
-test('extension 点名装载：kind=extension（provenance）+ 报告标层 + 出生=config 词', async () => {
+test('extension 点名装载：kind=extension（provenance）+ 报告标层 + 注册声明=config 词', async () => {
   const raw =
     '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "alpha": "allow" } }\n}'
   const { deps } = makeDeps({
@@ -284,7 +288,7 @@ test('extension 点名装载：kind=extension（provenance）+ 报告标层 + �
   assert.equal(alpha.layer, 'extension')
   const inv = report.toolInventory.find((t) => t.id === 'alpha')
   assert.equal(inv?.kind, 'extension')
-  assert.equal(inv?.birth, 'allow')
+  assert.equal(inv?.registerAccess, 'allow')
 })
 
 test('点名不可解析 = boot 硬错（A1 装载源律：config 键必须有文件兑现）', async () => {
@@ -335,15 +339,15 @@ test('宿主未提供 extension 根 = extension 层整体不存在（零 issue�
   assert.deepEqual(report.issues.filter((i) => i.kind === 'extension_entry_missing'), [])
 })
 
-test('后层同名覆盖前层 = 装载律（点名 custom 覆盖 pre-registered internal，出生重声明）', async () => {
-  const { deps } = makeDeps({
+test('后层同名覆盖前层 = 装载律（点名 custom 覆盖 pre-registered internal，注册声明重声明）', async () => {
+  const { deps, toolRegistry } = makeDeps({
     configRaw: '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "override": "allow" } }\n}',
     files: { '/proj/.stem/tools/override.ts': 'x' },
     toolModules: { '/proj/.stem/tools/override.ts': toolMod('override', 'custom-wins') },
   })
-  await deps.toolRegistry.register({
+  await toolRegistry.register({
     id: 'override',
-    birth: 'ignore',
+    registerAccess: 'ignore',
     description: 'internal 原主',
     parameters: { type: 'object', properties: {} },
     kind: 'internal',
@@ -351,10 +355,10 @@ test('后层同名覆盖前层 = 装载律（点名 custom 覆盖 pre-registered
   })
   const report = await runInit(deps)
   assert.equal(report.issues.length, 0, '覆盖不再是冲突')
-  await drainInventory(deps, report)
-  const tool = await deps.toolRegistry.get('override')
+  await drainInventory(toolRegistry, report)
+  const tool = await toolRegistry.get('override')
   assert.equal(tool.kind, 'custom')
-  assert.equal(tool.birth, 'allow', '注册声明 = config 点名词（drain 覆盖）')
+  assert.equal(tool.registerAccess, 'allow', '注册声明 = config 点名词（drain 覆盖）')
   assert.equal((await tool.execute({}, { agentId: '' })).text, 'custom-wins')
 })
 

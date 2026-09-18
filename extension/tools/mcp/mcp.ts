@@ -24,7 +24,7 @@ export interface McpServerDef {
   readonly cwd?: string
   readonly url?: string
   readonly headers?: Readonly<Record<string, string>>
-  /** stem 扩展：投影工具注册声明（缺省用机制工具的 birth）。 */
+  /** stem 扩展：投影工具注册声明（缺省用机制工具的 registerAccess）。 */
   readonly access?: ToolAccess
   readonly enabled?: boolean
 }
@@ -199,7 +199,8 @@ interface McpToolListResult {
   }[]
 }
 
-const sessions: McpSession[] = []
+/** 本进程内 MCP 会话（dispose 统一关闭）。 */
+const openSessions: McpSession[] = []
 
 /** 机制工具本身：init 读 .stem/mcp.jsonc 并投影远程工具。 */
 function createMcpBootstrapTool(): ToolCapability {
@@ -209,7 +210,7 @@ function createMcpBootstrapTool(): ToolCapability {
       '通用 MCP 机制（定义住 .stem/mcp.jsonc，格式 = mcpServers）。初始化时连接服务器并把远程工具投影入表；本工具自身一般不被模型直接调用。',
     kind: 'extension',
     category: 'system',
-    birth: 'ignore',
+    registerAccess: 'ignore',
     parameters: { type: 'object', properties: {} },
     init: async (ctx: ToolInitContext) => {
       const root = ctx.projectRoot ?? process.cwd()
@@ -238,7 +239,7 @@ function createMcpBootstrapTool(): ToolCapability {
         if (def.enabled === false) continue
         try {
           const session = await openSession(def)
-          sessions.push(session)
+          openSessions.push(session)
           const list = await session.call<McpToolListResult>('tools/list', {})
           const access = def.access ?? 'ignore'
           for (const t of list.tools ?? []) {
@@ -250,7 +251,7 @@ function createMcpBootstrapTool(): ToolCapability {
               description: remote.description ?? `MCP ${serverName}/${remote.name}`,
               kind: 'extension',
               category: 'business',
-              birth: access,
+              registerAccess: access,
               accessKey: toolId,
               parameters: {
                 type: 'object',
@@ -280,6 +281,12 @@ function createMcpBootstrapTool(): ToolCapability {
           })
         }
       }
+    },
+    dispose: async () => {
+      for (const s of openSessions) {
+        if (s instanceof StdioMcpSession) s.dispose()
+      }
+      openSessions.length = 0
     },
     execute: async () => ({
       text: 'MCP 机制就绪态在 init 期组装；远程工具以 mcp_<服务器>_<工具名> 入表。定义见 .stem/mcp.jsonc（mcpServers 格式）。',

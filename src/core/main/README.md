@@ -6,7 +6,7 @@
 ## 职责
 
 - **组合根**：`createStemSystem(deps)` 按 stem 初始化 + 工具 drain 装配最小系统（architecture 2.8）。
-- **工具装配**：发现段产出无序清单（internal 定义 + extension/custom 点名）；drain = `register`+`init` 可追加、完成后冻结。`registerInternalTools`（internal 唯一出入口）+ `attachToolRecordSink` 仍在此路径上。Kernel 不认识 bash。
+- **工具装配**：发现段产出无序清单；drain = `register`+`init` 可追加、完成后冻结。`createInternalToolDefs` 产出 internal 定义，组合根与测试 harness **同一 drain 路径**。Kernel 不认识 bash。
 - **发现管线**：`runInit` 装载类/策略/工具定义（config 点名 + `.stem/` 目录真相；工具清单无序）。**无策略 boot init、无 registerTool**。
 - **agent 执行器**：`DefaultRuntime`——送信驱动轮循环，Kernel 经 `RuntimePort` 接口消费。
 - **端口适配**：`createSystemToolHost(kernel)`（tools 的 internal 宿主，实住 `kernel/toolHost.ts`）、`createSystemFacade(kernel)`（pilot 的系统门面）。
@@ -21,7 +21,7 @@
 | `runtime.ts` | `DefaultRuntime` / `createRuntime`（被动驱动轮循环） |
 | `runtimeHalt.ts` | 中断/错误收尾（消息闭合） |
 | `runtimeToolRound.ts` | 工具轮并行执行 + contextWait 收束 |
-| `toolWiring.ts` | `registerInternalTools` + `attachToolRecordSink` |
+| `toolWiring.ts` | `createInternalToolDefs` + `attachToolRecordSink` |
 | `types.ts` | `InitDeps`/`InitFs`/`InitToolLoader`/`ClassFs`/`InitReport`/`InitIssue`… |
 | `systemFacade.ts` | `SystemFacade` 适配器（pilot 扮演面） |
 | （`toolHost.ts` 在 kernel） | `SystemToolHost` 适配器 |

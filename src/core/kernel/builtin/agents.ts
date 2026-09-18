@@ -10,9 +10,9 @@
 //
 // 根 = user 类的普通实例（id `0`，parentId=null），与全体 agent 平等无特判。
 // 类配置 = config.user 对象（完整可配）。**DEFAULT_USER_TOOLS 代码兜底表已
-// 退役**（出生声明+收敛链模型）：config.user.tools 给出即为根收敛清单（键
-// 即白名单，逐键被注册表出生值封顶——越界 = boot 硬错）；缺省 = 完整继承
-// 出生表面（全系统无缺省注入）。首启模板实值（推荐清单）住在
+// 退役**（注册声明+收敛链模型）：config.user.tools 给出即为根收敛清单（键
+// 即白名单，逐键被注册声明表封顶——越界 = boot 硬错）；缺省 = 完整继承
+// 注册声明表面（全系统无缺省注入）。首启模板实值（推荐清单）住在
 // config/defaults.ts 的 DEFAULT_CONFIG_TEXT——模板不是机制，只是一份写好的
 // config；boot 校验律保证 access_reply 生效 allow，缺位拒启。
 // ============================================================
@@ -27,7 +27,7 @@ import { pickAgentClassGenes } from '../attributes'
 export interface UserClassConfig {
   readonly description?: string
   readonly systemPrompt?: string
-  /** = user 类 tools 收敛清单（键即白名单、逐键出生封顶；缺省 = 完整继承出生表）。 */
+  /** = user 类 tools 收敛清单（键即白名单、逐键注册声明封顶；缺省 = 完整继承注册声明表）。 */
   readonly tools?: Readonly<Record<string, ToolAccess>>
   readonly contextStrategy?: string
   readonly model?: ModelRef
@@ -36,11 +36,11 @@ export interface UserClassConfig {
   readonly name?: string
 }
 
-/** user 类默认档（config.user 缺位时的全字段值；tools 不设 = 完整继承出生表）。 */
+/** user 类默认档（config.user 缺位时的全字段值；tools 不设 = 完整继承注册声明表）。 */
 export const USER_DEFAULT: AgentClass = {
   name: USER_CLASS_ID,
   description:
-    'user 类：系统根 agent，由人类经 pilot 扮演；tools = config.user.tools 收敛清单（缺省 = 完整继承出生表；access_reply 生效 allow 由 boot 校验律保证）。',
+    'user 类：系统根 agent，由人类经 pilot 扮演；tools = config.user.tools 收敛清单（缺省 = 完整继承注册声明表；access_reply 生效 allow 由 boot 校验律保证）。',
   systemPrompt: '',
   sendCountdown: 0,
 }

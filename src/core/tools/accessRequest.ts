@@ -8,7 +8,7 @@
 //   - no agent special-case: user#0 is a normal agent.
 //
 // Access evaluation: effective access queried via AccessResolver port
-// (lineage/AccessLedger); falls back to birth value when lineage has no judgment.
+// (lineage/AccessLedger); falls back to registerAccess value when lineage has no judgment.
 //
 // session exemption memo (always): subsequent asks skip dialog for that
 // (agent, accessKey); never overrides deny/ignore.
@@ -92,7 +92,7 @@ export class DefaultAccessAskBus implements AccessAskBus {
 
   async assert(input: AccessAssertInput): Promise<void> {
     const action =
-      this.resolvePort?.accessOf(input.agentId, input.accessKey) ?? input.birth ?? 'ask'
+      this.resolvePort?.accessOf(input.agentId, input.accessKey) ?? input.registerAccess ?? 'ask'
     this.onLog?.log({
       type: 'access.asked',
       at: Date.now(),

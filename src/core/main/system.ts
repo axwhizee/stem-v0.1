@@ -13,7 +13,7 @@
 // ============================================================
 
 import type { ConfigError, ConfigPaths, ConfigStore, StemConfig } from '../config'
-import { defaultStemConfig } from '../config'
+import { defaultStemConfig, agentFileOf, serializeAgentClass } from '../config'
 import type { ModelGateway, UsageEvent } from '../gateway'
 import type { Logger } from '../logging'
 import type { MessageStore, TimerFactory } from '../context'
@@ -23,9 +23,7 @@ import type { ClassStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
 import { DefaultToolCapabilityRegistry } from '../tools'
 import type { ShellRunner } from '../tools'
-import { createInternalTools } from '../tools/internal'
 import { Kernel, ROOT_ID } from '../kernel'
-import { createSystemToolHost } from '../kernel'
 import type { Pilot } from '../pilot'
 import { createPilot } from '../pilot'
 import type { PilotEvent } from '../events'
@@ -33,8 +31,7 @@ import { runInit } from './loader'
 import type { InitDeps, InitReport, ClassFs } from './types'
 import { createRuntime } from './runtime'
 import { createSystemFacade } from './systemFacade'
-import { attachToolRecordSink } from './toolWiring'
-import { agentFileOf, serializeAgentClass } from '../config'
+import { createInternalToolDefs, attachToolRecordSink } from './toolWiring'
 
 /** 系统上下文（用户注入钩子入参）。 */
 export interface StemSystem {
@@ -133,7 +130,6 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     fs: deps.fs,
     tools: { loadTool: deps.tools.loadTool },
     ...(deps.extensionRoots !== undefined ? { extensionRoots: deps.extensionRoots } : {}),
-    toolRegistry: tools,
     templateRegistry: kernel.templates,
     strategyRegistry: kernel.contextManager.strategies,
     ...(deps.logger !== undefined ? { onLog: { log: (event) => deps.logger!.log(event) } } : {}),
@@ -167,8 +163,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   }
 
   // ---- Ⅲ 工具 drain（唯一初始化执行面）----
-  const internalDefs = createInternalTools({
-    host: createSystemToolHost(kernel),
+  const internalDefs = createInternalToolDefs(kernel, {
     ...(deps.shellRunner !== undefined
       ? {
           bash: {
@@ -198,7 +193,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
 
   // ---- Ⅵ boot 校验律 ----
   const replyExplicit = kernel.lineage.effectiveAccess(ROOT_ID, 'access_reply')
-  const replyAccess = replyExplicit ?? tools.birthOf('access_reply')
+  const replyAccess = replyExplicit ?? tools.registerAccessOf('access_reply')
   if (replyAccess !== 'allow') {
     throw {
       kind: 'invalid_config',
@@ -217,6 +212,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     init: initReport,
     dispose: async () => {
       await kernel.drainForShutdown()
+      await tools.disposeAll()
       deps.stateStore?.messages.close?.()
       deps.stateStore?.instances.close?.()
     },

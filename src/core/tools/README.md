@@ -6,7 +6,7 @@
 ## 1. 职责与依赖
 
 - **对模型**：把注册的工具物化为 LLM tool schema（`materialize`），执行调用并统一成形结果。
-- **对系统**：提供注册声明（入表时的访问动作封顶，代码字段名 `birth`）、权限四态代数、收敛链折叠、ask 审批消息化。
+- **对系统**：提供注册声明（入表时的访问动作封顶，字段名 `registerAccess`）、权限四态代数、收敛链折叠、ask 审批消息化。
 - **依赖**：`gateway`（ToolDefinition schema）、`logging`（日志事件）；**自持端口** `internal/ports.ts`（消费方拥有，kernel 适配器实现，组合根注入）。**本模块不 import kernel**。
 
 ```
@@ -37,7 +37,7 @@ tools/
 `ToolAccess = allow | ask | deny | ignore`，严格度总序 **`deny ≺ ask ≺ allow ≺ ignore`**（按监督度：ignore = 看不见的执行最宽）。一切权限书写面同一把尺，**只许顺链收紧**，藏匿（allow→ignore）判扩张被拒。
 
 - **键即白名单**：类/实例的 `tools` Record 键为工具访问键；未列 = 本地 deny；**未设（undefined）= 完整继承父生效档案**；`{}` = 本地封闭。
-- **注册声明（代码字段 `birth`）**：工具入表时必带的访问动作，是收敛链的全局封顶（描述工具注册行为，不是 agent「出生」）。internal 在 core 注册点写死（`access_reply: allow`、`bash: allow`，其余通例 `ignore`）；extension/custom 由 `config.extensions.tools {名: 权限词}` 点名时注入（发现与注册声明一句话）。
+- **注册声明（字段名 `registerAccess`）**：工具入表时必带的访问动作，是收敛链的全局封顶（描述工具注册行为，不是 agent「出生」）。internal 在 core 注册点写死（`access_reply: allow`、`bash: allow`，其余通例 `ignore`）；extension/custom 由 `config.extensions.tools {名: 权限词}` 点名时注入（发现与注册声明一句话）。
 - **收敛链**：根清单 → 类清单 → [策略 raise 清单] → 实例清单，逐步折叠、不预合并，逐键被父面显式判定 ∧ 注册声明封顶。物化面静默钳制（重启幂等），写入面拒绝式校验（扩张即拒、带层归因）。
 - **模型可见 = allow ∪ ask**；deny 出局；ignore 背景在场（不暴露给模型但可被显式调用路径使用）。
 - **ask 是消息交换**：`access_request` 投递到申请者族谱根信箱 → 根经 `access_reply` 回复 once/always/reject（always 记 per-(agent,key) 豁免备忘，只免询问不破 deny/ignore）。
@@ -60,7 +60,7 @@ tools/
 - **工具三层**：internal = core 薄封装 + bash 例外（对外操作面）；extension = 外部领域（skill / MCP）；custom = stem 空间用户工具。
 - 典型：extension skill 在 init 扫 `SKILL.md` 组装就绪态；extension MCP 读 `.stem/mcp.jsonc`（`mcpServers` 通用格式）并按远程清单投影表内 `ToolCapability`（不落 stem 工具源文件）。
 
-**唯一出入口**：`createInternalTools(ports)`（定义）+ drain 期 `register`+`init` + `ToolCapabilityRegistry.execute`（执行）+ `output.ts`（成形）。
+**唯一出入口**：`createInternalTools` / `createInternalToolDefs`（定义）+ drain 期 `register`+`init` + `ToolCapabilityRegistry.execute` + `output.ts`。系统 `dispose` 经 `registry.disposeAll` 调用各工具可选 `dispose`（如关 MCP 会话）。
 
 ## 4. internal 工具宿主端口（DIP）
 

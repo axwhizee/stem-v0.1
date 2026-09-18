@@ -12,7 +12,7 @@ import type { AccessResolver, ToolAccess } from './types'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
-/** 固定判定表 resolver（模拟族谱台账；缺席 = undefined → 出生值 birth）。 */
+/** 固定判定表 resolver（模拟族谱台账；缺席 = undefined → registerAccess）。 */
 const tableResolver = (table: Record<string, ToolAccess | undefined>): AccessResolver => ({
   accessOf: (agentId, key) => table[`${agentId}/${key}`],
 })
@@ -34,7 +34,7 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
       resolve: tableResolver({ 'a1/read': 'allow', 'a1/skill': 'ignore' }),
     })
     await bus.assert({ accessKey: 'read', agentId: 'a1' })
-    await bus.assert({ accessKey: 'skill', agentId: 'a1', birth: 'ignore' })
+    await bus.assert({ accessKey: 'skill', agentId: 'a1', registerAccess: 'ignore' })
     assert.equal(asked.length, 0)
   })
 
@@ -74,9 +74,9 @@ describe('DefaultAccessAskBus（ask 消息化 + 族谱查询）', () => {
     assert.deepEqual(bus.listApprovals(), [], 'deny 复核的拒绝不得留下 always 豁免备忘')
   })
 
-  test('族谱无判定 → 落出生值（birth ignore 放行 / 缺省 ask）', async () => {
+  test('族谱无判定 → 落注册声明（registerAccess ignore 放行 / 缺省 ask）', async () => {
     const { bus, asked } = makeBus()
-    await bus.assert({ accessKey: 'agent_list', agentId: 'a1', birth: 'ignore' })
+    await bus.assert({ accessKey: 'agent_list', agentId: 'a1', registerAccess: 'ignore' })
     assert.equal(asked.length, 0, 'internal 默认 ignore：无人声明 = 隐藏但放行')
 
     const execution = bus.assert({ accessKey: 'bash', agentId: 'a1' })

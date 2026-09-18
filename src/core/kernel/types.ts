@@ -184,7 +184,7 @@ export type KernelError =
   | { readonly kind: 'agent_name_conflict'; readonly name: string; readonly message: string }
   /** 族谱解析链无模型锚（正常不发生：boot 硬校验 config.user.model；恢复残卷防御）。 */
   | { readonly kind: 'model_unresolved'; readonly agentId: AgentID }
-  /** 根清单越出生声明（boot 校验律：config.user.tools 扩张全局封顶）。 */
+  /** 根清单越注册声明（boot 校验律：config.user.tools 扩张全局封顶）。 */
   | { readonly kind: 'root_config_expanded'; readonly message: string }
   /** 实例化/更新 tools 收敛链扩张（带逐条违例文案）。 */
   | { readonly kind: 'tools_convergence_expanded'; readonly violations: readonly string[] }

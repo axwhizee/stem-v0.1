@@ -1,7 +1,7 @@
 // ============================================================
 // core/tools/internal/agentInstanceTools.ts —— agent 实例生命周期工具
 //
-// 注册即出生声明；消费方拥有端口（./ports），零 kernel import。
+// 注册即注册声明；消费方拥有端口（./ports），零 kernel import。
 // ============================================================
 
 import type { ToolCapability, ToolAccess } from '../types'
@@ -17,7 +17,7 @@ export function agentInstantiate(host: SystemToolHost): ToolCapability {
       '创建新的 agent 实例。必填 className（模板名）与 userPrompt（作为该 agent 的首条 user 消息）；族谱父自动为调用者。可选 name（出生称呼，全局唯一，撞名拒绝并明示；缺省确定性派生 `类名-N`——id 是出生路径由系统全托管，不接受指定）、model（"提供商/模型" 显式覆盖出生模型；缺省 = 类基因 > 你的继承链）、contextRefs（父仓库消息索引，深拷贝传入）、tools（对模板工具清单的临时收敛）。创建即返回新实例全名 `name#id`。' +
       'wait=true 时同步等待该 agent 的回信作为本次调用的结果进入你的上下文（创建与配对原子完成，回信不会漏接；可配 waitTimeoutMs 超时兜底）；不传 wait = 异步协作，其回复将作为普通信件到达。',
     accessKey: 'agent_instantiate',
-    birth: 'ignore', // 出生声明（agent_instantiate）
+    registerAccess: 'ignore', // 注册声明（agent_instantiate）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -74,7 +74,7 @@ export function agentInstantiate(host: SystemToolHost): ToolCapability {
         if (err?.kind === 'tools_convergence_expanded') {
           return {
             text:
-              `工具清单收敛被拒（逐键只许沿 ignore→allow→ask→deny 收紧，出生声明与父面显式判定封顶）：\n` +
+              `工具清单收敛被拒（逐键只许沿 ignore→allow→ask→deny 收紧，注册声明与父面显式判定封顶）：\n` +
               (err.violations ?? []).map((v) => `  - ${v}`).join('\n'),
           }
         }
@@ -107,7 +107,7 @@ export function agentUpdate(host: SystemToolHost): ToolCapability {
       '类定义/父子拓扑/上下文策略/系统提示/工具清单不在本通道——改类走 agent_class_update；' +
       '工具清单出生时收敛落地后不可改。',
     accessKey: 'agent_update',
-    birth: 'ignore', // 出生声明（agent_update）
+    registerAccess: 'ignore', // 注册声明（agent_update）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -161,7 +161,7 @@ export function agentList(host: SystemToolHost): ToolCapability {
     id: 'agent_list',
     description: '列出全部 agent 实例。',
     accessKey: 'agent_list',
-    birth: 'ignore', // 出生声明（agent_list）
+    registerAccess: 'ignore', // 注册声明（agent_list）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -182,7 +182,7 @@ export function agentInspect(host: SystemToolHost): ToolCapability {
     id: 'agent_inspect',
     description: '查看单个 agent 实例详情：父/子/祖先链、状态、轮次、成本。',
     accessKey: 'agent_inspect',
-    birth: 'ignore', // 出生声明（agent_inspect）
+    registerAccess: 'ignore', // 注册声明（agent_inspect）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -219,7 +219,7 @@ export function agentAncestry(host: SystemToolHost): ToolCapability {
     id: 'agent_ancestry',
     description: '查询指定 agent 的祖先链（[父 → … → 根]，不含自身）。',
     accessKey: 'agent_ancestry',
-    birth: 'ignore', // 出生声明（agent_ancestry）
+    registerAccess: 'ignore', // 注册声明（agent_ancestry）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -242,7 +242,7 @@ export function agentDescendants(host: SystemToolHost): ToolCapability {
     id: 'agent_descendants',
     description: '查询指定 agent 的全部后代（BFS 子树）。',
     accessKey: 'agent_descendants',
-    birth: 'ignore', // 出生声明（agent_descendants）
+    registerAccess: 'ignore', // 注册声明（agent_descendants）
     kind: 'internal',
     category: 'system',
     parameters: {
@@ -266,7 +266,7 @@ export function agentTerminate(host: SystemToolHost): ToolCapability {
     description:
       '终止一个 agent 实例（注销上下文；地址与称呼进墓碑永不回收）。销毁权：仅该 agent 的祖先可销毁。默认禁止销毁仍有子 agent 的父；recursive=true 时级联销毁整棵子树。',
     accessKey: 'agent_terminate',
-    birth: 'ignore', // 出生声明（agent_terminate）
+    registerAccess: 'ignore', // 注册声明（agent_terminate）
     kind: 'internal',
     category: 'system',
     parameters: {

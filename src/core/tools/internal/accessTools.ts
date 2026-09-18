@@ -1,7 +1,7 @@
 // ============================================================
 // core/tools/internal/accessTools.ts —— ask 审批回复工具
 //
-// 注册即出生声明；消费方拥有端口（./ports），零 kernel import。
+// 注册即注册声明；消费方拥有端口（./ports），零 kernel import。
 // ============================================================
 
 import type { ToolCapability, AccessReply } from '../types'
@@ -13,7 +13,7 @@ export function accessReply(host: SystemToolHost): ToolCapability {
     description:
       '批准或拒绝访问申请。请求以 access_request 消息形式到达你的信箱（含 requestId / 申请工具 / 申请 agent）；用本工具回复 once（单次）/ always（始终批准）/ reject（拒绝，可带 feedback 告知申请 agent）。授权权：仅申请者的族谱根可答复。',
     accessKey: 'access_reply',
-    birth: 'allow', // 出生声明（access_reply）
+    registerAccess: 'allow', // 注册声明（access_reply）
     kind: 'internal',
     category: 'system',
     parameters: {

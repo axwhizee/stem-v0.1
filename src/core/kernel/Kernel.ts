@@ -6,7 +6,7 @@
 //
 // 权限模型（注册表 + 单操作收敛链）：生效权限 = 族谱位置的函数——实例注册
 // （创建/恢复）时经 lineage.attach/replay 物化：收敛链 steps（类清单→
-// [策略清单]→实例清单，逐步折叠不预合并）+ 出生表 caps 全局封顶；写入面
+// [策略清单]→实例清单，逐步折叠不预合并）+ 注册声明表 caps 全局封顶；写入面
 // （实例化/更新/根注册）走同一代数做**拒绝式校验**（扩张即拒、带层归因），
 // 物化面静默钳制（重启幂等）。tools registry / ask 总线经 AccessResolver
 // 端口查询，kernel 只做接线，不再逐层拼装。
@@ -107,7 +107,7 @@ export interface KernelOptions {
   /**
    * 根的类配置（config.user 全对象：tools/systemPrompt/
    * sendCountdown/model/contextStrategy）；tools 缺省 = 不设限（完整继承
-   * 注册表出生表面；推荐清单实值住首启模板 defaults.ts）。
+   * 注册表注册声明表面；推荐清单实值住首启模板 defaults.ts）。
    */
   readonly userClass?: UserClassConfig
   /** 工具访问自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
@@ -396,7 +396,7 @@ export class Kernel {
   }
 
   private birthCaps(): Readonly<Record<string, ToolAccess>> {
-    return this.tools?.birthTable() ?? {}
+    return this.tools?.registerAccessTable() ?? {}
   }
 
   private accessStepsOf(agentId: AgentID): readonly (ConvergenceStep | undefined)[] {
@@ -434,7 +434,7 @@ export class Kernel {
     const template = await this.templates.get(USER_CLASS_ID)
     const rootViolations = this.validateAccessSteps(undefined, this.labeledSteps([this.listStep(template.tools)], '根收敛'))
     if (rootViolations.length > 0) {
-      throw { kind: 'root_config_expanded', message: `config.user.tools 越出生声明被拒：\n${rootViolations.join('\n')}` } satisfies KernelError
+      throw { kind: 'root_config_expanded', message: `config.user.tools 越注册声明被拒：\n${rootViolations.join('\n')}` } satisfies KernelError
     }
     const instance = await this.instances.instantiate({
       className: USER_CLASS_ID,

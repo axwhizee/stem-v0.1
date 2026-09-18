@@ -17,20 +17,20 @@ import { createKernelHarness } from '../../../test/support/kernelHarness'
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
 /** 固定长度回声工具（结果长度可控 → 估算占比可预期）。 */
-async function registerEcho(tools: Awaited<ReturnType<typeof createKernelHarness>>['tools'], pad: number) {
-  await tools.register({
+function echoPadTool(pad: number) {
+  return {
     id: 'echo_pad',
-    birth: 'ignore',
+    registerAccess: 'ignore' as const,
     description: '回声',
     parameters: {
-      type: 'object',
-      properties: { n: { type: 'number', description: '调用序号（区分两次结果）' } },
+      type: 'object' as const,
+      properties: { n: { type: 'number' as const, description: '调用序号（区分两次结果）' } },
     },
-    execute: (input) => {
+    execute: (input: unknown) => {
       const { n } = (input ?? {}) as { n?: number }
       return { text: `${n ?? 0}:${'x'.repeat(pad)}` }
     },
-  })
+  }
 }
 
 async function spawnWorker(h: Awaited<ReturnType<typeof createKernelHarness>>, prompt: string) {
@@ -74,8 +74,9 @@ test('单轮工具环：assistant=output 直记，tool 行=input 差分归位', 
         tools: { echo_pad: 'allow' },
       },
     ],
+    extraTools: [echoPadTool(100)],
   })
-  await registerEcho(h.tools, 100)
+  void 0
   const id = await spawnWorker(h, '干活')
 
   const state = await h.kernel.contextManager.getState(id)
@@ -107,8 +108,9 @@ test('两条 tool 行：差分按估算占比分摊，和 = 真实增量', async
       ...BUILTIN_TEMPLATES,
       { name: makeAgentClassID('coder'), description: 'x', systemPrompt: 'sys', tools: { echo_pad: 'allow' } },
     ],
+    extraTools: [echoPadTool(50)],
   })
-  await registerEcho(h.tools, 100)
+  void 0
   const id = await spawnWorker(h, '干活')
 
   const state = await h.kernel.contextManager.getState(id)
@@ -137,8 +139,9 @@ test('负差分护栏：compact 型跳变回落估算，assistant 直记不受�
       ...BUILTIN_TEMPLATES,
       { name: makeAgentClassID('coder'), description: 'x', systemPrompt: 'sys', tools: { echo_pad: 'allow' } },
     ],
+    extraTools: [echoPadTool(200)],
   })
-  await registerEcho(h.tools, 100)
+  void 0
   const id = await spawnWorker(h, '干活')
 
   const state = await h.kernel.contextManager.getState(id)

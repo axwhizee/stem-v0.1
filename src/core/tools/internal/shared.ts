@@ -1,7 +1,7 @@
 // ============================================================
 // core/tools/internal/shared.ts —— internal 工具共享基元
 //
-// 注册即出生声明；消费方拥有端口（./ports），零 kernel import。
+// 注册即注册声明；消费方拥有端口（./ports），零 kernel import。
 // ============================================================
 
 import type { SystemToolHost, AgentConfigView } from './ports'

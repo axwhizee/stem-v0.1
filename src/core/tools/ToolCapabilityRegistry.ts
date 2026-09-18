@@ -3,7 +3,7 @@
 //
 // 一切工具统一注册（业务 mail_* / 系统 agent_*/context_* / extension / MCP 投影）。
 //
-// **注册即声明**（工具模型唯一数据源）：每个 ToolCapability 必带 birth
+// **注册即声明**（工具模型唯一数据源）：每个 ToolCapability 必带 registerAccess
 //（注册声明，编译期强制盘点，无兜底）。就绪只经 **drain**：
 // register + init 可追加 → 队列耗尽后工具表冻结（无热插拔）。
 //
@@ -47,7 +47,7 @@ export interface ToolDrainIssue {
 
 export interface ToolCapabilityRegistry {
   /**
-   * 注册工具（注册声明随 tool.birth 写入）。
+   * 注册工具（注册声明随 tool.registerAccess 写入）。
    * `replace: true` = 同名覆盖（drain 期内隐式允许；测试/深度定制通道）；
    * 缺省 = 同名冲突抛错。**drain 完成后工具表冻结**，再 register 抛错。
    */
@@ -59,9 +59,9 @@ export interface ToolCapabilityRegistry {
    * 注册声明表：访问键 → 注册时声明（共享键多工具取严）。
    * 收敛链的输入面：根/类/策略/实例清单逐键不得超过本表封顶。
    */
-  readonly birthTable: () => Readonly<Record<string, ToolAccess>>
+  readonly registerAccessTable: () => Readonly<Record<string, ToolAccess>>
   /** 某访问键的注册声明（未注册键 = undefined——config 点名解析用）。 */
-  readonly birthOf: (accessKey: string) => ToolAccess | undefined
+  readonly registerAccessOf: (accessKey: string) => ToolAccess | undefined
   /** 物化为 LLM 工具定义（schema）：按调用方生效访问过滤（deny/ignore 不暴露）。 */
   readonly materialize: (agentId: string, filter?: ToolListFilter) => readonly ToolDefinition[]
   /** 执行：查工具 → 访问确认 → 参数校验 → 执行器。 */
@@ -76,9 +76,12 @@ export interface ToolCapabilityRegistry {
   readonly drain: (
     seed: readonly ToolCapability[],
     ctx: { readonly fs?: ToolInitContext['fs']; readonly projectRoot?: string; readonly log?: ToolInitContext['log'] },
+    opts?: { readonly freeze?: boolean },
   ) => Promise<readonly ToolDrainIssue[]>
-  /** 工具表是否已冻结（drain 完成）。 */
+  /** 工具表是否已冻结（drain 完成且 freeze）。 */
   readonly frozen: () => boolean
+  /** 逐工具调用 dispose（系统收尾；失败不阻断）。 */
+  readonly disposeAll: () => Promise<void>
   /** 装配工具调用自动记录（组合根注入 → 邮局）。 */
   readonly setRecordSink: (onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>) => void
   /** 装配工具调用日志（组合根注入 → bus → core/logging）。 */
@@ -150,6 +153,7 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
   async drain(
     seed: readonly ToolCapability[],
     ctx: { readonly fs?: ToolInitContext['fs']; readonly projectRoot?: string; readonly log?: ToolInitContext['log'] },
+    opts?: { readonly freeze?: boolean },
   ): Promise<readonly ToolDrainIssue[]> {
     if (this.isFrozen) {
       return [{ tool: '', message: '工具表已冻结，不可再次 drain' }]
@@ -180,8 +184,19 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
         issues.push({ tool: tool.id, message: cause instanceof Error ? cause.message : String(cause) })
       }
     }
-    this.isFrozen = true
+    if (opts?.freeze !== false) this.isFrozen = true
     return issues
+  }
+
+  async disposeAll(): Promise<void> {
+    for (const tool of this.tools.values()) {
+      if (tool.dispose === undefined) continue
+      try {
+        await tool.dispose()
+      } catch {
+        // 收尾失败不阻断
+      }
+    }
   }
 
   async unregister(id: string): Promise<void> {
@@ -201,23 +216,23 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     return all.filter((t) => t.category === filter.category)
   }
 
-  birthTable(): Readonly<Record<string, ToolAccess>> {
-    // 注册行为生成的总工具表：访问键 → 出生值（共享键多工具**取严**——
+  registerAccessTable(): Readonly<Record<string, ToolAccess>> {
+    // 注册行为生成的总工具表：访问键 → 注册声明（共享键多工具**取严**——
     // 封顶保守不越权；表极小，线性折叠即可）。
     const table: Record<string, ToolAccess> = {}
     for (const tool of this.tools.values()) {
       const key = tool.accessKey ?? tool.id
       const prev = table[key]
-      table[key] = prev === undefined ? tool.birth : restrictAccess(prev, tool.birth)
+      table[key] = prev === undefined ? tool.registerAccess : restrictAccess(prev, tool.registerAccess)
     }
     return table
   }
 
-  birthOf(accessKey: string): ToolAccess | undefined {
+  registerAccessOf(accessKey: string): ToolAccess | undefined {
     let acc: ToolAccess | undefined
     for (const tool of this.tools.values()) {
       if ((tool.accessKey ?? tool.id) !== accessKey) continue
-      acc = acc === undefined ? tool.birth : restrictAccess(acc, tool.birth)
+      acc = acc === undefined ? tool.registerAccess : restrictAccess(acc, tool.registerAccess)
     }
     return acc
   }
@@ -227,9 +242,9 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     for (const tool of this.tools.values()) {
       if (filter?.category !== undefined && tool.category !== filter.category) continue
       const accessKey = tool.accessKey ?? tool.id
-      // 族谱台账查询（生效权限 = 族谱位置的函数）；链上无判定 → 出生值
-      // （**kind 不参与推断**——出生即封顶，无兜底表）。
-      const action = this.resolver?.accessOf(agentId, accessKey) ?? tool.birth
+      // 族谱台账查询（生效权限 = 族谱位置的函数）；链上无判定 → 注册声明
+      // （**kind 不参与推断**——注册即封顶，无兜底表）。
+      const action = this.resolver?.accessOf(agentId, accessKey) ?? tool.registerAccess
       // 模型可见清单 = allow ∪ ask；deny 出局；ignore = 背景在场（不设防）。
       if (action === 'deny' || action === 'ignore') continue
       result.push({ name: tool.id, description: tool.description, parameters: tool.parameters })
@@ -247,7 +262,7 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
       await this.access?.assert({
         accessKey,
         agentId: ctx.agentId,
-        birth: tool.birth,
+        registerAccess: tool.registerAccess,
         metadata: { tool: tool.id },
         ...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
       })

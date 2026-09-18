@@ -8,7 +8,7 @@
 // （回信即交付物：spawn→schema 过→轮替→镜像→回收→下轮组装带组）、
 // 纠错回信循环（坏→纠错→好）、纠错耗尽 = 半途不轮替、阈值自动点火、
 // 权限声明清单 raise（宿主自动持有 / 非 cortex 不白拿 / set_* 灭迹）。
-// 假策略审计组：策略 = 纯既有接口组合的定律链（ignore 出生 → 声明清单
+// 假策略审计组：策略 = 纯既有接口组合的定律链（ignore 注册声明 → 声明清单
 // 抬 allow → 类/祖先显式更严 = 实例化拒绝——矛盾复用收敛检查零特判）。
 // ============================================================
 
@@ -219,7 +219,7 @@ describe('cortex 工具面：笔记归属路由与落账', () => {
   test('工具面 = 笔记两枚（set_* 与暂存整体退役）', () => {
     const { tools } = makeTools()
     assert.deepEqual(tools.map((t) => t.id).sort(), ['cortex_add_note', 'cortex_del_note'])
-    assert.deepEqual(tools.map((t) => t.birth).sort(), ['ignore', 'ignore'], '策略注册工具出生恒 ignore')
+    assert.deepEqual(tools.map((t) => t.registerAccess).sort(), ['ignore', 'ignore'], '策略注册工具出生恒 ignore')
   })
 
   test('note 工具：无梦直写 caller 目录；有梦 worker 以 host 名义立即落盘并计数', async () => {
@@ -323,15 +323,8 @@ async function cortexHarness(workerTurns: (turn: number) => LLMEvent[]) {
     templates: [...BUILTIN_TEMPLATES, cortexTemplate],
     strategies: registry,
     contextSettings: settings,
+    extraTools: owned,
   })
-  for (const t of owned) {
-    await h.tools.register(t, { replace: true })
-    await t.init?.({
-      fs: { listFiles: fs.api.listFiles, readText: fs.api.readText },
-      projectRoot: '/space',
-      registerMore: () => {},
-    })
-  }
   const agentId = await h.kernel.instantiateAgent(
     { className: makeAgentClassID('mem-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: '开工写 cortex 测试' },
   )
@@ -490,7 +483,7 @@ describe('cortex 端到端：做梦事务（回信即交付物）', () => {
 const FAKE_TOOL: ToolCapability = {
   id: 'fake_note',
   kind: 'custom',
-  birth: 'ignore', // 策略注册通例
+  registerAccess: 'ignore', // 策略注册通例
   description: '假策略自带工具（审计用）',
   parameters: { type: 'object', properties: {} },
   execute: async () => ({ text: 'ok' }),
@@ -519,12 +512,12 @@ async function fakeHarness(userClass?: ConstructorParameters<typeof import('../.
     templates: [...BUILTIN_TEMPLATES, ...extraTemplates],
     strategies: createBuiltinStrategyRegistry([fakeStrategy]),
     ...(userClass !== undefined ? { userClass } : {}),
+    extraTools: fakeStrategy.ownedTools ?? [],
   })
-  await h.tools.register(FAKE_TOOL, { replace: true })
   return h
 }
 
-describe('策略声明清单审计（定律：ignore 出生 → raise 抬升 → 矛盾拒绝）', () => {
+describe('策略声明清单审计（定律：ignore 注册声明 → raise 抬升 → 矛盾拒绝）', () => {
   test('正常宿主：类未列笔记键，声明清单使生效面 = allow', async () => {
     const h = await fakeHarness()
     const id = await h.kernel.instantiateAgent(
@@ -565,7 +558,7 @@ describe('策略声明清单审计（定律：ignore 出生 → raise 抬升 →
   })
 
   test('纯 raise 链不破继承形封闭（父白名单封闭 → 宿主未列键仍 deny）', async () => {
-    // 根写白名单表（access_reply 出生 allow 必需）→ 根 fallback deny 下传；
+    // 根写白名单表（access_reply 注册声明 allow 必需）→ 根 fallback deny 下传；
     // fake-agent 类不设表 + raise fake_note → 表外键仍继承根封闭。
     const h = await fakeHarness({ tools: { access_reply: 'allow' } } as never)
     const id = await h.kernel.instantiateAgent(

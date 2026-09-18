@@ -16,7 +16,7 @@ export function createWriteTool(root: string): ToolCapability {
     description: '写入文本内容到文件（全量覆盖，父目录自动创建）。路径为绝对路径或相对工作区路径。',
     accessKey: 'edit',
     kind: 'extension',
-    birth: 'allow', // 自述推荐值；实际出生以 config.extensions.tools 点名权限词为准
+    registerAccess: 'allow', // 自述推荐值；实际注册声明以 config.extensions.tools 点名权限词为准
     category: 'business',
     parameters: {
       type: 'object',

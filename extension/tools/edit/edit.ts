@@ -18,7 +18,7 @@ export function createEditTool(root: string): ToolCapability {
       '编辑文件：用 newString 精确替换 oldString（必须完全匹配，含空白与缩进）。oldString 不能为空；若匹配多处需设 replaceAll=true。',
     accessKey: 'edit',
     kind: 'extension',
-    birth: 'allow', // 自述推荐值；实际出生以 config.extensions.tools 点名权限词为准
+    registerAccess: 'allow', // 自述推荐值；实际注册声明以 config.extensions.tools 点名权限词为准
     category: 'business',
     parameters: {
       type: 'object',

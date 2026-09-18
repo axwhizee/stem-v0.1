@@ -12,7 +12,7 @@ extension/
 └── context/<名>/<名>.ts     上下文策略（ContextStrategyModule）
 ```
 
-- 由 `config.extensions.{tools,agent,context}` 分键点名启用；**未点名 = 不存在于世界**（tools 点名即出生声明：`{"名": 权限词}`）。
+- 由 `config.extensions.{tools,agent,context}` 分键点名启用；**未点名 = 不存在于世界**（tools 点名即注册声明：`{"名": 权限词}`）。
 - 加载顺序 internal → extension → custom，**后层同名覆盖前层**（registry/template register replace）。
 - `_lib/` 下划线前缀目录 = 共享辅助代码，不参与扫描。
 

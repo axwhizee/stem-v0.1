@@ -17,4 +17,4 @@ export type { RuntimePort, RuntimePortDeps } from '../kernel'
 
 // internal 工具装配 + 工具记录 sink 接线（组合根；Kernel 不再自接线）
 export type { InternalToolWiringOptions } from './toolWiring'
-export { registerInternalTools, attachToolRecordSink } from './toolWiring'
+export { createInternalToolDefs, attachToolRecordSink } from './toolWiring'

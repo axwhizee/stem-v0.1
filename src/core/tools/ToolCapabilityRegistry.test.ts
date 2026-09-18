@@ -12,7 +12,7 @@ import { validateArgs } from './validate'
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
 
-/** 固定判定表 resolver（模拟族谱台账；缺席 = undefined → 落出生值 birth）。 */
+/** 固定判定表 resolver（模拟族谱台账；缺席 = undefined → 落注册声明 birth）。 */
 const tableResolver = (table: Record<string, ToolAccess | undefined>): AccessResolver => ({
   accessOf: (_agentId, key) => table[key],
 })
@@ -21,7 +21,7 @@ const baseCtx: ToolContext = { agentId: 'a1' }
 
 const echoTool: ToolCapability = {
   id: 'oc_echo',
-  birth: 'ask', // 业务工具自报出生：无人显式判定时挂起询问
+  registerAccess: 'ask', // 业务工具自报 registerAccess：无人显式判定时挂起询问
   description: 'echo 文本',
   category: 'business',
   parameters: {
@@ -34,7 +34,7 @@ const echoTool: ToolCapability = {
 
 const telemetryTool: ToolCapability = {
   id: 'telemetry_read',
-  birth: 'ignore',
+  registerAccess: 'ignore',
   description: '读取全量日志',
   category: 'telemetry',
   parameters: { type: 'object', properties: {} },
@@ -113,22 +113,22 @@ describe('DefaultToolCapabilityRegistry', () => {
     assert.deepEqual(denyRegistry.materialize('a1').map((t) => t.name), ['oc_echo'])
   })
 
-  test('kind 不参与权限推断（出生值决定；审计定律 1 的单元侧锚）', async () => {
-    // 出生 ignore：无论 kind 为何值都隐藏（背景在场不设防）。
+  test('kind 不参与权限推断（注册声明决定；审计定律 1 的单元侧锚）', async () => {
+    // registerAccess ignore：无论 kind 为何值都隐藏（背景在场不设防）。
     for (const kind of ['internal', 'extension', 'custom'] as const) {
       const hidden = new DefaultToolCapabilityRegistry()
-      await hidden.register({ ...echoTool, birth: 'ignore', kind })
-      assert.deepEqual(hidden.materialize('a1').map((t) => t.name), [], `birth=ignore kind=${kind} 应隐藏`)
+      await hidden.register({ ...echoTool, registerAccess: 'ignore', kind })
+      assert.deepEqual(hidden.materialize('a1').map((t) => t.name), [], `registerAccess=ignore kind=${kind} 应隐藏`)
     }
-    // 出生 allow：无论 kind 为何值都直接暴露（族谱无判定）。
+    // registerAccess allow：无论 kind 为何值都直接暴露（族谱无判定）。
     for (const kind of ['internal', 'extension', 'custom'] as const) {
       const shown = new DefaultToolCapabilityRegistry()
-      await shown.register({ ...echoTool, birth: 'allow', kind })
-      assert.deepEqual(shown.materialize('a1').map((t) => t.name), ['oc_echo'], `birth=allow kind=${kind} 应暴露`)
+      await shown.register({ ...echoTool, registerAccess: 'allow', kind })
+      assert.deepEqual(shown.materialize('a1').map((t) => t.name), ['oc_echo'], `registerAccess=allow kind=${kind} 应暴露`)
     }
-    // 族谱显式判定仍可收紧：出生 allow + 链上 ask → 暴露（ask 上清单）。
+    // 族谱显式判定仍可收紧：registerAccess allow + 链上 ask → 暴露（ask 上清单）。
     const askReg = new DefaultToolCapabilityRegistry({ resolver: tableResolver({ oc_echo: 'ask' }) })
-    await askReg.register({ ...echoTool, birth: 'allow', kind: 'internal' })
+    await askReg.register({ ...echoTool, registerAccess: 'allow', kind: 'internal' })
     assert.deepEqual(askReg.materialize('a1').map((t) => t.name), ['oc_echo'])
   })
 

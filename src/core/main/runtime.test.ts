@@ -135,7 +135,7 @@ describe('DefaultRuntime（被动驱动）', () => {
     const tools = new DefaultToolCapabilityRegistry()
     await tools.register({
       id: 'oc_echo',
-      birth: 'ignore',
+      registerAccess: 'ignore',
       description: 'echo',
       parameters: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] },
       execute: (input) => ({ text: `Echo: ${(input as { text: string }).text}` }),
@@ -288,7 +288,7 @@ describe('步数上限（S9：类基因 > 全局兜底 > 无限）', () => {
     const tools = new DefaultToolCapabilityRegistry()
     await tools.register({
       id: 'tick',
-      birth: 'ignore',
+      registerAccess: 'ignore',
       description: 'x',
       parameters: { type: 'object', properties: {} },
       execute: () => ({ text: 'tick' }),
@@ -306,7 +306,7 @@ describe('步数上限（S9：类基因 > 全局兜底 > 无限）', () => {
     const tools = new DefaultToolCapabilityRegistry()
     await tools.register({
       id: 'tick',
-      birth: 'ignore',
+      registerAccess: 'ignore',
       description: 'x',
       parameters: { type: 'object', properties: {} },
       execute: () => ({ text: 'tick' }),
@@ -327,7 +327,7 @@ describe('步数上限（S9：类基因 > 全局兜底 > 无限）', () => {
     const tools = new DefaultToolCapabilityRegistry()
     await tools.register({
       id: 'tick',
-      birth: 'ignore',
+      registerAccess: 'ignore',
       description: 'x',
       parameters: { type: 'object', properties: {} },
       execute: () => ({ text: 'tick' }),

@@ -159,7 +159,7 @@ test('bash 块：解析 + 类型校验', () => {
   expectFail('{ "bash": { "defaultTimeoutMs": -1 } }', 'defaultTimeoutMs')
 })
 
-test('extensions：tools 点名对象（装载+出生一句话）+ 旧数组形拒启指路', () => {
+test('extensions：tools 点名对象（装载+注册声明一句话）+ 旧数组形拒启指路', () => {
   assert.deepEqual(parseConfigText('{ "extensions": { "tools": {} } }').extensions, { tools: {} })
   assert.deepEqual(parseConfigText('{ "extensions": { "tools": { "read": "allow" } } }').extensions, { tools: { read: 'allow' } })
   assert.deepEqual(parseConfigText('{ "extensions": {} }').extensions, {})

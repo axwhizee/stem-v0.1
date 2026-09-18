@@ -60,8 +60,6 @@ export interface InitDeps {
     readonly agent?: string
     readonly context?: string
   }
-  /** 工具注册表（注册用户工具）。 */
-  readonly toolRegistry: import('../tools').ToolCapabilityRegistry
   /** 模板注册表（注册用户 agent 类）。 */
   readonly templateRegistry: import('../kernel').TemplateRegistry
   /** 上下文策略注册表（注册用户 `.stem/context/` 策略；可选）。 */
