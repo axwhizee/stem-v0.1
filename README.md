@@ -44,7 +44,7 @@ stem 是一个**用户主权的 Agent 系统**：没有固定角色，一切 age
 | **邮局模型** | 仓库 → 管理员 → 快递员；无总线；统一挂起 Waiter |
 | **上下文策略** | classic / cortex / none；可自定义 `.stem/context/` |
 | **user#0 扮演** | 根是面板，外部 shell 经 Pilot 以根身份行动 |
-| **工具模型** | 注册即注册声明；键即白名单；ask = 消息审批 |
+| **工具模型** | 注册即注册声明；键即白名单；权限 = allow/deny/ignore 静态收敛 |
 | **stem 空间** | `.stem/stem.jsonc` + 类/策略/工具目录即真相；SQLite 持久 |
 
 机制细节（收敛代数、loop 时序、库表结构等）→ **`docs/architecture.md`**。
@@ -69,8 +69,8 @@ stem 是一个**用户主权的 Agent 系统**：没有固定角色，一切 age
 
 ## 工具一览
 
-- **系统工具**（internal，约 20 枚）：类/实例生命周期、邮件、上下文、telemetry、`access_reply`
-- **对外操作面**：`bash`（宿主注入 ShellRunner；无 ask/黑名单，靠超时与截断限半径）
+- **系统工具**（internal，约 19 枚）：类/实例生命周期、邮件、上下文、telemetry
+- **对外操作面**：`bash`（宿主注入 ShellRunner；静态三态权限 + 容器边界限半径）
 - **extension**：`read/write/edit/grep/glob` + web 两件（`config.extensions.tools` 点名）
 - **custom**：`.stem/tools/` 点名装载
 

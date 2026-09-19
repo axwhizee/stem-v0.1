@@ -98,10 +98,6 @@ function telemetryBrief(event: LogEvent): string {
       return `${event.aborted ? 'abort' : 'error'} ${event.message}`
     case 'kernel.message.sent':
       return `${event.from}→${event.to} ${event.kind} ${event.payloadSize}B`
-    case 'access.asked':
-      return `${event.accessKey} ${event.action}`
-    case 'access.replied':
-      return `${event.accessKey} ${event.reply}`
     case 'init.tool.registered':
       return `tool=${event.tool} file=${event.file}`
     case 'init.agent.registered':

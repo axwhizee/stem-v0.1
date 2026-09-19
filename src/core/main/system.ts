@@ -7,7 +7,7 @@
 //   Ⅱ Kernel 构造（工具表尚空；internal execute 经端口用到 Kernel）
 //   Ⅲ 工具 drain：seed = internal 定义 + hostTools + 发现清单 + 策略 ownedTools
 //      while (队列) { register + init }；init 可 registerMore；完成后冻结
-//   Ⅳ wireRestoredContexts → Ⅴ Pilot/user#0 → Ⅵ boot 校验律 → Ⅶ userHooks
+//   Ⅳ wireRestoredContexts → Ⅴ Pilot/user#0 → Ⅵ userHooks
 //
 // 策略不参与 boot 编排：无策略 init、无 registerTool。
 // ============================================================
@@ -23,7 +23,7 @@ import type { ClassStore } from '../kernel'
 import type { ToolCapability, ToolCapabilityRegistry } from '../tools'
 import { DefaultToolCapabilityRegistry } from '../tools'
 import type { ShellRunner } from '../tools'
-import { Kernel, ROOT_ID } from '../kernel'
+import { Kernel } from '../kernel'
 import type { Pilot } from '../pilot'
 import { createPilot } from '../pilot'
 import type { PilotEvent } from '../events'
@@ -103,7 +103,6 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     project: deps.config.paths.projectRoot,
     tools,
     defaultCountdownMs: config.sendCountdown,
-    autoApprove: config.autoApprove,
     timer: deps.timer,
     ...(config.tools?.outputLimit !== undefined ? { toolOutputLimit: config.tools.outputLimit } : {}),
     estimateCost: deps.estimateCost,
@@ -191,19 +190,6 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
   const pilot = await createPilot({ facade: createSystemFacade(kernel) })
   if (deps.onEvent) pilot.subscribe(deps.onEvent)
 
-  // ---- Ⅵ boot 校验律 ----
-  const replyExplicit = kernel.lineage.effectiveAccess(ROOT_ID, 'access_reply')
-  const replyAccess = replyExplicit ?? tools.registerAccessOf('access_reply')
-  if (replyAccess !== 'allow') {
-    throw {
-      kind: 'invalid_config',
-      message:
-        `boot 校验律：根（user#0）生效 access_reply = ${String(replyAccess)}，必须为 allow——` +
-        'ask 审批经 access_request→根信箱→access_reply 消息交换闭环，根答复缺位 = 权限系统死锁。' +
-        '请在 .stem/stem.jsonc 的 user.tools 补 "access_reply": "allow"（首启模板含推荐清单实值）。',
-    } as ConfigError
-  }
-
   const system: StemSystem = {
     kernel,
     pilot,
@@ -218,7 +204,7 @@ export async function createStemSystem(deps: StemSystemDeps): Promise<StemSystem
     },
   }
 
-  // ---- Ⅶ userHooks ----
+  // ---- Ⅵ userHooks ----
   for (const hook of deps.userHooks ?? []) await hook(system)
 
   return system

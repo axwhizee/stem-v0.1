@@ -32,12 +32,11 @@ export const DEFAULT_CONFIG_TEXT = `{
   //   的模型解析链 显式 > 类基因 > 父继承；user 类 model 基因 = 本字段。
   // tools = 根收敛清单（收敛链第一环：键即白名单，未列一律 deny——缺席 ≠ 否决，
   //   不锁子孙显式申请；逐键被注册声明表封顶）。下面是写好的推荐值，按你的
-  //   主权增删（access_reply 保持 allow，缺位系统拒启——ask 审批闭环的答复义务）。
+  //   主权增删（权限词 = allow/deny/ignore）。
   "user": {
     // "name": "user",
     "model": "opencode-go/deepseek-v4-flash",
     "tools": {
-      "access_reply": "allow",
       "bash": "allow",
       "websearch": "allow",
       "webfetch": "allow",
@@ -47,7 +46,7 @@ export const DEFAULT_CONFIG_TEXT = `{
       "agent_ancestry": "allow",
       "agent_descendants": "allow",
       "agent_class_list": "allow",
-      "agent_update": "ask",
+      "agent_update": "allow",
       "mail_send": "allow",
       "mail_participants": "allow",
       "telemetry_query": "allow",
@@ -56,12 +55,11 @@ export const DEFAULT_CONFIG_TEXT = `{
       "context_remove": "allow",
       "context_edit": "allow",
       "context_apply": "allow",
-      "agent_class_create": "ask",
-      "agent_class_update": "ask",
-      "agent_terminate": "ask"
+      "agent_class_create": "allow",
+      "agent_class_update": "allow",
+      "agent_terminate": "allow"
     }
   },
-  "autoApprove": false,
   // 上下文策略（classic compact 参数面；summarizeModel 缺省 = 摘要 worker 继承宿主模型）。
   "context": { "window": 1000000, "compact": { "enabled": true, "threshold": 0.8, "keepRecentTurns": 3 } },
   // bash 工具（缺省内置：120s 超时 / 50k 截断 / 项目根目录）。

@@ -43,14 +43,7 @@ describe('formatToolError（kind 必显示 + 细节退化链）', () => {
     assert.equal(formatToolError({ kind: 'invalid_arguments', tool: 't', message: '参数错' }), '[ToolError invalid_arguments] 参数错')
   })
 
-  test('无 message 时用 feedback（access_rejected）', () => {
-    assert.equal(
-      formatToolError({ kind: 'access_rejected', tool: 't', accessKey: 'k', feedback: '不许' }),
-      '[ToolError access_rejected] 不许',
-    )
-  })
-
-  test('无 message/feedback 时退化到 accessKey', () => {
+  test('无 message 时退化到 accessKey（access_denied）', () => {
     assert.equal(formatToolError({ kind: 'access_denied', tool: 't', accessKey: 'bash' }), '[ToolError access_denied] 访问键 bash 被拒')
   })
 

@@ -7,7 +7,7 @@
 //   3. 会话模型（显式目标制）：chat_id → 当前目标优先级 = 显式会话(/new /use，
 //      回写 feishu.jsonc) > 静态绑定表 > 秘书（可选项，secretaryClass 配了才有）；
 //      未绑定且秘书关闭 = 回指令指引；
-//   4. 信箱读 aloud：根来信（接待员回复/审批申请）→ 出口消息/审批卡；
+//   4. 信箱读 aloud：根来信（接待员回复）→ 出口消息；
 //   5. watch 订阅：任意 chat 订阅任意 agent 的 letter/status/notice/tool 事件（节流聚合）；
 //   6. 幂等去重：平台事件有重试，message_id LRU 判重（手册 §8 硬建议）。
 // ============================================================
@@ -30,19 +30,8 @@ export type OutAction =
   | { readonly kind: 'reply'; readonly chatId: string; readonly text: string }
   /** 信件正文投给目标 agent（pilot.sendMessage 自根身份）。 */
   | { readonly kind: 'deliver'; readonly chatId: string; readonly to: string; readonly text: string }
-  /** 发送审批交互卡（targets = 主人单聊 + approvalChatIds）。 */
-  | { readonly kind: 'approvalCard'; readonly chatIds: readonly string[]; readonly request: AccessRequestView }
   /** 命令执行请求（main 持 pilot/kernel 能力面执行，产出文本后回 reply）。 */
   | { readonly kind: 'command'; readonly chatId: string; readonly name: string; readonly args: readonly string[] }
-
-/** access_request XML 的解析视图。 */
-export interface AccessRequestView {
-  readonly requestId: string
-  readonly accessKey: string
-  /** 申请者全名 `name#id`（B3 呈现面；审批卡直读，回投以 requestId 配对）。 */
-  readonly agentId: string
-  readonly detail: string
-}
 
 /** 内核信箱来信的规一形状（main 用 repository 反查 from 后送入）。 */
 export interface MailItem {
@@ -205,20 +194,8 @@ export const HELP_TEXT = [
 
 // —— 信箱读 aloud（根来信 → 出口） ——
 
-/** 解析根信箱来信里的审批申请（XML 形状 = formatAccessRequest 产物）。 */
-export function parseAccessRequest(text: string): AccessRequestView | undefined {
-  const m = /<access_request\s+id="([^"]+)"\s+accessKey="([^"]+)"\s+agent="([^"]+)">/.exec(text)
-  if (!m) return undefined
-  return {
-    requestId: m[1]!,
-    accessKey: m[2]!,
-    agentId: m[3]!,
-    detail: text.slice(m[0].length).split('</access_request>')[0] ?? '',
-  }
-}
-
 /**
- * 根（user#0）新来信 → 出口动作：审批申请发卡（附状态行文本兜底），其余按来信身份分流——
+ * 根（user#0）新来信 → 出口动作：按来信身份分流——
  * 接待员（或绑定 agent）回给船长的信 = 读 aloud 给主人；旁支通信不打扰主人，仅走 watch。
  */
 export function routeUserMail(state: RouterState, mail: readonly MailItem[]): OutAction[] {
@@ -226,16 +203,9 @@ export function routeUserMail(state: RouterState, mail: readonly MailItem[]): Ou
   const ownerChat = state.ownerChatId
   if (ownerChat === undefined) return []
   for (const item of mail) {
-    const req = parseAccessRequest(item.content)
-    if (req !== undefined) {
-      const targets = [ownerChat, ...state.config.approvalChatIds.filter((c) => c !== ownerChat)]
-      out.push({ kind: 'approvalCard', chatIds: targets, request: req })
-      continue
-    }
     if (item.from === state.secretaryId || isBoundSource(state, item.from)) {
       out.push({ kind: 'reply', chatId: ownerChat, text: item.content })
     }
-    // 其余（如根自身 assistant 回声/旁支）不读 aloud。
   }
   return out
 }
@@ -296,24 +266,6 @@ export function applyWatchCommand(state: RouterState, chatId: string, name: 'wat
   if (target === undefined) return '用法：/watch <agent|all>'
   set.add(target === 'all' ? '*' : target)
   return `本会话已订阅 [${target}] 的事件推送（/unwatch 退订）。`
-}
-
-// —— 审批卡回调 → access_reply 输入 ——
-
-/** 卡片按钮 value 约定：{act:'access', reply:'once|always|reject', requestId}。 */
-export interface CardActionView {
-  readonly requestId: string
-  readonly reply: 'once' | 'always' | 'reject'
-}
-
-export function parseCardAction(value: unknown): CardActionView | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
-  const v = value as Record<string, unknown>
-  if (v.act !== 'access') return undefined
-  const reply = v.reply
-  if (reply !== 'once' && reply !== 'always' && reply !== 'reject') return undefined
-  if (typeof v.requestId !== 'string' || v.requestId === '') return undefined
-  return { requestId: v.requestId, reply }
 }
 
 // —— 文本渲染（纯函数，输入为 main 投影出的平数据） ——

@@ -50,7 +50,7 @@ src/core/       纯 TS 零平台依赖
   lineage/      LineageTree（拓扑+能力+canReach）
   logging/      LogEvent + Logger + forget
   pilot/        根 user#0 扮演接口
-  tools/        注册表 + 四态代数 + accessRequest + output + internal/
+  tools/        注册表 + 三态代数 + output + internal/
 shell/          cli / webui / dashboard / feishu
 extension/      tools / agent / context（config 点名）
 test/           support / feasibility / space-demo
@@ -70,7 +70,7 @@ docs/           architecture / contributor / scenarios / api（交付）
 ## 门槛与硬规则（摘要）
 
 - 全体 agent 绝对平等；权限/模型 = 族谱位置的函数；键即白名单只紧不松。
-- 对外操作面 = bash 单点（无 ask/黑名单）；密钥只走 env。
+- 对外操作面 = bash 单点（静态三态权限，无进程内审批）；密钥只走 env。
 - 对过时文件/死代码零容忍；文档忠于现状。
 - 机制细节见 `docs/architecture.md` 与 `docs/contributor.md`，本文件不展开。
 

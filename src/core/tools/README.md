@@ -6,41 +6,39 @@
 ## 1. 职责与依赖
 
 - **对模型**：把注册的工具物化为 LLM tool schema（`materialize`），执行调用并统一成形结果。
-- **对系统**：提供注册声明（入表时的访问动作封顶，字段名 `registerAccess`）、权限四态代数、收敛链折叠、ask 审批消息化。
+- **对系统**：提供注册声明（入表时的访问动作封顶，字段名 `registerAccess`）、权限三态代数、收敛链折叠。
 - **依赖**：`gateway`（ToolDefinition schema）、`logging`（日志事件）；**自持端口** `internal/ports.ts`（消费方拥有，kernel 适配器实现，组合根注入）。**本模块不 import kernel**。
 
 ```
 tools/
 ├── index.ts                 唯一出口（只 re-export）
 ├── types.ts                 领域类型（ToolCapability/ToolAccess/ToolContext/…）
-├── access.ts                四态代数：restrictAccess / accessRank / 收敛链折叠
-├── accessRequest.ts         ask 消息化（DefaultAccessAskBus / formatAccessRequest）
+├── access.ts                三态代数：restrictAccess / accessRank / 收敛链折叠
 ├── validate.ts              JSON Schema 子集参数校验
 ├── output.ts                ★ 统一输出成形（成功/失败同入口 + 窗口限制）
 ├── ToolCapabilityRegistry.ts 注册表（注册/物化/执行/记录 sink）
 └── internal/                ★ 一切 kind=internal 工具的唯一定义域
     ├── index.ts             createInternalTools(host, bash?) —— internal 唯一出入口
-    ├── ports.ts             SystemToolHost + 按域窄端口（Agent/Context/Telemetry/Access）
+    ├── ports.ts             SystemToolHost + 按域窄端口（Agent/Context/Telemetry）
     ├── shared.ts            resolveOr / resolveReachable / MODEL_* 呈现基元（模型解析走 gateway.parseModelRef）
-    ├── systemTools.ts       createSystemTools 聚合（20 枚工具清单）
+    ├── systemTools.ts       createSystemTools 聚合
     ├── agentClassTools.ts   agent_class_*
     ├── agentInstanceTools.ts agent_instantiate/update/list/inspect/ancestry/descendants/terminate
     ├── mailTools.ts         mail_*
     ├── contextTools.ts      agent_pause + context_*
     ├── telemetryTools.ts    telemetry_query + 行渲染
-    ├── accessTools.ts       access_reply
     └── bash.ts              bash 工具 + ShellRunner 端口（宿主注入）
 ```
 
-## 2. 权限四态与收敛链
+## 2. 权限三态与收敛链
 
-`ToolAccess = allow | ask | deny | ignore`，严格度总序 **`deny ≺ ask ≺ allow ≺ ignore`**（按监督度：ignore = 看不见的执行最宽）。一切权限书写面同一把尺，**只许顺链收紧**，藏匿（allow→ignore）判扩张被拒。
+`ToolAccess = allow | deny | ignore`，严格度总序 **`deny ≺ allow ≺ ignore`**（按监督度：ignore = 看不见的执行最宽）。一切权限书写面同一把尺，**只许顺链收紧**，藏匿（allow→ignore）判扩张被拒。
 
 - **键即白名单**：类/实例的 `tools` Record 键为工具访问键；未列 = 本地 deny；**未设（undefined）= 完整继承父生效档案**；`{}` = 本地封闭。
-- **注册声明（字段名 `registerAccess`）**：工具入表时必带的访问动作，是收敛链的全局封顶（描述工具注册行为，不是 agent「出生」）。internal 在 core 注册点写死（`access_reply: allow`、`bash: allow`，其余通例 `ignore`）；extension/custom 由 `config.extensions.tools {名: 权限词}` 点名时注入（发现与注册声明一句话）。
+- **注册声明（字段名 `registerAccess`）**：工具入表时必带的访问动作，是收敛链的全局封顶（描述工具注册行为，不是 agent「出生」）。internal 在 core 注册点写死（`bash: allow`，其余通例 `ignore`）；extension/custom 由 `config.extensions.tools {名: 权限词}` 点名时注入（发现与注册声明一句话）。
 - **收敛链**：根清单 → 类清单 → [策略 raise 清单] → 实例清单，逐步折叠、不预合并，逐键被父面显式判定 ∧ 注册声明封顶。物化面静默钳制（重启幂等），写入面拒绝式校验（扩张即拒、带层归因）。
-- **模型可见 = allow ∪ ask**；deny 出局；ignore 背景在场（不暴露给模型但可被显式调用路径使用）。
-- **ask 是消息交换**：`access_request` 投递到申请者族谱根信箱 → 根经 `access_reply` 回复 once/always/reject（always 记 per-(agent,key) 豁免备忘，只免询问不破 deny/ignore）。
+- **模型可见 = allow**；deny/ignore 不进 LLM 清单；ignore = 背景在场（可执行，不暴露）。
+- **无进程内审批**：config/类文件出现 `ask` = boot 拒启；真实爆炸半径由宿主容器与挂载边界承担。
 
 ## 3. 生命周期（注册 + init drain；架构卷 2.3b / 2.8）
 
@@ -48,8 +46,8 @@ tools/
 |---|---|---|
 | **发现** | stem 初始化 | 产出无序清单（internal + extension 点名 + custom 点名；注册声明已随定义） |
 | **注册 + 初始化** | 工具 drain | `register(t)` 后立刻 `t.init?(ctx)`；init 可追加注册；drain 完成后**冻结** |
-| **激活** | 每 agent 生效时 | `materialize`（可见 = allow ∪ ask）+ `access.assert`（执行前门禁） |
-| **工作** | 模型发起调用 | `execute` + `onBeforeExecute/onAfterExecute/onError` |
+| **激活** | 每 agent 生效时 | `materialize`（可见 = allow）+ `execute` 静态权限判定 |
+| **工作** | 模型发起调用 | `execute` + 记录 sink（called/success/error） |
 | **输出结果** | 结果落上下文前 | `output.ts` 统一成形（成功与错误同一入口） |
 
 **init 与 execute 能力面分离（无热插拔）**：
@@ -71,17 +69,16 @@ tools/
 | `AgentPort` | 族谱/实例/类/寻址/通信（agent_*、mail_*） |
 | `ContextPort` | 上下文本体操作（context_*、agent_pause） |
 | `TelemetryPort` | 日志读取（telemetry_query） |
-| `AccessPort` | ask 审批回复（access_reply） |
 
-`SystemToolHost = { agents, context, telemetry, access }`；kernel 经 `kernel/toolHost.ts` 把自身域操作适配为中性 DTO，组合根注入。**其他模块不得 import 本端口类型**：类型只住 `internal/ports.ts`，不随 `tools/index.ts` 公开导出；kernel 适配器为具名例外，直取 `../tools/internal/ports`。
+`SystemToolHost = { agents, context, telemetry }`；kernel 经 `kernel/toolHost.ts` 把自身域操作适配为中性 DTO，组合根注入。**其他模块不得 import 本端口类型**：类型只住 `internal/ports.ts`，不随 `tools/index.ts` 公开导出；kernel 适配器为具名例外，直取 `../tools/internal/ports`。
 
 中性 DTO 与 kernel 基因同集：`AgentClassGenesView`（tools/contextStrategy/model/sendCountdown/temperature/effort）组合出 View/Input/Patch；`AgentConfigView.model` 直接用 gateway `ModelBinding`（toolHost 零拷贝）。
 
 `createInternalTools({ host, bash? })` 是 internal 工具唯一定义入口；bash 端口存在时才装配。
 
-## 5. 系统工具（`internal/` 分域文件，20 枚）
+## 5. 系统工具（`internal/` 分域文件）
 
-系统自我管理与邮局机制的模型侧能力面；定义按域拆分（`agentClassTools` / `agentInstanceTools` / `mailTools` / `contextTools` / `telemetryTools` / `accessTools`），`systemTools.ts` 只做 `createSystemTools` 聚合。**注册声明逐把写明，通例 `ignore`**——上台面由各级收敛清单显式化（根清单实值 = `config/defaults.ts` 首启模板，非系统兜底）。
+系统自我管理与邮局机制的模型侧能力面；定义按域拆分（`agentClassTools` / `agentInstanceTools` / `mailTools` / `contextTools` / `telemetryTools`），`systemTools.ts` 只做 `createSystemTools` 聚合。**注册声明逐把写明，通例 `ignore`**——上台面由各级收敛清单显式化（根清单实值 = `config/defaults.ts` 首启模板，非系统兜底）。
 
 | 工具 | 作用 |
 |---|---|
@@ -94,30 +91,27 @@ tools/
 | `agent_pause` | 自主挂起攒信（ms 到点唤醒；期间信件自然堆积。等特定子回信走 `agent_instantiate` 的 wait） |
 | `context_export` / `context_overview` / `context_remove` / `context_edit` | 导出 jsonl (只读) / 概览（role/turn/tag/token 占比）/ 删除过时消息（markInvalid）/ 重写消息（system 不可改） |
 | `context_apply` | 执行上下文策略专有动作（如 classic compact；仅自身或祖先） |
-| `access_reply` | 答复访问申请（once/always/reject；授权权 = 申请者的族谱根）——**根义务，删则 ask 死锁** |
 
-> internal 注册声明实值（盘点定形）：`access_reply: allow` + `bash: allow`，其余通例 `ignore`。策略自带工具若以模块导出并入清单，注册声明恒 `ignore`、经 `strategy.tools` raise 抬升；`cortex_load_*` 是组装轮里的虚拟名不注册（本轮实现策略限 classic，cortex 另轮重构）。
+> internal 注册声明实值：`bash: allow`，其余通例 `ignore`。策略自带工具若以模块导出并入清单，注册声明恒 `ignore`、经 `strategy.tools` raise 抬升；`cortex_load_*` 是组装轮里的虚拟名不注册（本轮实现策略限 classic，cortex 另轮重构）。
 
 ## 6. bash 工具（`internal/bash.ts`，kind=internal）
 
 - **最小系统唯一对外操作面**：internal 的本质是 core 接口薄封装；bash 是唯一例外——core 无「进程/文件系统」域，故必须自带此口。core 只定义工具形状与 `ShellRunner` 端口（`run({command,cwd,timeoutMs,shell}) → {stdout,stderr,exitCode,timedOut}`），执行由宿主注入（node `child_process` 实现 = `shell/cli/bash.ts`）——core 零平台依赖不破。
-- **治理 = 机制 + 分担，非询问**（对齐 pi）：**无 ask、无黑名单**（高频工具询问打断模型循环得不偿失）；事故半径三机制（硬超时缺省 120s / stdout·stderr 各 50k 截断 / cwd 缺省项目根，`config.bash` 可配 `path/defaultTimeoutMs/maxOutputChars/cwd`）；行为规范靠工具描述提示词（非交互式、有专职工具优先）；不想给某 agent shell → 模板白名单不列 `bash` 键（键即自我限定）。非零退出码不是工具失败（输出 + exit code 照常返回，模型自判）。
+- **治理 = 机制 + 分担，非询问**（对齐 pi）：**无进程内审批、无黑名单**（容器/挂载目录 = 真实爆炸半径）；事故半径三机制（硬超时缺省 120s / stdout·stderr 各 50k 截断 / cwd 缺省项目根，`config.bash` 可配 `path/defaultTimeoutMs/maxOutputChars/cwd`）；行为规范靠工具描述提示词（非交互式、有专职工具优先）；不想给某 agent shell → 模板白名单不列 `bash` 键（键即自我限定）。非零退出码不是工具失败（输出 + exit code 照常返回，模型自判）。
 - 注册声明 `allow`；宿主未注入 `shellRunner` 则不装配（`bootStem` 缺省注入，`shellRunner:false` 可关）。
 
-## 7. 访问确认（`accessRequest.ts`，取代 AccessManager）
+## 7. 执行期权限判定（registry 静态门禁）
 
-- 生效访问经注入 `AccessResolver` 向族谱台账查询（无判定 → 注册声明）；`assert`（allow/ignore 通过 / deny 抛错 / ask 投递申请到根信箱并挂起）+ `reply(input, by)`（根授权校验 once/always/reject）。
-- **在途复核（总序防御）**：reply once/always 落地前重查该键现生效值——挂起期间被 `agent_update` 收敛为 deny 的，迟到的批准被铁律压死（reject 回文本带因，不写 always 备忘；复用 resolvePort，零新依赖）。
-- **无元 agent 短路**：根也是普通 agent，其 ask 发给自己，由扮演它的 shell 经 pilot `replyAccess` 确认。
-- **session 豁免备忘**：`always` = 该 `(agent, accessKey)` 免询问放行（仅本实例，非权限层，不破 deny/ignore）。
-- `autoApprove`（config）时 ask 直接放行（deny 仍拒绝）。
+- 生效访问经注入 `AccessResolver` 向族谱台账查询（无判定 → 注册声明）。
+- `materialize(agentId)`：只暴露 **allow**（deny/ignore 不进模型清单）。
+- `execute`：生效 **deny** → `access_denied`；**allow / ignore** → 参数校验后执行。无挂起、无审批通道。
 
 ## 8. 统一输出 + 窗口限制
 
 `formatToolOutput(result | error, { outputLimit })` 是结果落上下文前的唯一成形点，同时服务于 runtime 会话回填与工具记录 sink（`main/toolWiring.attachToolRecordSink`），消除两处重复的错误渲染。
 
 - `config.tools.outputLimit`（字符口径）；**0/未设 = 不启用**（默认零行为变更）。
-- 超限：头部截断 + 省略说明。错误渲染 `[ToolError <kind>] <细节>`，细节退化链 message → feedback → accessKey → tool。
+- 超限：头部截断 + 省略说明。错误渲染 `[ToolError <kind>] <细节>`，细节退化链 message → accessKey → tool。
 - **错误守卫**：`isToolError`（kind ∈ `TOOL_ERROR_KINDS`）替代任意带 kind 对象的鸭子判定；`formatToolOutput` 只认真 ToolError。执行通道对领域错误（KernelError 等）仍原样透传（工具是通道不是转换器）。
 - **`errorBrief(cause)`**：任意异常 → `{kind?, message}` 投影（runtime halt 等），杜绝裸对象 `String()` 成 `[object Object]`。
 - **`ToolPhase = called|success|error`**：ToolRecord / LogEvent / PilotEvent.tool 共用单源。

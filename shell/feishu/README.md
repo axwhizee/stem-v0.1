@@ -1,19 +1,19 @@
 # shell/feishu —— 飞书长连接远程 shell
 
-> 一句话：**把飞书变成 stem 的移动宿主**——手机上一条消息，你主机上的 agent 生态就开始干活；agent 要越权时，裁决卡弹在你聊天窗口里。
+> 一句话：**把飞书变成 stem 的移动宿主**——手机上一条消息，你主机上的 agent 生态就开始干活。
 >
 > 免公网 IP、免域名、免内网穿透：只要你的主机**能出网**，飞书就能驱动它。
 
 ```
 你（飞书客户端）
-   │ 发消息 / 点卡片按钮
+   │ 发消息
    ▼
 飞书开放平台（云）
    │ ① 事件推送：走「长连接」——你的进程拨出的那条 WebSocket
-   ▼                        ② 你的 shell 调 REST API 回复/发卡（普通 HTTPS 出网）
+   ▼                        ② 你的 shell 调 REST API 回复（普通 HTTPS 出网）
 shell/feishu（你的主机，本目录）
-   │ pilot.sendMessage / replyAccess      ▲ PilotEvent 订阅（letter/status/tool）
-   ▼                                      │
+   │ pilot.sendMessage      ▲ PilotEvent 订阅（letter/status/tool）
+   ▼                         │
 stem core（根 user#0 生态：接待员、organizer、cortex-pet……全部照族谱树运行）
 ```
 
@@ -97,7 +97,7 @@ stem 的第一性事实：**根（user#0）是面板**——它不组装、不�
 | 发 `/logs [agent] [n]` | 该 agent 最近 n 条运行账（状态/审批/工具/做梦…） | `kernel.logger.query` |
 | 发 `/watch <agent\|all>` / `/unwatch` | 订阅该 agent 的 letter/status/notice 实时推送（节流聚合） | `pilot.subscribe` + 路由表 |
 | 发 `/stop <agent>` | 中断在途轮 | `pilot.interrupt` |
-| agent 触发 `ask` 权限 | **审批卡**（申请详情 + 允许一次/本会话总是/拒绝）；裁决后卡片原地更新留档 | 根信箱 `<access_request>` → `pilot.replyAccess` |
+| `/watch` 订阅 | 目标 agent 的 letter/status/tool 事件推送本会话 | PilotEvent 订阅 + 节流聚合 |
 | 群聊 @bot | 按 `chatBindings` 把该群绑成**某个子 agent 的移动窗口**（如项目群直连 tester） | 同单聊，目标换绑 |
 | 群/单聊 @ 消息 | `@_user_1` 占位自动剔除后再投递 | router `stripMentions` |
 
@@ -110,7 +110,7 @@ stem 的第一性事实：**根（user#0）是面板**——它不组装、不�
    ```
 2. **飞书给 bot 发任意消息** → 白名单为空时它会回你 `open_id`（认领指引）。
 3. 把 `open_id` 填进 `.stem/feishu.jsonc` 的 `ownerOpenIds`，重启 → 正式开通。
-4. 冒烟三连：`/new assistant 你是试飞员`（现场建目标并绑定）→ `/tree`（族谱卡）→ 让它"把一句话写进 notes.txt"（`write` 是 ask 门，弹审批卡，三键各试一次）。重启 shell 再看：上线通知 + 会话目标还在（`sessions` 回写生效）。
+4. 冒烟三连：`/new assistant 你是试飞员`（现场建目标并绑定）→ `/tree`（族谱卡）→ 让它"把一句话写进 notes.txt"。重启 shell 再看：上线通知 + 会话目标还在（`sessions` 回写生效）。
 
 ### 2.4 配置参考（`.stem/feishu.jsonc`）
 
@@ -124,7 +124,7 @@ shell 层自治理文件（**不进 core StemConfig**——平台配置不入 co
 | `sessions` | `{}` | **shell 自管**：chat_id → 当前目标（/new /use /exit 回写，jsonc 定点编辑保注释） |
 | `ownerChatId` | `""` | **shell 自管**：主人单聊最近值（上线/离线通知与补偿投递面） |
 | `lastSeenAt` | `{}` | **shell 自管**：各会话最近处理时刻（断线补偿增量起点） |
-| `approvalChatIds` | `[]` | 审批卡额外投递的群（管理群收卡、单聊裁决） |
+| `watchThrottleMs` | `2000` | watch 推送节流窗（毫秒） |
 | `watchThrottleMs` | `2000` | watch 推送节流窗（并条防撞 5 QPS） |
 
 ### 2.5 部署与运维
@@ -142,7 +142,7 @@ Restart=always
 
 WSClient 内置断线重连，systemd 兜进程级自愈。**一空间一进程**：feishu shell 与 webui/cli 不可同时开同一空间（SQLite 单写者约定）。
 
-排障速查：收不到消息 → 发布版本了吗 → 长连接订阅方式选了吗 → `im.message.receive_v1` 加了吗 → 日志里 `ws client ready` 有吗 → 账号在应用可用范围内吗。**审批卡按钮无反应 → 「卡片回调」事件没加或没选长连接方式。**
+排障速查：收不到消息 → 发布版本了吗 → 长连接订阅方式选了吗 → `im.message.receive_v1` 加了吗 → 日志里 `ws client ready` 有吗 → 账号在应用可用范围内吗。
 
 ---
 
@@ -150,23 +150,21 @@ WSClient 内置断线重连，systemd 兜进程级自愈。**一空间一进程*
 
 ```
 router.ts   纯逻辑决策面（零 SDK、零 IO，全单测）
-            入站 InboundMsg → OutAction[]（deliver/reply/approvalCard/command）
+            入站 InboundMsg → OutAction[]（deliver/reply/command）
             内含：白名单闸门 / 认领指引 / 会话目标优先级（显式>绑定>秘书）/ 命令解析 /
                   会话表与 setSessionTarget（钩子回写）/ planReplay 补偿重放计划 /
-                  <access_request> XML 解析 / 卡片 value 判别 /
                   message_id LRU 去重（平台事件有重试，必须幂等）/
                   watch 订阅集 / 长文分箱 / formatTree 渲染
 feishu.ts   SDK 协议翻译（@larksuiteoapi 具名导入；msg_type 双形兼容；
-            REST sendText/sendCard/updateCard + listMessages 增量拉取）——
+            REST sendText + listMessages 增量拉取）——
             全仓库唯一认识飞书 SDK 的文件
 main.ts     接线：env 校验 → bootStem（复用 cli 的 platform，含网关/SQLite/bash 注入）
             → 秘书（可选）/会话表装载 → onMessage→router→execute；pilot.subscribe→读 aloud/watch；
-            卡片回调 → pilot.replyAccess → 卡留档；start 后上线通知+compensate；SIGTERM 优雅离线
+            start 后上线通知+compensate；SIGTERM 优雅离线
 config.ts   .stem/feishu.jsonc 装载 + **定点回写**（裸 JSONC 白名单 fail-fast；
             jsonc-parser modify/applyEdits 只动目标键保用户注释——edits 必须整批应用）
-cards.ts    卡片 JSON 构造（审批卡三键 / 裁决留档态 / 信息卡）
 ```
 
-对 core 的态度：**零改动、零特权**。本 shell 用到的全部是 pilot/kernel 既有门面（`sendMessage/instantiate/inspect/listAgents/replyAccess/interrupt/subscribe` + `boxFacts` + `logger.query`），与 CLI/WebUI 完全同权——它只是第四个"扮演根的外部大脑接口"（AGENTS.md 原则 4：shell 只做平台适配 + UI）。
+对 core 的态度：**零改动、零特权**。本 shell 用到的全部是 pilot/kernel 既有门面（`sendMessage/instantiate/inspect/listAgents/interrupt/subscribe` + `boxFacts` + `logger.query`），与 CLI/WebUI 完全同权——它只是第四个"扮演根的外部大脑接口"（AGENTS.md 原则 4：shell 只做平台适配 + UI）。
 
 **已知边界与预留**（都有明确的平台机制支撑，未做纯属范围裁剪）：流式打字机回复（cardkit streaming，10/s 下节流即可）；图片入站 → 多模态；语音入站 → 自备 ASR；免 @ 群环境感知（敏感权限，可开）；单聊自定义菜单按钮（`application:bot.menu:write`）；多用户化（出口美化、每用户会话隔离——当前架构默认单主人）。断线消息补偿已落地（启动拉取重放；补偿窗口受平台历史可查范围约束）。

@@ -3,8 +3,8 @@
 //
 // 外部（shell/webui）与自治系统的核心交互 = 扮演根（user 类普通实例，id `0`）。
 // Pilot 是根的「驾驶舱」：
-//   - 扮演层：以根身份行动（发消息/实例化/终止/中断/回复访问申请/
-//     上下文管理）——即根的 action，与 agent 经工具调用等同；
+//   - 扮演层：以根身份行动（发消息/实例化/终止/中断/上下文管理）——
+//     即根的 action，与 agent 经工具调用等同；
 //   - 观察层：经 SystemFacade 直接读（列表/详情/活跃/上下文概览）。
 // 事件流统一经 subscribe 订阅（PilotEvent：stream/letter/status/notice）。
 // **门面化（D4）**：pilot 只依赖 SystemFacade 接口，不依赖具体 Kernel；
@@ -14,7 +14,7 @@
 import type { AgentID, AgentInstance, SystemFacade } from '../kernel'
 import { makeAgentClassID, makeAgentID, ROOT_ID } from '../kernel'
 import type { PilotEvent } from '../events'
-import type { AccessReplyInput, ToolAccess } from '../tools'
+import type { ToolAccess } from '../tools'
 import type { ModelRef } from '../gateway'
 
 export interface Pilot {
@@ -46,8 +46,6 @@ export interface Pilot {
   readonly terminate: (agentId: string, opts?: { recursive?: boolean }) => Promise<void>
   /** 中断 agent 当前轮（仅暂停，可恢复）。 */
   readonly interrupt: (agentId: string) => Promise<void>
-  /** 回复访问申请（access_reply 的扮演层入口；by=根答复授权）。 */
-  readonly replyAccess: (input: AccessReplyInput) => Promise<void>
   /** 列表（单空间全量）。 */
   readonly listAgents: () => Promise<AgentInstance[]>
   /** 查看实例详情。 */
@@ -124,10 +122,6 @@ export class DefaultPilot implements Pilot {
 
   async interrupt(agentId: string): Promise<void> {
     await this.facade.interruptAgent(agentId, { by: this.identity })
-  }
-
-  async replyAccess(input: AccessReplyInput): Promise<void> {
-    await this.facade.replyAccess(input, this.identity)
   }
 
   async listAgents(): Promise<AgentInstance[]> {

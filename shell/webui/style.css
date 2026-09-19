@@ -15,7 +15,7 @@
   --muted: #6b7480;
   --accent: #3df5c8;        /* 青绿 = 正常/运行/激活 */
   --accent-dim: rgba(61, 245, 200, .16);
-  --alert: #ff2ec8;         /* 品红 = 需介入（ask / interrupted / 危险） */
+  --alert: #ff2ec8;         /* 品红 = 需介入（interrupted / 危险） */
   --alert-dim: rgba(255, 46, 200, .16);
   --warn: #e8c34a;
   --lane-w: 14px;

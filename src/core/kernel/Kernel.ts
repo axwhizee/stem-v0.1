@@ -2,19 +2,19 @@
 // core/kernel/Kernel.ts —— Kernel 组合根（core 内部装配）
 //
 // 装配：模板注册表 / 实例管理 / 空间 / 族谱树（拓扑 + 能力 + 可见域门面）
-//      / 上下文仓库+管理员+快递员 / 运行时 / ask 总线 / 工具注册表。
+//      / 上下文仓库+管理员+快递员 / 运行时 / 工具注册表。
 //
 // 权限模型（注册表 + 单操作收敛链）：生效权限 = 族谱位置的函数——实例注册
 // （创建/恢复）时经 lineage.attach/replay 物化：收敛链 steps（类清单→
 // [策略清单]→实例清单，逐步折叠不预合并）+ 注册声明表 caps 全局封顶；写入面
 // （实例化/更新/根注册）走同一代数做**拒绝式校验**（扩张即拒、带层归因），
-// 物化面静默钳制（重启幂等）。tools registry / ask 总线经 AccessResolver
+// 物化面静默钳制（重启幂等）。tools registry 经 AccessResolver
 // 端口查询，kernel 只做接线，不再逐层拼装。
 //
 // 通信模型（重建邮局，无总线）：
 //   - sendMessage(from, to, payload) → 管理员 deposit（打戳 + 入库 + 触发处理）；
 //   - 事件（stream/letter/status/notice）统一经 events hub 发布（PilotEvent）；
-//   - 访问确认（ask）消息化：投递申请到根信箱 + access_reply 工具解析（见 tools/accessRequest）。
+//   - 权限 = 族谱台账静态收敛（AccessResolver；无进程内审批档）。
 // 参与者查询：复用 instances + 根（无独立注册表）。
 // 根（user#0）是 user 类的普通实例（parentId=null、id 纯推导 `0`），与全体 agent 平等。
 // ============================================================
@@ -35,8 +35,7 @@ import { DefaultWaiter, defaultTimer } from '../context/wait'
 import type { Logger } from '../logging'
 import { forget, InMemoryLogger } from '../logging'
 import type { LogEvent } from '../logging'
-import type { AccessAskBus, AccessResolver, ToolAccess } from '../tools'
-import { DefaultAccessAskBus, formatAccessRequest } from '../tools'
+import type { AccessResolver, ToolAccess } from '../tools'
 import type { ConvergenceLayer, ConvergenceStep } from '../tools'
 import {
   accessStepsOf,
@@ -110,8 +109,6 @@ export interface KernelOptions {
    * 注册表注册声明表面；推荐清单实值住首启模板 defaults.ts）。
    */
   readonly userClass?: UserClassConfig
-  /** 工具访问自动批准（来自配置 `autoApprove`）：ask 直接放行，不弹窗。 */
-  readonly autoApprove?: boolean
   /**
    * 持久化端口（宿主注入，如 SQLite 实现）：注入后仓库/实例管理器
    * 套 write-through 装饰器（内存为准，同步落行），并在构造期恢复内存态；
@@ -154,9 +151,7 @@ export class Kernel {
   readonly courier: Courier
   readonly runtime: RuntimePort
   readonly tools?: ToolCapabilityRegistry
-  /** 访问确认（ask 消息化：投递申请到根信箱 + access_reply 解析）。 */
-  readonly access: AccessAskBus
-  /** 统一挂起原语（ask / hold / reply / pause）。 */
+  /** 统一挂起原语（hold / reply / pause）。 */
   readonly waiter: Waiter
   /** 统一事件流（PilotEvent：stream/letter/status/notice；多订阅者）。 */
   readonly events: EventHub
@@ -214,27 +209,13 @@ export class Kernel {
       getAllInstances: () => this.instances.listAllSync(),
     })
 
-    // 权限查询端口（tools registry / ask 总线统一消费树门面，kernel 只接线）。
+    // 权限查询端口（tools registry 统一消费树门面，kernel 只接线）。
     const accessResolver: AccessResolver = {
       accessOf: (agentId, key) => this.lineage.effectiveAccess(agentId, key),
     }
 
-    // 工具访问确认（ask 消息化）：投递申请到申请者的族谱根信箱；根经 access_reply 回复。
-    // 统一挂起原语（ask / instantiate.wait / waitForReply / agent_pause 共用）。
+    // 统一挂起原语（instantiate.wait / waitForReply / agent_pause 共用）。
     this.waiter = new DefaultWaiter(options.timer ?? defaultTimer)
-    this.access = new DefaultAccessAskBus({
-      askRoot: (request) =>
-        this.contextManager.deposit(
-          this.lineage.getRoot(makeAgentID(request.agentId)),
-          { role: 'user', content: formatAccessRequest(request, (id) => this.displayOf(id)) },
-          request.agentId,
-        ),
-      getRoot: (agentId) => this.lineage.getRoot(makeAgentID(agentId)),
-      resolve: accessResolver,
-      onLog: { log: (event) => this.emitLog(event) },
-      autoApprove: options.autoApprove,
-      waiter: this.waiter,
-    })
 
     // 重建邮局：仓库（存储，已在持久化装配段创建）→ 管理员（策略处理 + 组装权）
     // → 快递员（只发不组装；agent 送信快照经管理员委托构造，面板 diff 自持）。
@@ -287,9 +268,8 @@ export class Kernel {
 
     // 工具记录 sink（记录/历史回填 + 事件流 tool 相位）由组合根接线：
     // `main/toolWiring.attachToolRecordSink`（Kernel 不再自接线，DIP）。
-    // 工具调用日志；访问确认 → AccessAskBus；族谱权限查询 → 台账。
+    // 工具调用日志；族谱权限查询 → 台账。
     this.tools?.setLogSink?.({ log: (event) => this.emitLog(event) })
-    this.tools?.setAccessSink?.(this.access)
     this.tools?.setAccessResolver?.(accessResolver)
   }
 
@@ -643,7 +623,7 @@ export class Kernel {
       recursive: opts?.recursive,
     })
     for (const id of subtree) {
-      // ask/hold/pause 等待一并 aborted（防悬挂；contextManager.unregister 亦 cancelOwner）。
+      // hold/pause 等待一并 aborted（防悬挂；contextManager.unregister 亦 cancelOwner）。
       this.waiter.cancelOwner(id)
       await this.contextManager.unregister(id)
       this.lineage.detach(id as string)

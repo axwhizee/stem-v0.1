@@ -24,8 +24,6 @@ export interface FeishuConfig {
   readonly chatBindings: Readonly<Record<string, string>>
   /** 显式会话目标：chat_id → 当前 agent id（运行期 /new /use /exit 维护，shell 回写本文件）。 */
   readonly sessions: Readonly<Record<string, string>>
-  /** 审批卡额外投递的群（审批本身恒达主人单聊）。 */
-  readonly approvalChatIds: readonly string[]
   /** watch 推送汇聚节流窗（毫秒，同目标窗内事件并一条）。 */
   readonly watchThrottleMs: number
   /** 主人 p2p 会话最近值（上线/离线通知投递面；来话自动记录回写）。 */
@@ -39,7 +37,6 @@ export const FEISHU_CONFIG_DEFAULTS: FeishuConfig = {
   secretaryClass: 'assistant',
   chatBindings: {},
   sessions: {},
-  approvalChatIds: [],
   watchThrottleMs: 2000,
   ownerChatId: '',
   lastSeenAt: {},
@@ -53,7 +50,7 @@ export function loadFeishuConfig(projectRoot: string): FeishuConfig {
   if (!existsSync(file)) return { ...FEISHU_CONFIG_DEFAULTS }
   // 裸 JSONC 解析（core parseConfigText 携带 StemConfig R12 语义，不适用平台侧文件）。
   const raw = parse(readFileSync(file, 'utf8'), []) as Record<string, unknown> | null
-  const known = new Set(['ownerOpenIds', 'secretaryClass', 'chatBindings', 'sessions', 'approvalChatIds', 'watchThrottleMs', 'ownerChatId', 'lastSeenAt'])
+  const known = new Set(['ownerOpenIds', 'secretaryClass', 'chatBindings', 'sessions', 'watchThrottleMs', 'ownerChatId', 'lastSeenAt'])
   if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error(`[feishu] ${file} 顶层必须是对象`)
   }
@@ -67,7 +64,6 @@ export function loadFeishuConfig(projectRoot: string): FeishuConfig {
     secretaryClass: typeof raw.secretaryClass === 'string' ? raw.secretaryClass : d.secretaryClass,
     chatBindings: strRecord(raw.chatBindings) ?? d.chatBindings,
     sessions: strRecord(raw.sessions) ?? d.sessions,
-    approvalChatIds: strArray(raw.approvalChatIds) ?? d.approvalChatIds,
     watchThrottleMs: typeof raw.watchThrottleMs === 'number' ? raw.watchThrottleMs : d.watchThrottleMs,
     ownerChatId: typeof raw.ownerChatId === 'string' ? raw.ownerChatId : d.ownerChatId,
     lastSeenAt: numRecord(raw.lastSeenAt) ?? d.lastSeenAt,

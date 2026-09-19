@@ -77,13 +77,13 @@ export class DefaultTemplateRegistry implements TemplateRegistry {
     if (!cls.systemPrompt || typeof cls.systemPrompt !== 'string') fail('systemPrompt 不能为空')
     if (!cls.description || typeof cls.description !== 'string') fail('description 不能为空')
     for (const [tool, action] of Object.entries(cls.tools ?? {})) {
-      if (!isToolAccess(action)) fail(`工具清单 ${tool}=${String(action)} 非法（允许 allow/ask/deny/ignore）`)
+      if (!isToolAccess(action)) fail(`工具清单 ${tool}=${String(action)} 非法（允许 allow/deny/ignore）`)
     }
   }
 }
 
 function isToolAccess(value: unknown): value is ToolAccess {
-  return value === 'allow' || value === 'deny' || value === 'ask' || value === 'ignore'
+  return value === 'allow' || value === 'deny' || value === 'ignore'
 }
 
 function error(e: KernelError): KernelError {

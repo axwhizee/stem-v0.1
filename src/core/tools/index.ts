@@ -17,10 +17,6 @@ export type {
   ToolRecord,
   ToolCapability,
   ToolAccess,
-  AccessRequest,
-  AccessReply,
-  AccessReplyInput,
-  AccessAssertInput,
   AccessError,
   AccessResolver,
 } from './types'
@@ -37,9 +33,6 @@ export type { ConvergenceLayer, ConvergenceStep, ConvergenceStepMode, Convergenc
 
 export type { ShellRunOptions, ShellRunResult, ShellRunner, BashToolSettings } from './internal/bash'
 export { createBashTool } from './internal/bash'
-
-export type { AccessAskOptions, AccessAskBus } from './accessRequest'
-export { DefaultAccessAskBus, formatAccessRequest } from './accessRequest'
 
 export type { ToolListFilter, ToolCapabilityRegistry, ToolRegistryOptions } from './ToolCapabilityRegistry'
 export { DefaultToolCapabilityRegistry } from './ToolCapabilityRegistry'

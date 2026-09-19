@@ -122,8 +122,6 @@ export interface StemConfig {
    * 一切模型引用（user.model/类文件/实例化参数）的 provider 必须在此注册。
    */
   readonly providers?: Readonly<Record<string, StemProviderConfig>>
-  /** 是否开启权限自动批准（true 时 ask 直接放行，不弹窗）。 */
-  readonly autoApprove?: boolean
   /** 根的类配置（族谱根 = 收敛链首层）。 */
   readonly user?: StemUserClass
   /** 上下文策略配置（window/compact）。 */

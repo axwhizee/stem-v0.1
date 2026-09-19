@@ -9,9 +9,8 @@
 //
 // 工具访问统一模型（权限融合进 tools）：
 //   - materialize(agentId)：经 AccessResolver 端口向族谱台账查询生效访问，
-//     链上无显式判定 → 落注册声明；**模型可见清单 = allow ∪ ask**；
-//   - execute：registry 层统一确认（setAccessSink 注入 AccessAskBus）
-//     → allow/ignore 执行 / deny 抛 access_denied / ask 挂起等根回复。
+//     链上无显式判定 → 落注册声明；**模型可见清单 = allow**；
+//   - execute：registry 层静态判定 → allow/ignore 执行 / deny 抛 access_denied。
 //
 // 依赖方向：infra（tools）→ gateway（ToolDefinition 形状）；
 // 权限查询走注入端口（AccessResolver，kernel 接 lineage/AccessLedger），
@@ -20,7 +19,6 @@
 
 import type { ToolDefinition } from '../gateway'
 import type { LogSink } from '../logging'
-import type { AccessAskBus } from './accessRequest'
 import { restrictAccess } from './access'
 import type {
   AccessResolver,
@@ -64,7 +62,7 @@ export interface ToolCapabilityRegistry {
   readonly registerAccessOf: (accessKey: string) => ToolAccess | undefined
   /** 物化为 LLM 工具定义（schema）：按调用方生效访问过滤（deny/ignore 不暴露）。 */
   readonly materialize: (agentId: string, filter?: ToolListFilter) => readonly ToolDefinition[]
-  /** 执行：查工具 → 访问确认 → 参数校验 → 执行器。 */
+  /** 执行：查工具 → 静态权限判定 → 参数校验 → 执行器。 */
   readonly execute: (invocation: ToolInvocation, ctx: ToolContext) => Promise<ToolResult>
   /** 装配族谱权限查询端口（kernel 接线 AccessLedger；组合根注入点）。 */
   readonly setAccessResolver: (resolver?: AccessResolver) => void
@@ -86,8 +84,6 @@ export interface ToolCapabilityRegistry {
   readonly setRecordSink: (onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>) => void
   /** 装配工具调用日志（组合根注入 → bus → core/logging）。 */
   readonly setLogSink: (onLog?: LogSink) => void
-  /** 装配访问确认（组合根注入 → AccessAskBus）。 */
-  readonly setAccessSink: (access?: AccessAskBus) => void
 }
 
 export interface ToolRegistryOptions {
@@ -98,8 +94,6 @@ export interface ToolRegistryOptions {
   readonly onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>
   /** 工具调用日志（组合根注入 → bus → core/logging）。 */
   readonly onLog?: LogSink
-  /** 访问确认（组合根注入 → AccessAskBus）。 */
-  readonly access?: AccessAskBus
   /** 族谱权限查询端口（组合根注入 → lineage/AccessLedger）。 */
   readonly resolver?: AccessResolver
 }
@@ -109,13 +103,11 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
   private isFrozen = false
   private onRecord?: (record: ToolRecord, ctx: ToolContext) => void | Promise<void>
   private onLog?: LogSink
-  private access?: AccessAskBus
   private resolver?: AccessResolver
 
   constructor(options: ToolRegistryOptions = {}) {
     this.onRecord = options.onRecord
     this.onLog = options.onLog
-    this.access = options.access
     this.resolver = options.resolver
   }
 
@@ -125,10 +117,6 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
 
   setLogSink(onLog?: LogSink): void {
     this.onLog = onLog
-  }
-
-  setAccessSink(access?: AccessAskBus): void {
-    this.access = access
   }
 
   setAccessResolver(resolver?: AccessResolver): void {
@@ -245,7 +233,7 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
       // 族谱台账查询（生效权限 = 族谱位置的函数）；链上无判定 → 注册声明
       // （**kind 不参与推断**——注册即封顶，无兜底表）。
       const action = this.resolver?.accessOf(agentId, accessKey) ?? tool.registerAccess
-      // 模型可见清单 = allow ∪ ask；deny 出局；ignore = 背景在场（不设防）。
+      // 模型可见清单 = allow；deny/ignore 出局（ignore = 背景在场，可执行不暴露）。
       if (action === 'deny' || action === 'ignore') continue
       result.push({ name: tool.id, description: tool.description, parameters: tool.parameters })
     }
@@ -256,36 +244,11 @@ export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {
     const tool = this.tools.get(invocation.name)
     if (!tool) throw ({ kind: 'tool_not_found', tool: invocation.name })
 
-    // 访问统一确认（allow/ignore 通过 / deny 拒绝 / ask 挂起等根信箱回复）。
+    // 静态权限：族谱台账判定，链上无判定落注册声明；deny 直接拒绝。
     const accessKey = tool.accessKey ?? tool.id
-    try {
-      await this.access?.assert({
-        accessKey,
-        agentId: ctx.agentId,
-        registerAccess: tool.registerAccess,
-        metadata: { tool: tool.id },
-        ...(ctx.signal !== undefined ? { signal: ctx.signal } : {}),
-      })
-    } catch (cause) {
-      const error = cause as { kind?: string; accessKey?: string; feedback?: string }
-      if (error?.kind === 'access_denied') {
-        throw ({ kind: 'access_denied', tool: tool.id, accessKey })
-      }
-      if (error?.kind === 'access_rejected') {
-        throw ({
-          kind: 'access_rejected',
-          tool: tool.id,
-          accessKey,
-          ...(typeof error.feedback === 'string' ? { feedback: error.feedback } : {}),
-        })
-      }
-      if (error?.kind === 'access_timeout') {
-        throw ({ kind: 'access_timeout', tool: tool.id, accessKey })
-      }
-      if (error?.kind === 'access_aborted') {
-        throw ({ kind: 'access_aborted', tool: tool.id, accessKey })
-      }
-      throw cause
+    const action = this.resolver?.accessOf(ctx.agentId, accessKey) ?? tool.registerAccess
+    if (action === 'deny') {
+      throw ({ kind: 'access_denied', tool: tool.id, accessKey } satisfies ToolError)
     }
 
     const customError = tool.validate?.(invocation.input)

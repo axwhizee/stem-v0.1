@@ -32,7 +32,7 @@ export interface ContextMessage {
 }
 
 export interface TimelineItem {
-  kind: 'msg' | 'tool' | 'meta' | 'ask'
+  kind: 'msg' | 'tool' | 'meta'
   side?: 'me' | 'agent' | 'them'
   who?: string
   text: string

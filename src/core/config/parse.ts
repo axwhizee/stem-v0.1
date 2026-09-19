@@ -24,7 +24,6 @@ import type { ConfigError, StemBashConfig, StemConfig, StemContextConfig, StemEx
  */
 const KNOWN_KEYS: ReadonlySet<string> = new Set([
   'providers',
-  'autoApprove',
   'user',
   'context',
   'bash',
@@ -39,6 +38,7 @@ const RETIRED_KEYS: Readonly<Record<string, string>> = {
   model: '顶层 model 已拆除（R12）：user 类 model 基因 = user.model（全体缺省的本体）',
   agents: '目录即真相：类文件放入 .stem/agent/ 即自动注册',
   strategies: '目录即真相：策略文件放入 .stem/context/ 即自动注册',
+  autoApprove: 'ask 档位已删除：权限 = allow/deny/ignore 静态收敛，无进程内审批',
 }
 
 /**
@@ -88,7 +88,6 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
   }
 
   const providers = raw.providers !== undefined ? validateProviders(raw.providers, fail) : undefined
-  const autoApprove = validateBoolean(raw.autoApprove, fail, 'autoApprove')
   const sendCountdown = validateNumber(raw.sendCountdown, fail, 'sendCountdown')
   const user = raw.user !== undefined ? validateUser(raw.user, fail) : undefined
   const context = raw.context !== undefined ? validateContext(raw.context, fail) : undefined
@@ -108,7 +107,6 @@ export function normalizeConfig(raw: Record<string, unknown>): StemConfig {
 
   return {
     ...(providers !== undefined ? { providers } : {}),
-    ...(autoApprove !== undefined ? { autoApprove } : {}),
     ...(sendCountdown !== undefined ? { sendCountdown } : {}),
     ...(user !== undefined ? { user } : {}),
     ...(context !== undefined ? { context } : {}),

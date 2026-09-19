@@ -20,7 +20,6 @@ export function createSystemFacade(kernel: Kernel): SystemFacade {
       kernel.updateAgent({ agentId, model, ...(opts?.by !== undefined ? { by: opts.by } : {}) }),
     terminateAgent: (agentId, opts) => kernel.terminateAgent(agentId, opts),
     interruptAgent: (agentId, opts) => kernel.interruptAgent(agentId, opts),
-    replyAccess: (input, by) => kernel.access.reply(input, by),
 
     listInstances: () => kernel.instances.listAll(),
     getInstance: (agentId) => kernel.instances.get(agentId),

@@ -63,7 +63,7 @@ export function validateAccessSteps(
 ): string[] {
   const { violations } = foldConvergenceSteps(parent?.explicit ?? {}, birthCaps, steps)
   return violations.map(
-    (v) => `${v.layer}被拒 ${v.key}: ${v.wanted}（封顶 ${v.ceiling}——扩张被拒，只许沿 ignore→allow→ask→deny 收紧）`,
+    (v) => `${v.layer}被拒 ${v.key}: ${v.wanted}（封顶 ${v.ceiling}——扩张被拒，只许沿 ignore→allow→deny 收紧）`,
   )
 }
 

@@ -211,8 +211,6 @@
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
-| `AccessAsked` | `export interface AccessAsked {` | `src/core/logging/events.ts` |
-| `AccessReplied` | `export interface AccessReplied {` | `src/core/logging/events.ts` |
 | `AgentClassRegistered` | `export interface AgentClassRegistered {` | `src/core/logging/events.ts` |
 | `AgentClassUpdated` | `export interface AgentClassUpdated {` | `src/core/logging/events.ts` |
 | `AgentInstanceCreated` | `export interface AgentInstanceCreated {` | `src/core/logging/events.ts` |
@@ -239,30 +237,23 @@
 | 符号 | 声明 | 位置 |
 |---|---|---|
 | `DefaultPilot` | `export class DefaultPilot implements Pilot {` | `src/core/pilot/Pilot.ts` |
-| `Pilot` — 根扮演接口（sendMessage/instantiate(model/name 可选)/setModel/replyAccess/runContextAction/subscribe） | `export interface Pilot {` | `src/core/pilot/Pilot.ts` |
+| `Pilot` — 根扮演接口（sendMessage/instantiate(model/name 可选)/setModel/runContextAction/subscribe） | `export interface Pilot {` | `src/core/pilot/Pilot.ts` |
 | `PilotOptions` | `export interface PilotOptions {` | `src/core/pilot/Pilot.ts` |
 | `createPilot` | `export async function createPilot(options: PilotOptions): Promise<Pilot> {` | `src/core/pilot/Pilot.ts` |
 
-### 1.10 `tools/` — 工具体系（注册表/访问四态/ask 消息化/bash）（43 项）
+### 1.10 `tools/` — 工具体系（注册表/访问三态/bash）
 
 | 符号 | 声明 | 位置 |
 |---|---|---|
-| `AccessAskBus` | `export interface AccessAskBus {` | `src/core/tools/accessRequest.ts` |
-| `AccessAskOptions` | `export interface AccessAskOptions {` | `src/core/tools/accessRequest.ts` |
-| `AccessAssertInput` | `export interface AccessAssertInput {` | `src/core/tools/types.ts` |
 | `AccessError` | `export type AccessError =` | `src/core/tools/types.ts` |
-| `AccessReply` | `export type AccessReply = 'once' \| 'always' \| 'reject'` | `src/core/tools/types.ts` |
-| `AccessReplyInput` | `export interface AccessReplyInput {` | `src/core/tools/types.ts` |
-| `AccessRequest` | `export interface AccessRequest {` | `src/core/tools/types.ts` |
-| `AccessResolver` — tools 侧权限查询端口（族谱台账供给，无判定落默认） | `export interface AccessResolver {` | `src/core/tools/types.ts` |
+| `AccessResolver` — tools 侧权限查询端口（族谱台账供给，无判定落注册声明） | `export interface AccessResolver {` | `src/core/tools/types.ts` |
 | `BASH_DEFAULTS` | `export const BASH_DEFAULTS = {` | `src/core/tools/bash.ts` |
 | `BashToolSettings` | `export interface BashToolSettings {` | `src/core/tools/bash.ts` |
-| `DefaultAccessAskBus` | `export class DefaultAccessAskBus implements AccessAskBus {` | `src/core/tools/accessRequest.ts` |
 | `DefaultToolCapabilityRegistry` | `export class DefaultToolCapabilityRegistry implements ToolCapabilityRegistry {` | `src/core/tools/ToolCapabilityRegistry.ts` |
 | `ShellRunOptions` | `export interface ShellRunOptions {` | `src/core/tools/bash.ts` |
 | `ShellRunResult` | `export interface ShellRunResult {` | `src/core/tools/bash.ts` |
 | `ShellRunner` — bash 执行端口（宿主注入，core 零平台依赖关键） | `export interface ShellRunner {` | `src/core/tools/bash.ts` |
-| `ToolAccess` | `export type ToolAccess = 'allow' \| 'ask' \| 'deny' \| 'ignore'` | `src/core/tools/types.ts` |
+| `ToolAccess` | `export type ToolAccess = 'allow' \| 'deny' \| 'ignore'` | `src/core/tools/types.ts` |
 | `ToolAccessRule` | `export interface ToolAccessRule {` | `src/core/tools/types.ts` |
 | `ToolAccessRules` | `export type ToolAccessRules = readonly ToolAccessRule[]` | `src/core/tools/types.ts` |
 | `ToolCapability` — 工具统一形状：id/description/parameters/execute/init?/kind/accessKey | `export interface ToolCapability {` | `src/core/tools/types.ts` |
@@ -304,7 +295,7 @@
 | `ToolCapability` | 工具统一形状 + `init?(ToolInitContext)` 生命周期；kind 三分类（internal/extension/custom） | registry.register / runInit 矩阵装载 |
 | `ContextStrategyModule` | note/role/tools/assemble/process/actions/init 七面（tools = 声明清单 raise 步）；注册同名覆盖内置；init 先于工具 initAll（registerTool 窄口注策略自带工具，出生恒 ignore） | 策略注册表 / `.stem/context/` / extension 点名 |
 | `LineageTree` | 权限与模型的唯一门面：attach/detach/replay、effectiveAccess、modelOf、nodeConfigOf、canReach（能力面无直改 setter；运行期变更 = kernel.updateAgent 写行后全树 replay，快照层保证改父不动子） | Kernel 内部（tools 经 AccessResolver 查询） |
-| `Pilot` | 根扮演接口（一切外部驱动经它）：sendMessage/instantiate(model/name 可选)/setModel/replyAccess/runContextAction/subscribe | 各 shell |
+| `Pilot` | 根扮演接口（一切外部驱动经它）：sendMessage/instantiate(model/name 可选)/setModel/runContextAction/subscribe | 各 shell |
 | `EventHub`/`PilotEvent` | stream/letter/status/notice 判别联合，多订阅者（SSE 直转） | `system.pilot.subscribe` |
 
 ## 3. 装配与矩阵装载（宿主侧）
@@ -345,7 +336,7 @@
 | POST `/api/terminate` `{agentId,recursive?}` / `/api/interrupt` `{agentId}` | 销毁（canReach）/ 当前轮中断 |
 | POST `/api/set_model` `{agentId,model}` | 模型热切换（不级联子女） |
 | POST `/api/update` `{agentId,name?}` | 实例参数写口（改名；kernel.updateAgent 宿主信任通道，by 缺省） |
-| POST `/api/access` `{requestId,reply,message?}` | ask 答复（once/always/reject） |
+| POST `/api/context_action` `{agentId,action,args?}` | 上下文策略专有动作 |
 | POST `/api/context_action` `{agentId,action,...}` | 上下文策略动作面（compact 等） |
 | GET `/`、`/style.css`、`/app.js`、`/view.js` | 单页 UI 三件套（html/css/js 分文件）+ 双端共用纯函数核心 |
 

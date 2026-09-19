@@ -41,7 +41,7 @@
 
 Ⅲ **工具 drain**：seed = internal 定义 + hostTools + 发现清单 + 策略 `ownedTools`/`createOwnedTools`。`registry.drain`：`register` + `init`，init 可 `registerMore`；完成 → **冻结**。internal 经端口用到 Kernel，故 Kernel 先于 drain。
 
-Ⅳ `wireRestoredContexts` → Ⅴ `createPilot`（user#0）→ Ⅵ boot 校验律（根 `access_reply` 必 allow）→ Ⅶ `userHooks`。
+Ⅳ `wireRestoredContexts` → Ⅴ `createPilot`（user#0）→ Ⅵ `userHooks`。
 
 - 返回 `StemSystem { kernel, pilot, tools, config, init, dispose }`。
 - **无策略 boot 相位、无 tools.initAll**：策略只被发现进注册表；工具就绪只有 drain 一条路。

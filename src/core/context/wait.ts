@@ -1,8 +1,7 @@
 // ============================================================
 // core/context/wait.ts —— 统一挂起原语（事件 + 倒计时 + 中断）
 //
-// 四套挂起键：
-//   - ask           = wait('ask:'+requestId, owner=申请者)
+// 三套挂起键：
 //   - waitForReply  = wait('reply:'+sender)（策略 spawn 信箱配对）
 //   - instantiate.wait = wait('hold:'+childId)（仅超时自回填；deposit 独占消费在 ContextManager.holds）
 //   - agent_pause   = wait('timer:'+toolCallId)（纯倒计时）
@@ -153,7 +152,6 @@ export class DefaultWaiter implements Waiter {
 
 /** 键工厂（调用点与 deposit 共用，防字符串漂移）。 */
 export const waitKeys = {
-  ask: (requestId: string): string => `ask:${requestId}`,
   reply: (fromId: string): string => `reply:${fromId}`,
   hold: (waitFor: string): string => `hold:${waitFor}`,
   timer: (toolCallId: string): string => `timer:${toolCallId}`,

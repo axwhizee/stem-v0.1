@@ -7,7 +7,6 @@
 // ============================================================
 
 import type { ChatMessage, ModelRef } from '../gateway'
-import type { AccessReplyInput } from '../tools'
 import type { PilotEvent } from '../events'
 import type { InstantiateOptions } from './InstanceManager'
 import type { AgentID, AgentInstance, ProjectRef } from './types'
@@ -27,8 +26,6 @@ export interface SystemFacade {
   readonly terminateAgent: (agentId: string, opts?: { readonly by?: string; readonly recursive?: boolean }) => Promise<void>
   /** 中断 agent 当前轮。 */
   readonly interruptAgent: (agentId: string, opts?: { readonly by?: string }) => Promise<void>
-  /** 回复访问申请（by 缺省根）。 */
-  readonly replyAccess: (input: AccessReplyInput, by: string) => Promise<void>
 
   readonly listInstances: () => Promise<readonly AgentInstance[]>
   readonly getInstance: (agentId: AgentID) => Promise<AgentInstance>

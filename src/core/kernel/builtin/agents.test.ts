@@ -39,10 +39,9 @@ describe('buildUserClass（根的类配置）', () => {
     assert.equal(cls.tools, undefined, 'tools 缺省 = 不设限（完整继承出生表，DEFAULT_USER_TOOLS 已退役）')
   })
 
-  test('tools 给出 = 根收敛清单（键即白名单，用户自担 access_reply 义务）', () => {
+  test('tools 给出 = 根收敛清单（键即白名单）', () => {
     const cls = buildUserClass({ tools: { read: 'allow' } })
     assert.deepEqual(cls.tools, { read: 'allow' })
-    assert.equal(cls.tools!.access_reply, undefined, '给定即全部（键即白名单）；access_reply 缺位由 boot 校验律拒启')
   })
 })
 

@@ -134,14 +134,6 @@ async function main(): Promise<void> {
           const r = await system.kernel.updateAgentClass(makeAgentClassID(clsName), patch, { persist: true })
           return sendJson(res, { ok: true, persisted: r.persisted })
         }
-        if (path === '/api/access') {
-          await system.pilot.replyAccess({
-            requestId: String(body.requestId),
-            reply: body.reply as 'once' | 'always' | 'reject',
-            ...(body.message !== undefined ? { message: String(body.message) } : {}),
-          })
-          return sendJson(res, { ok: true })
-        }
         if (path === '/api/context_action') {
           // 上下文策略专有动作（pilot 通道 = 根授权；如 classic compact）。
           const result = await system.pilot.runContextAction(

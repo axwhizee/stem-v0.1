@@ -4,10 +4,10 @@
 
 ## 职责
 
-- 持有并暴露领域聚合：`TemplateRegistry`（类表）、`InstanceManager`（实例）、`LineageTree`（族谱/能力）、`Repository`/`ContextManager`/`Courier`（邮局）、`Waiter`（统一挂起）、`RuntimePort`（执行器接口）、`ToolCapabilityRegistry`、`AccessAskBus`、`EventHub`、`Logger`。
+- 持有并暴露领域聚合：`TemplateRegistry`（类表）、`InstanceManager`（实例）、`LineageTree`（族谱/能力）、`Repository`/`ContextManager`/`Courier`（邮局）、`Waiter`（统一挂起）、`RuntimePort`（执行器接口）、`ToolCapabilityRegistry`、`EventHub`、`Logger`。
 - 定义运行期写通道：`updateAgent`（name/model/temperature/effort 唯一写面，无全树 replay）、`terminateAgent`（含 `waiter.cancelOwner`）、`interruptAgent`、`instantiateInSpace`、`registerAgentClass`/`updateAgentClass`（**tools 收敛硬门禁在写入面本层**——webui/组合根直调不可绕过）。
 - 提供端口适配器：`toolHost.ts`（`SystemToolHost`）、`runtimePort.ts`（接口声明）、`systemFacade.ts`（接口声明）。
-- **不自接线**：工具记录 sink 与 internal 工具装配由组合根 `main/toolWiring.ts` 完成（Kernel 不认识 bash）；Kernel 只注入日志/访问端口（`setLogSink`/`setAccessSink`/`setAccessResolver`）。
+- **不自接线**：工具记录 sink 与 internal 工具装配由组合根 `main/toolWiring.ts` 完成（Kernel 不认识 bash）；Kernel 只注入日志/族谱权限查询端口（`setLogSink`/`setAccessResolver`）。
 - **上下文箱注册**：`registerBox` 单点（根出生 / 恢复接线 / 实例化三路共用）——组装开关、策略、信件回调、hold；恢复路径 forget 不挡启动，出生路径 fail-fast。
 
 ## 文件
@@ -38,7 +38,7 @@
 
 - **端口**：`store.ts` `InstanceStore`；装饰器 `persisted.ts` `PersistedInstanceManager` 写穿。
 - **恢复语义**：`wireRestoredContexts`（runInit 载齐类/策略后一次完成）：实例装载（活跃状态归一化 thinking/holding → interrupted）→ lineage 启动 replay → 上下文接线（`restore=true` 跳过仓库开辟；快递员 `initialSentIds` 预置 → **重启零重放**）。悬空挂起不恢复，交 legalize 兜底。
-- **terminate = 个体消亡**：活体面移除、**id/name 占用保留（墓碑）**、消息行归档；`waiter.cancelOwner` 清理 ask/hold/pause。
+- **terminate = 个体消亡**：活体面移除、**id/name 占用保留（墓碑）**、消息行归档；`waiter.cancelOwner` 清理 hold/pause。
 - **已知边界**：轮账三件统一走 `recordTurnEnd`；未走到轮末的轮不记账是正确语义。
 
 ## 权限/模型物化

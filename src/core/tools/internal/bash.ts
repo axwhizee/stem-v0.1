@@ -5,7 +5,7 @@
 //   文件/系统的**唯一入口**。执行是平台能力 → core 只定义工具与
 //   `ShellRunner` 端口，实现由宿主注入（node child_process）。
 //
-// 治理哲学（对齐 pi）：**bash 不走 ask、不设黑名单**——高频工具
+// 治理哲学（对齐 pi）：**bash 无进程内审批、不设黑名单**——高频工具
 //   被询问打断模型循环得不偿失。约束全部走机制与分担：
 //   - 事故半径：硬超时（缺省可配）、输出截断、cwd 缺省（宿主项目根）；
 //   - 行为规范：工具描述提示词（非交互式、专职工具优先）；
@@ -93,7 +93,7 @@ export function createBashTool(deps: {
       '退出码非零不算执行失败——请根据输出与退出码自行判断后续动作，高危操作（删除、覆盖、网络副作用）三思而后行。',
     accessKey: 'bash',
     kind: 'internal',
-    registerAccess: 'allow', // 注册声明：对外操作面（用户裁决：高频工具不走 ask，治理靠超时/截断/cwd 三机制）
+    registerAccess: 'allow', // 注册声明：对外操作面（治理靠超时/截断/cwd 三机制 + 容器边界）
     category: 'shell',
     parameters: {
       type: 'object',

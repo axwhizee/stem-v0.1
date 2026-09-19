@@ -16,7 +16,6 @@ import {
 } from './agentInstanceTools'
 import { mailSend, mailParticipants } from './mailTools'
 import { agentPause, contextExport, contextOverview, contextRemove, contextEdit, contextApply } from './contextTools'
-import { accessReply } from './accessTools'
 import { telemetryQuery, formatTelemetryRow } from './telemetryTools'
 
 export { formatTelemetryRow }
@@ -43,6 +42,5 @@ export function createSystemTools(host: SystemToolHost): ToolCapability[] {
     contextRemove(host),
     contextEdit(host),
     contextApply(host),
-    accessReply(host),
   ]
 }

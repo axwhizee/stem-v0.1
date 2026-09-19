@@ -95,7 +95,7 @@ describe('agent_update（R7）', () => {
     // p1 名下子女（出生快照 = p1 当时值）
     await kernel.instantiateInSpace({ className: makeAgentClassID('self-model'), parentId: p1, userPrompt: 'child' })
 
-    // p1 自换模型（ignore = 隐藏但可执行，无 ask 弹窗直落）
+    // p1 自换模型（ignore = 隐藏但可执行，无审批直落）
     const self = await tools.execute(
       { id: 'call_self', name: 'agent_update', input: { model: 'cfg/new-m' } },
       { agentId: p1 },

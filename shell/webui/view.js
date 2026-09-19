@@ -68,10 +68,9 @@ export function truncate(text, max = 30) {
 
 /**
  * 信箱消息流 → 时间线渲染描述（R9 第一视角核心，纯函数）。
- * item = {kind:'msg'|'tool'|'meta'|'ask', side:'me'|'agent'|'them', who, text, icon}
+ * item = {kind:'msg'|'tool'|'meta', side:'me'|'agent'|'them', who, text, icon}
  * - 常规 agent 窗：user 信按 sender 归位（我=根来信右侧；他 agent 来信左侧）；
  * - 根（user#0）窗：反相——assistant = 人类发言（右"我"），user = 后代回信（左）；
- * - access_request 来信不进时间线（归"审"面板），出 {kind:'ask'} 供计数；
  * - system 不上线；invalid（compact 归档）跳过；tag=summary 出中缝元条。
  */
 export function routeLetters(messages, currentId, rootId = ROOT_ID, nameOf) {
@@ -100,7 +99,6 @@ export function routeLetters(messages, currentId, rootId = ROOT_ID, nameOf) {
     }
     if (role === 'user') {
       const { sender, text } = stripSender(m.content)
-      if (text.trimStart().startsWith('<access_request')) { items.push({ kind: 'ask', icon: ACT_GLYPH.review, text }); continue }
       if (atRoot) {
         // 根窗（呈现面=你）：人类发言（assistant 行）在右；后代回信（user 行）一律在左——标准聊天惯例。
         items.push({ kind: 'msg', side: 'them', who: sender ? `来自 ${sender}` : '来信', text })

@@ -7,7 +7,6 @@
 // ============================================================
 
 import type {
-  AccessPort,
   AgentClassView,
   AgentConfigView,
   AgentInstanceView,
@@ -130,9 +129,5 @@ export function createSystemToolHost(kernel: Kernel): SystemToolHost {
     allLogs: () => kernel.logger.all(),
   }
 
-  const access: AccessPort = {
-    reply: (input, agentId) => kernel.access.reply(input, agentId),
-  }
-
-  return { agents, context, telemetry, access }
+  return { agents, context, telemetry }
 }

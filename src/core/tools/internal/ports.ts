@@ -9,12 +9,11 @@
 //   AgentPort   —— 族谱/实例/类/寻址/通信（agent_*、mail_*）
 //   ContextPort —— 上下文本体操作（context_*、agent_pause）
 //   TelemetryPort —— 日志读取（telemetry_query）
-//   AccessPort  —— ask 审批回复（access_reply）
 // ============================================================
 
 import type { EffortLevel, ModelBinding, ModelRef } from '../../gateway'
 import type { LogEvent } from '../../logging'
-import type { AccessReplyInput, ToolAccess } from '../types'
+import type { ToolAccess } from '../types'
 
 // ---------- 中性 DTO ----------
 
@@ -157,11 +156,6 @@ export interface TelemetryPort {
   readonly allLogs: () => readonly LogEvent[]
 }
 
-/** ask 审批回复域。 */
-export interface AccessPort {
-  readonly reply: (input: AccessReplyInput, agentId: string) => Promise<void>
-}
-
 /**
  * internal 工具的宿主能力总口（tools 私有；仅 kernel 适配器实现、组合根注入）。
  * 其他模块不得 import 本类型。
@@ -170,5 +164,4 @@ export interface SystemToolHost {
   readonly agents: AgentPort
   readonly context: ContextPort
   readonly telemetry: TelemetryPort
-  readonly access: AccessPort
 }

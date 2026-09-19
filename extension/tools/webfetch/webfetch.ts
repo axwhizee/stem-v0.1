@@ -3,7 +3,7 @@
 //
 // 参考 opencode webfetch 简化：全局 fetch + 超时/大小/截断三护栏 +
 // text/markdown/html 三形态（markdown 优先请求原生、退化自实现转换）。
-// 零密钥、零配置；与 bash 同为对外操作面（无 ask，机制限事故半径）。
+// 零密钥、零配置；与 bash 同为对外操作面（静态权限 + 机制限事故半径）。
 // ============================================================
 
 import type { ToolCapability } from '../../../src/core/tools'

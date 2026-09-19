@@ -38,37 +38,29 @@ async function updateViaTool(tools: Awaited<ReturnType<typeof createKernelHarnes
 }
 
 describe('checkToolsConvergence（纯校验矩阵：序不升 + deny 铁律）', () => {
-  const cur: Readonly<Record<string, 'allow' | 'ask' | 'deny' | 'ignore'>> = {
+  const cur: Readonly<Record<string, 'allow' | 'deny' | 'ignore'>> = {
     a: 'allow',
-    b: 'ask',
-    c: 'deny',
-    d: 'ignore',
+    b: 'deny',
+    c: 'ignore',
   }
-  test('allow 收敛到 ask/deny 放行；改 ignore 藏匿判扩张被拒（总序）', () => {
-    assert.deepEqual(checkToolsConvergence(cur, { a: 'ask' }), [])
+  test('allow 收敛到 deny 放行；改 ignore 藏匿判扩张被拒（总序）', () => {
     assert.deepEqual(checkToolsConvergence(cur, { a: 'deny' }), [])
     assert.equal(checkToolsConvergence(cur, { a: 'ignore' }).length, 1, 'allow→ignore = 藏匿扩张，拒')
   })
-  test('ask 不得升为 allow/ignore（不可移除人审闸），只可降 deny', () => {
-    assert.equal(checkToolsConvergence(cur, { b: 'allow' }).length, 1)
-    assert.equal(checkToolsConvergence(cur, { b: 'ignore' }).length, 1)
-    assert.deepEqual(checkToolsConvergence(cur, { b: 'deny' }), [])
-  })
   test('deny 是不可撤销铁律：任何变更被拒', () => {
-    for (const next of ['allow', 'ask', 'ignore'] as const) {
-      assert.equal(checkToolsConvergence(cur, { c: next }).length, 1, `deny→${next} 必须被拒`)
+    for (const next of ['allow', 'ignore'] as const) {
+      assert.equal(checkToolsConvergence(cur, { b: next }).length, 1, `deny→${next} 必须被拒`)
     }
   })
-  test('ignore 最宽：升到 allow/ask/deny 皆收敛方向全放行（曝光/加闸/关闭）', () => {
-    assert.deepEqual(checkToolsConvergence(cur, { d: 'allow' }), [])
-    assert.equal(checkToolsConvergence(cur, { d: 'ask' }).length, 0, 'ignore→ask：执行面收敛（加人审闸）')
-    assert.deepEqual(checkToolsConvergence(cur, { d: 'deny' }), [])
+  test('ignore 最宽：升到 allow/deny 皆收敛方向全放行（曝光/关闭）', () => {
+    assert.deepEqual(checkToolsConvergence(cur, { c: 'allow' }), [])
+    assert.deepEqual(checkToolsConvergence(cur, { c: 'deny' }), [])
   })
   test('新键放行（键即白名单=自我限定；实际能力由台账收敛兜底）', () => {
     assert.deepEqual(checkToolsConvergence(cur, { brand_new: 'allow' }), [])
   })
   test('多违规逐条报告', () => {
-    const errs = checkToolsConvergence(cur, { b: 'allow', c: 'allow' })
+    const errs = checkToolsConvergence({ a: 'allow', b: 'deny' }, { a: 'ignore', b: 'allow' })
     assert.equal(errs.length, 2)
   })
 })
@@ -123,7 +115,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
       userClass: { tools: userTools },
       classStore: store.classStore,
     })
-    await createViaTool(tools, { name: 'reviewer', description: 'v1', systemPrompt: 'p1', tools: { read: 'allow', bash: 'ask' } })
+    await createViaTool(tools, { name: 'reviewer', description: 'v1', systemPrompt: 'p1', tools: { read: 'allow', bash: 'allow' } })
     const result = await updateViaTool(tools, { name: 'reviewer', systemPrompt: 'p2', tools: { read: 'deny', bash: 'deny' }, model: 'prov/m1' })
     assert.match(result.text, /已更新类 reviewer/)
     assert.match(result.text, /已落盘/)
@@ -146,11 +138,11 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
       userClass: { tools: userTools },
       classStore: store.classStore,
     })
-    await createViaTool(tools, { name: 'gated', description: 'd', systemPrompt: 'p', tools: { bash: 'ask' } })
+    await createViaTool(tools, { name: 'gated', description: 'd', systemPrompt: 'p', tools: { bash: 'allow' } })
     const before = store.saved.length
-    const result = await updateViaTool(tools, { name: 'gated', tools: { bash: 'allow' }, systemPrompt: 'sneak' })
+    const result = await updateViaTool(tools, { name: 'gated', tools: { bash: 'ignore' }, systemPrompt: 'sneak' })
     assert.match(result.text, /只能收敛/)
-    assert.match(result.text, /bash: ask → allow（扩张被拒，只许收敛）/)
+    assert.match(result.text, /bash: allow → ignore（扩张被拒，只许收敛）/)
     assert.equal(store.saved.length, before, '违规 → 零落盘')
     assert.equal(kernel.templates.getSync(makeAgentClassID('gated'))!.systemPrompt, 'p', '违规 → 零注册表变更（整单原子拒绝）')
   })
@@ -163,10 +155,10 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
       name: makeAgentClassID('direct'),
       description: 'd',
       systemPrompt: 'p',
-      tools: { bash: 'ask' },
+      tools: { bash: 'allow' },
     })
     await assert.rejects(
-      () => kernel.updateAgentClass(makeAgentClassID('direct'), { tools: { bash: 'allow' } }),
+      () => kernel.updateAgentClass(makeAgentClassID('direct'), { tools: { bash: 'ignore' } }),
       (e: unknown) => {
         const err = e as { kind?: string; message?: string }
         return err.kind === 'invalid_template' && /只能收敛/.test(err.message ?? '')
@@ -174,7 +166,7 @@ describe('agent_class_update：同名覆盖 + 落盘 + 只许收敛', () => {
     )
     assert.deepEqual(
       kernel.templates.getSync(makeAgentClassID('direct'))!.tools,
-      { bash: 'ask' },
+      { bash: 'allow' },
       '违规 → 注册表不变',
     )
     // 合法收敛仍放行。

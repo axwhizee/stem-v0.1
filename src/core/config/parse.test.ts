@@ -109,34 +109,33 @@ test('解析完整 JSONC（注释 + 尾逗号 + 全块）', () => {
   const config = parseConfigText(`{
     // 注释
     "providers": { "opencode-go": { "base_url": "https://opencode.ai/zen/go/v1", "key_env": "OPENCODE_API_KEY" } },
-    "autoApprove": false,
     "sendCountdown": 800,
-    "user": { "systemPrompt": "你是根。", "tools": { "read": "allow", "bash": "ask" }, "model": "opencode-go/deepseek-v4-flash", "name": "船长" },
+    "user": { "systemPrompt": "你是根。", "tools": { "read": "allow", "bash": "allow" }, "model": "opencode-go/deepseek-v4-flash", "name": "船长" },
     "context": { "window": 64000, "compact": { "threshold": 0.9, "keepRecentTurns": 2, "summarizeModel": "opencode-go/deepseek-v4-flash" } },
-    "extensions": { "tools": { "read": "allow", "vscode": "ask" }, "agent": ["creator"] },
+    "extensions": { "tools": { "read": "allow", "vscode": "deny" }, "agent": ["creator"] },
   }`)
-  assert.equal(config.autoApprove, false)
   assert.equal(config.user?.name, "船长")
   assert.equal(config.sendCountdown, 800)
-  assert.deepEqual(config.user?.tools, { read: 'allow', bash: 'ask' })
+  assert.deepEqual(config.user?.tools, { read: 'allow', bash: 'allow' })
   assert.equal(config.user?.systemPrompt, '你是根。')
   assert.deepEqual(config.user?.model, { provider: 'opencode-go', id: 'deepseek-v4-flash' })
   assert.equal(config.user?.name, '船长', 'name 是白名单字段，parse 不得丢弃（v1.0 实测抓获回归）')
   assert.equal(config.context?.window, 64000)
   assert.equal(config.context?.compact?.threshold, 0.9)
-  assert.deepEqual(config.extensions, { tools: { read: 'allow', vscode: 'ask' }, agent: ['creator'] })
+  assert.deepEqual(config.extensions, { tools: { read: 'allow', vscode: 'deny' }, agent: ['creator'] })
 })
 
-test('autoApprove 必须是布尔', () => {
-  expectFail('{ "autoApprove": "yes" }', 'autoApprove')
+test('autoApprove 已废除：出现即拒启（ask 档位删除）', () => {
+  expectFail('{ "autoApprove": true }', 'autoApprove')
 })
 
 test('sendCountdown 必须是非负数字', () => {
   expectFail('{ "sendCountdown": -1 }', 'sendCountdown')
 })
 
-test('user.tools 动作非法抛错（四态）', () => {
+test('user.tools 动作非法抛错（三态）', () => {
   expectFail('{ "user": { "tools": { "read": "ban" } } }', 'user.tools.read')
+  expectFail('{ "user": { "tools": { "read": "ask" } } }', 'user.tools.read')
 })
 
 test('user 必须是对象', () => {
@@ -183,7 +182,7 @@ test('DEFAULT_CONFIG_TEXT 自洽：schema 全量校验通过', () => {
   // 模板实值齐全：点名块与根收敛清单都是**写好的 config**（无 core 兜底机制）。
   assert.deepEqual(
     Object.keys(config).sort(),
-    ['autoApprove', 'context', 'extensions', 'providers', 'sendCountdown', 'user'],
+    ['context', 'extensions', 'providers', 'sendCountdown', 'user'],
   )
 })
 

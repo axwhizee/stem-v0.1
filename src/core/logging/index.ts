@@ -17,8 +17,6 @@ export type {
   AgentTerminated,
   AgentInterrupted,
   AgentMessageSent,
-  AccessAsked,
-  AccessReplied,
 } from './events'
 
 export type { LogSink, LogFilter, Logger } from './Logger'

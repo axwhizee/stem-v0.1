@@ -154,11 +154,11 @@ test('custom 源点名装载：.stem/tools 文件经 config 点名进世界 + �
   const { deps } = makeDeps({
     files: { '/proj/.stem/tools/t1.ts': 'x' },
     toolModules: { '/proj/.stem/tools/t1.ts': toolMod('t1') },
-    configRaw: '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "t1": "ask" } }\n}',
+    configRaw: '{\n  "providers": { "p": { "base_url": "https://x.dev/v1" } },\n  "user": { "model": "p/m" },\n  "extensions": { "tools": { "t1": "ignore" } }\n}',
   })
   const report = await runInit(deps)
   assert.deepEqual(report.tools.map((t) => [t.id, t.layer]), [['t1', 'custom']])
-  assert.equal(report.toolInventory[0]?.registerAccess, 'ask', '注册声明 = config 点名权限词（发现段注入）')
+  assert.equal(report.toolInventory[0]?.registerAccess, 'ignore', '注册声明 = config 点名权限词（发现段注入）')
 })
 
 test('配置文件已存在：永不回写（管线只读 config）', async () => {
@@ -420,7 +420,7 @@ test('extension 策略点名装载（context 类目录形态）', async () => {
 test('首启模板 schema-clean 且含根收敛清单实值（DEFAULT_USER_TOOLS 的家）', async () => {
   const { defaultStemConfig } = await import('../config')
   const cfg = defaultStemConfig()
-  assert.ok(cfg.user?.tools && cfg.user.tools.access_reply === 'allow', '模板 user.tools 含 access_reply allow')
+  assert.ok(cfg.user?.tools && cfg.user.tools.bash === 'allow', '模板 user.tools 含 bash allow')
   assert.equal(cfg.user.tools.mail_send, 'allow', 'bus_* 已更名 mail_*')
   assert.ok(cfg.extensions?.tools && Object.keys(cfg.extensions.tools).length >= 5, '模板点名 fs 五件套')
 })

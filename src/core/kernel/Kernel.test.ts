@@ -229,7 +229,7 @@ describe('Kernel 邮局模式', () => {
       },
     })
 
-    // user#0 身份调用：registry/ask 总线经 AccessResolver 查询台账（不再手传权限层）。
+    // user#0 身份调用：registry 经 AccessResolver 查询台账（不再手传权限层）。
     const adminCtx = { agentId: ROOT_ID }
 
     const created = await tools.execute(

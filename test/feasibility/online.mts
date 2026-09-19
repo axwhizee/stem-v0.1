@@ -4,7 +4,7 @@
 // 前置：ALIBABA_API_KEY 已注入环境（值只走 env，注入法见 docs/contributor.md §8）。
 // 验证 mock 不可测面：W1 真 LLM 轮 / W2 真模型自发生成 tool_call→bash 执行
 // 回注→闭合 / W3 真 websearch+webfetch（extension 装载+外网） /
-// W4 真 ask 审批链（模型真实申请→根答复→类落盘） / W5 telemetry_query 观测 /
+// W4 真模型进化书写（allow 直写→类落盘） / W5 telemetry_query 观测 /
 // W6 真 compact（小窗口真摘要）。运行：ALIBABA_API_KEY=<key> npx tsx test/feasibility/online.mts
 // 成本控制：flash 模型 × 短 prompt × maxSteps 4，全程约 8~10 轮。
 // ============================================================
@@ -33,7 +33,6 @@ mkdirSync(join(dir, '.stem'), { recursive: true })
 writeFileSync(join(dir, '.stem', 'stem.jsonc'), JSON.stringify({
   providers: { alibaba: { base_url: 'https://dashscope.aliyuncs.com/compatible-mode/v1', key_env: 'ALIBABA_API_KEY' } },
   user: { model: 'alibaba/qwen3.8-flash' },
-  autoApprove: false,
   context: { window: 4000, compact: { enabled: true, threshold: 0.5, keepRecentTurns: 1 } },
   extensions: { tools: { websearch: 'allow', webfetch: 'allow' } },
   sendCountdown: 20,
@@ -78,7 +77,7 @@ try {
   console.log('W2 模型自主 tool_call → bash 执行 → 结果回注 → 闭合')
   await sys.kernel.templates.register({
     name: makeAgentClassID('operator'), description: '操作试验类', systemPrompt: '按指令使用工具，完成后用一句话总结。',
-    tools: { bash: 'allow', agent_class_create: 'ask', websearch: 'allow', webfetch: 'allow', telemetry_query: 'allow' },
+    tools: { bash: 'allow', agent_class_create: 'allow', websearch: 'allow', webfetch: 'allow', telemetry_query: 'allow' },
   })
   const opId = await sys.pilot.instantiate({ className: makeAgentClassID('operator'), userPrompt: '用 bash 执行 echo stem-online-ok，然后告诉我输出了什么。', name: 'on-op' }, dir)
   await waitIdle('W2')
@@ -97,15 +96,11 @@ try {
   const w3f = await sys.pilot.exportContext(opId)
   ok('webfetch 真实抓取（example 域正文特征）', /example/i.test(w3f) && w3f.length > w3.length, w3f.slice(-300))
 
-  // ---------- W4 真 ask 审批链 ----------
-  console.log('W4 真模型触发 ask → 根信箱 → 答复 → 落盘')
+  // ---------- W4 真模型进化书写（allow 直写） ----------
+  console.log('W4 真模型 agent_class_create → 落盘')
   await sys.kernel.sendMessage('0', opId, '用 agent_class_create 创建一个类：name=online-reviewer，description=在线审查类，systemPrompt=You review。不要执行任何 shell 命令，只创建类。')
-  const reqId = await waitLetter('accessKey="agent_class_create"')
-  ok('真 LLM 申请触发 access_request（ask 消息化投递根信箱）',
-     letters.some((l) => l.agentId === '0' && l.text.includes('accessKey="agent_class_create"') && l.text.includes('agentId="on-op"')), JSON.stringify(letters.slice(-1)))
-  await sys.pilot.replyAccess({ requestId: reqId, reply: 'once' })
-  await waitIdle('W4-post')
-  ok('审批后类文件真实落盘', existsSync(join(dir, '.stem', 'agent', 'online-reviewer.md')))
+  await waitIdle('W4-write')
+  ok('类文件真实落盘', existsSync(join(dir, '.stem', 'agent', 'online-reviewer.md')))
 
   // ---------- W5 telemetry 观测面 ----------
   console.log('W5 telemetry_query 模型侧观测')

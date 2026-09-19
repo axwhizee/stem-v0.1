@@ -12,7 +12,7 @@
 | **平等 agent 生态** | 全体 agent（含根）同一套机制；唯一差异 = 出生路径 id + 族谱位置 |
 | **族谱树** | 实例树：父 = `parentIdOf(id)` 纯推导；属性节点沿链继承/收敛；可见域 = 自身∨祖先 |
 | **属性表继承-收敛** | 多数属性沿族谱链：继承父表 → 类基因 → 实例化入参 → 节点表；只紧不松 |
-| **工具权限四态** | allow/ask/deny/ignore 专章；键即白名单 + 收敛链（见 2.3） |
+| **工具权限三态** | allow/ignore/deny 静态收敛；键即白名单 + 只紧不松（见 2.3） |
 | **工具生命周期** | 注册声明 → init 预载（可追加入表）→ execute（运行期，无 fs）；drain 后冻结，无热插拔（见 2.3b） |
 | **系统 init** | stem 初始化（定位 + config + 发现无序清单）→ Kernel → 工具 drain（register+init）→ user#0（见 2.8） |
 | **工具三层** | internal = core 薄封装 + bash（唯一对外操作面）；extension = 外部领域（skill / MCP）；custom = stem 空间用户工具 |
@@ -35,7 +35,7 @@
 │   pilot/ 根扮演接口 · events/ PilotEvent + EventHub                   │
 │   lineage/ LineageTree（拓扑+能力+canReach）                          │
 │   context/ 邮局（仓库/管理员/快递员）+ Waiter + 策略                   │
-│   tools/ 注册表 + 四态代数 + accessRequest + output + internal/       │
+│   tools/ 注册表 + 三态代数 + output + internal/                       │
 ├──────────────────────────────────────────────────────────────────────┤
 │ Layer 1  gateway/（模型网关契约 + OpenAI 兼容 provider + FakeGateway） │
 └──────────────────────────────────────────────────────────────────────┘
@@ -126,7 +126,7 @@
 - **出生落地**：`modelBinding` / `temperature` / `effort` 随实例行持久；改父不级联子女
 - **策略 raise**（当前实现，仅 tools）：插在类与实例之间，只抬不封；策略层近期可能整体重构
 
-**tools 字段**除上述表级继承外，还有更细的**四态权限代数**（白名单、只紧不松、ask 审批）→ 专节 **2.3**。
+**tools 字段**除上述表级继承外，还有更细的**三态权限代数**（白名单、只紧不松）→ 专节 **2.3**。
 
 **物化门面 `LineageTree`**（`core/lineage/`）：拓扑（纯推导）+ 能力（`attach`/`replay`，可启动重建、纯派生不入库）+ 可见域。权限算法住 `AccessLedger`，对外只经门面。
 
@@ -134,24 +134,23 @@
 
 实现细节：`src/core/lineage/README.md`、`src/core/kernel/README.md`。
 
-### 2.3 工具权限控制（四态收敛）
+### 2.3 工具权限控制（三态静态收敛）
 
-**一句话**：权限只有两个来源——**注册声明**（入表时写明该键的访问动作，全局封顶）与**收敛清单**（沿族谱链谁能用到哪级）；ask 审批是**消息交换**。
+**一句话**：权限只有两个来源——**注册声明**（入表时写明该键的访问动作，全局封顶）与**收敛清单**（沿族谱链谁能用到哪级）。无进程内审批档；真实爆炸半径由宿主容器与挂载边界承担。
 
 | 状态 | 暴露给 LLM | 执行时 |
 |---|---|---|
 | `allow` | ✅ | ✅ 直接执行 |
-| `ask` | ✅ | ⏸ 挂起（申请投族谱根信箱，等根 `access_reply`） |
 | `deny` | ❌ | ❌ `access_denied` |
 | `ignore` | ❌（背景在场） | ✅ 可执行（不设防） |
 
 - **注册即声明**：工具进入注册表时必须带访问动作声明（字段名 `registerAccess`，语义 = **注册声明**）；无缺省、无 kind 推导
 - **收敛链**与 2.2 的 tools 列同一把尺
 - **键即白名单**：写了 = 未列出局；**整表缺席 = 完整继承**；空表 = 全关
-- **只紧不松**：严格度总序 `deny ≺ ask ≺ allow ≺ ignore`；扩张即拒（写入面）或静默钳制（物化面）
+- **只紧不松**：严格度总序 `deny ≺ allow ≺ ignore`；扩张即拒（写入面）或静默钳制（物化面）
 - **两步独立归因**：类收敛 ≠ 实例收敛，不预合并
-- **模型可见 = allow ∪ ask**；`kind` 三分类纯 provenance，不参与权限推断
-- **boot 校验律**：根 `access_reply ≠ allow` 拒启（ask 消息化死锁审判）
+- **模型可见 = allow**；`kind` 三分类纯 provenance，不参与权限推断
+- **config/类文件出现 `ask` = 拒启**（历史档位已删除）
 
 细节：`src/core/tools/README.md`、`src/core/lineage/README.md`。
 
@@ -234,7 +233,7 @@
 | **ContextManager** | 打戳（`<sender id="name#id" at="…">`）· Waiter 统一挂起 · 策略 process · 组装 + legalize |
 | **Courier** | 倒计时送信（初始 0 立即送；发送后进入合并窗口；来信重置） |
 
-**唤醒语义**：只有外部 `deposit` 触发快递员；agent 自身 `appendHistory` 不重投递。统一挂起 `Waiter`：`ask` / `instantiate.wait` / `agent_pause` 同一原语（`wait/emit/cancelOwner`）。
+**唤醒语义**：只有外部 `deposit` 触发快递员；agent 自身 `appendHistory` 不重投递。统一挂起 `Waiter`：`instantiate.wait` / `agent_pause` / 策略回信配对同一原语（`wait/emit/cancelOwner`）。
 
 **上下文策略**：`classic`（直出 + compact）/ `cortex`（三层记忆 + 做梦）/ `none`（面板）；契约 `process`（异步许可）与 `assemble`（纯函数快照）分离。详见 `src/core/context/README.md`。
 
@@ -261,7 +260,7 @@
 |---|---|
 | `providers` | 模型端点注册表：`base_url` / `key_env`（密钥只走 env 名）/ `models` 白名单 |
 | `user` | 根的完整类对象（人格/tools/contextStrategy/**model**/name…= user 类基因） |
-| `autoApprove` / `sendCountdown` | 运行策略参数 |
+| `sendCountdown` | 运行策略参数（缺省送信倒计时） |
 | `context` | 窗口与 compact 参数 |
 | `bash` | shell 工具路径/超时/截断/cwd |
 | `tools` | `outputLimit` 等输出窗口 |
@@ -357,8 +356,7 @@ instances (
    完成 → 冻结
 Ⅳ wireRestoredContexts（类/策略已在发现段入表）
 Ⅴ Pilot / user#0（基础工具表 + config.user；根的 tools 收敛在完整注册声明台账上物化）
-Ⅵ boot 校验律（根 access_reply 必 allow）
-Ⅶ userHooks
+Ⅵ userHooks
 → 返回 StemSystem { kernel, pilot, tools, config, init, dispose }
 ```
 
@@ -370,7 +368,7 @@ instances (
 | drain **先于** user#0 | 根的权限物化需要完整注册声明台账 |
 | 无策略 boot 相位 | 策略 = 接口模块，不编排系统流程 |
 
-**失败语义**：空间/config 非法、点名解析不到、boot 校验失败 = **拒启**；单工具 init 失败 = **issue 留痕，不中断**。
+**失败语义**：空间/config 非法、点名解析不到 = **拒启**；单工具 init 失败 = **issue 留痕，不中断**。
 
 **运行期与 stem 空间**：drain 后工具表不再变更；领域数据书写（如类进化写 `.stem/agent/`）仍可能发生，**不回灌工具表**。
 
@@ -388,7 +386,7 @@ instances (
 | core | kernel | 领域聚合 + 运行期写通道 + 端口适配器 | `src/core/kernel/README.md` |
 | core | lineage | 族谱树：拓扑 + 能力物化 + canReach | `src/core/lineage/README.md` |
 | core | context | 邮局 + Waiter + 策略 | `src/core/context/README.md` |
-| core | tools | 工具框架 + 四态代数 + internal 工具 | `src/core/tools/README.md` |
+| core | tools | 工具框架 + 三态代数 + internal 工具 | `src/core/tools/README.md` |
 | core | gateway | 模型网关契约 + provider | `src/core/gateway/README.md` |
 | core | config | StemConfig + `.stem/agent` 契约 | `src/core/config/README.md` |
 | core | pilot | 根扮演接口 | `src/core/pilot/README.md` |

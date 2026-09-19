@@ -113,11 +113,11 @@
 
 ## 6. 工具与权限（改动敏感区）
 
-- `ToolAccess = allow | ask | deny | ignore`；严格度总序 **`deny ≺ ask ≺ allow ≺ ignore`**，一切书写面只许顺链收缩。
+- `ToolAccess = allow | deny | ignore`；严格度总序 **`deny ≺ allow ≺ ignore`**，一切书写面只许顺链收缩。config/类文件出现 `ask` = 拒启。
 - 类 `tools`：**键即白名单**；`{}` = 本地封闭；**未设 = 完整继承父生效档案**。
 - 改工具 shape（含 `registerAccess`）/ `AgentClass.tools` / `ToolContext` 时全量对拍：tools 模块、extension 工具、注册表出生面、系统工具 schema、族谱台账、config 模板、webui/dashboard。
 - `grant` = 整表替换 + 逐键祖先封顶，仅策略 spawn 通道使用。
-- ask 是消息交换：改审批 = 改 `<access_request>` 消息形状，考虑根信箱可读性。
+- 权限判定是静态查表：registry `execute` 对 deny 直接 `access_denied`，无消息化审批路径。
 
 ---
 

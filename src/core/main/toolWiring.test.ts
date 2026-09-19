@@ -22,7 +22,6 @@ describe('createInternalToolDefs + drain（与生产同路径）', () => {
       'mail_send',
       'context_export',
       'telemetry_query',
-      'access_reply',
     ]) {
       assert.ok(ids.includes(id), `缺 ${id}`)
     }

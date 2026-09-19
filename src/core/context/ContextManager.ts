@@ -9,7 +9,7 @@
 //          返回 = 完整上下文就绪 → 才提醒快递员（classic 的 compact 在此）；
 //       4. 组装（策略 assemble 纯函数 + legalize）→ 送信快照；
 //   - 组装权归管理员（快递员只发不组装——策略对真实送信生效的前提）；
-//   - 统一挂起（Waiter）：waitForReply / agent_pause / ask / hold 超时
+//   - 统一挂起（Waiter）：waitForReply / agent_pause / hold 超时
 //     同一原语（事件键 + 倒计时 + 中断）；instantiate.wait 的独占消费
 //     住 holds Map（deposit 命中即 tool 填充），Waiter 只管超时自回填。
 //   - 策略专有动作入口（runStrategyAction ← pilot / context_apply）。
@@ -40,7 +40,7 @@ export interface ContextManagerOptions {
   readonly settings?: ContextSettings
   /** 可注入计时器（回信配对超时；缺省 setTimeout）。 */
   readonly timer?: TimerFactory
-  /** 可注入统一挂起原语（与 access ask 共用时由组合根传入）。 */
+  /** 可注入统一挂起原语（与 kernel 共用同一 Waiter 实例）。 */
   readonly waiter?: Waiter
   readonly defaultCountdownMs?: number
   /** 仓库（组合根注入）。 */
@@ -333,7 +333,7 @@ export class DefaultContextManager implements ContextManager {
   async unregister(agentId: string): Promise<void> {
     await this.courier.unregister(agentId)
     await this.repository.unregister(agentId)
-    // 统一挂起清理：本 owner 的 reply/timer/ask 全部兑现 aborted（不悬挂）。
+    // 统一挂起清理：本 owner 的 reply/timer/hold 全部兑现 aborted（不悬挂）。
     this.waiter.cancelOwner(agentId)
     for (const [waitFor, hold] of this.holds) {
       if (hold.ownerId === agentId) this.holds.delete(waitFor)

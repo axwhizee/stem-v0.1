@@ -188,9 +188,9 @@ describe('LineageTree（无状态查询视图，纯关系）', () => {
 describe('LineageTree 门面（能力物化：attach/effectiveAccess/replay/detach）', () => {
   test('attach 两步曲：根整表 → 子清单收敛（继承→取严）', async () => {
     const { lineage } = await makeTree()
-    lineage.attach({ agentId: '0', parentId: null, own: { read: 'allow', bash: 'ask' } })
+    lineage.attach({ agentId: '0', parentId: null, own: { read: 'allow', bash: 'ignore' } })
     lineage.attach({ agentId: 'a', parentId: '0', own: { read: 'deny' } }) // 子封闭：只列 read
-    // 根的显式 ask 锁子孙、子未列键本地封闭（fallback deny 兜底）。
+    // 根的显式 ignore 锁子孙、子未列键本地封闭（fallback deny 兜底）。
     assert.equal(lineage.effectiveAccess('a', 'read'), 'deny')
     assert.equal(lineage.effectiveAccess('a', 'bash'), 'deny', '子清单封闭：未列键兜底 deny')
     assert.equal(lineage.effectiveAccess('a', 'zzz'), 'deny')
@@ -198,8 +198,8 @@ describe('LineageTree 门面（能力物化：attach/effectiveAccess/replay/deta
     const profile = lineage.profileOf('a')
     assert.equal(profile?.fallback, 'deny')
     assert.deepEqual(profile?.explicit, { read: 'deny' })
-    // 根：ask 原样物化。
-    assert.equal(lineage.effectiveAccess('0', 'bash'), 'ask')
+    // 根：ignore 原样物化。
+    assert.equal(lineage.effectiveAccess('0', 'bash'), 'ignore')
   })
 
   test('祖先显式 deny 铁律：子显式 allow 也压不回（restrictAccess 取严）', async () => {
@@ -223,12 +223,12 @@ describe('LineageTree 门面（能力物化：attach/effectiveAccess/replay/deta
     const { lineage } = await makeTree()
     lineage.replay([
       { agentId: 'g', parentId: 'p', own: { read: 'allow' } }, // 孙（先给出）
-      { agentId: '0', parentId: null, own: { read: 'ask', bash: 'allow' } },
-      { agentId: 'p', parentId: '0', own: { read: 'allow', bash: 'ask' } },
+      { agentId: '0', parentId: null, own: { read: 'ignore', bash: 'allow' } },
+      { agentId: 'p', parentId: '0', own: { read: 'allow', bash: 'ignore' } },
     ])
-    // 父 ask 锁孙：乱序输入下 g.read 仍收敛为 ask。
-    assert.equal(lineage.effectiveAccess('g', 'read'), 'ask')
-    assert.equal(lineage.effectiveAccess('p', 'bash'), 'ask')
+    // 父 ignore 锁孙：乱序输入下 g.read 仍收敛为 allow（ignore 藏匿被压回）。
+    assert.equal(lineage.effectiveAccess('g', 'read'), 'allow')
+    assert.equal(lineage.effectiveAccess('p', 'bash'), 'allow', '祖先 allow、子 ignore → 压回 allow')
     assert.ok(lineage.has('g') && lineage.has('0') && !lineage.has('nobody'))
   })
 

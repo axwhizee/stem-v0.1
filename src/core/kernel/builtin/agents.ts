@@ -14,7 +14,7 @@
 // 即白名单，逐键被注册声明表封顶——越界 = boot 硬错）；缺省 = 完整继承
 // 注册声明表面（全系统无缺省注入）。首启模板实值（推荐清单）住在
 // config/defaults.ts 的 DEFAULT_CONFIG_TEXT——模板不是机制，只是一份写好的
-// config；boot 校验律保证 access_reply 生效 allow，缺位拒启。
+// config（权限词 = allow/deny/ignore）。
 // ============================================================
 
 import type { ModelRef } from '../../gateway'
@@ -40,7 +40,7 @@ export interface UserClassConfig {
 export const USER_DEFAULT: AgentClass = {
   name: USER_CLASS_ID,
   description:
-    'user 类：系统根 agent，由人类经 pilot 扮演；tools = config.user.tools 收敛清单（缺省 = 完整继承注册声明表；access_reply 生效 allow 由 boot 校验律保证）。',
+    'user 类：系统根 agent，由人类经 pilot 扮演；tools = config.user.tools 收敛清单（缺省 = 完整继承注册声明表）。',
   systemPrompt: '',
   sendCountdown: 0,
 }

@@ -12,8 +12,8 @@ import type { ToolAccess } from '../tools'
 
 // ---------- 共享校验器 ----------
 
-/** 工具访问四态。 */
-const ACCESS_ACTIONS: readonly ToolAccess[] = ['allow', 'deny', 'ask', 'ignore']
+/** 工具访问三态（静态收敛；config/类文件出现 ask = 拒启）。 */
+const ACCESS_ACTIONS: readonly ToolAccess[] = ['allow', 'deny', 'ignore']
 
 /** 非空字符串字段（可选）。 */
 export function asString(
@@ -52,7 +52,7 @@ export function asToolAccessRecord(
   const result: Record<string, ToolAccess> = {}
   for (const [tool, action] of Object.entries(value as Record<string, unknown>)) {
     if (!ACCESS_ACTIONS.includes(action as ToolAccess)) {
-      fail(`${path}.${tool} 非法（允许 allow/ask/deny/ignore）`)
+      fail(`${path}.${tool} 非法（允许 allow/deny/ignore；ask 档位已删除）`)
     }
     result[tool] = action as ToolAccess
   }

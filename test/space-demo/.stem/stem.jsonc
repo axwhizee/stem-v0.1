@@ -17,14 +17,12 @@
       "models": ["deepseek-v4-pro", "deepseek-v4-flash"]
     }
   },
-  "autoApprove": false,
-  "maxSteps": 8,
   // 根（user#0）的类配置（完整可配）。tools = 根收敛清单：键即白名单——
   // 未列出的工具对根一律 deny；对子孙只供显式判定（缺席 ≠ 否决，显式 deny 锁链）。
+  // 权限词 = allow/deny/ignore（ask 档位已删除）。
   "user": {
     "model": "alibaba/qwen3.8-flash",   // 可指定根使用的模型，一般来说实例创建时会默认继承父实例使用的模型
     "tools": {
-      "access_reply": "allow",
       "agent_instantiate": "allow",
       "agent_list": "allow",
       "agent_inspect": "allow",
@@ -39,20 +37,20 @@
       "context_edit": "allow",
       "context_apply": "allow",
       "telemetry_query": "allow",
-      "agent_update": "ask",
+      "agent_update": "allow",
       // SKILL.md 兼容装载器（custom 工具，经下方 extensions.tools 点名后生效）。
       "skill": "allow",
-      "agent_class_create": "ask",
-      "agent_class_update": "ask",
-      "agent_terminate": "ask",
+      "agent_class_create": "allow",
+      "agent_class_update": "allow",
+      "agent_terminate": "allow",
       "bash": "allow",
       "websearch": "allow",
       "webfetch": "allow",
       "read": "allow",
       "grep": "allow",
       "glob": "allow",
-      "write": "ask",
-      "edit": "ask"
+      "write": "allow",
+      "edit": "allow"
     }
   },
   // classic 策略压缩参数（window = 估算 token 预算；threshold 触发比例）。

@@ -1,6 +1,6 @@
 // ============================================================
 // shell/feishu/router.test.ts —— 飞书 shell 纯逻辑层测试
-// （身份闸门/命令路由/信箱分流/审批回调/渲染分箱——全决策面零 SDK）
+// （身份闸门/命令路由/信箱分流/渲染分箱——全决策面零 SDK）
 // ============================================================
 
 import { describe, test } from 'node:test'
@@ -9,8 +9,6 @@ import {
   createRouterState,
   handleInbound,
   routeUserMail,
-  parseAccessRequest,
-  parseCardAction,
   applyWatchCommand,
   stripMentions,
   formatTree,
@@ -177,30 +175,17 @@ describe('命令面', () => {
   })
 })
 
-describe('信箱分流（读 aloud / 审批）', () => {
-  test('access_request XML 解析', () => {
-    const req = parseAccessRequest(
-      '<access_request id="r7" accessKey="edit" agent="tester#1"><EditFile path="a.py" ...>请用 access_reply 工具答复（requestId=r7）。</access_request>',
-    )
-    assert.deepEqual(
-      { requestId: req?.requestId, accessKey: req?.accessKey, agentId: req?.agentId },
-      { requestId: 'r7', accessKey: 'edit', agentId: 'tester#1' },
-    )
-    assert.equal(parseAccessRequest('普通信件'), undefined)
-  })
-
-  test('接待员回信 → 读 aloud 主人；旁支信使 → 审批卡（含附加群）', () => {
-    const s = state({ approvalChatIds: ['oc_admin_grp'] })
+describe('信箱分流（读 aloud）', () => {
+  test('接待员回信 → 读 aloud 主人；非接待员/旁支不读 aloud', () => {
+    const s = state()
     const acts = routeUserMail(s, [
       { from: 'sec1', content: '主人，天气晴。' },
-      { from: 'tester#1', content: '<access_request id="r7" accessKey="edit" agent="tester#1">…</access_request>' },
+      { from: 'tester#1', content: '旁支通信，不打扰主人' },
       { from: '0', content: '（船长的话回声，不该读 aloud）' },
     ])
+    assert.equal(acts.length, 1)
     assert.equal(acts[0]!.kind, 'reply')
     assert.equal((acts[0] as { text: string }).text, '主人，天气晴。')
-    assert.equal(acts[1]!.kind, 'approvalCard')
-    assert.deepEqual([...(acts[1] as { chatIds: readonly string[] }).chatIds], ['oc_p2p', 'oc_admin_grp'])
-    assert.equal(acts.length, 2, '非接待员非审批信不读 aloud')
   })
 
   test('绑定 agent 的回信同样读 aloud', () => {
@@ -216,15 +201,7 @@ describe('信箱分流（读 aloud / 审批）', () => {
   })
 })
 
-describe('审批卡回调与渲染', () => {
-  test('按钮 value 判别（act/reply/requestId 齐才认）', () => {
-    assert.deepEqual(parseCardAction({ act: 'access', reply: 'once', requestId: 'r7' }), { requestId: 'r7', reply: 'once' })
-    assert.deepEqual(parseCardAction({ act: 'access', reply: 'reject', requestId: 'r7' }), { requestId: 'r7', reply: 'reject' })
-    assert.equal(parseCardAction({ act: 'other', requestId: 'r7' }), undefined)
-    assert.equal(parseCardAction({ act: 'access', reply: 'always', requestId: '' }), undefined)
-    assert.equal(parseCardAction('nonsense'), undefined)
-  })
-
+describe('渲染分箱', () => {
   test('formatTree 缩进 + 徽标 + 空树兜底', () => {
     const tree = formatTree([
       { id: '0', name: 'user', classRef: 'user', parentId: '', status: 'idle', turnCount: 0 },

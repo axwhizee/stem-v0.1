@@ -81,11 +81,11 @@ describe('createStemSystem（系统装配组合根）', () => {
       ref: { provider: 'fake', id: 'home-model' },
       origin: 'class',
     })
-    // 系统工具 + access_reply 已注册；skill 子系统已随 S7 拆除（core 不再有 skill）。
+    // 系统工具已注册；skill 子系统已随 S7 拆除（core 不再有 skill）。
     assert.ok(await system.tools.get('agent_instantiate'))
-    assert.ok(await system.tools.get('access_reply'))
     const ids = (await system.tools.list()).map((t) => t.id)
     assert.ok(!ids.includes('skill'), 'S7：系统级 skill 工具已废除')
+    assert.ok(!ids.includes('access_reply'), '权限审批工具已删除')
     // 未注入 ShellRunner → bash 不装配（core 零平台依赖）。
     assert.ok(!ids.includes('bash'))
     await system.dispose()
@@ -118,8 +118,8 @@ describe('createStemSystem（系统装配组合根）', () => {
       user: {
         model: { provider: 'fake', id: 'home-model' },
         systemPrompt: '你是根。',
-        // 整表替换语义：给定即全部——access_reply 根义务必须自带（缺位 = boot 律拒启，见下例）。
-        tools: { access_reply: 'allow', read: 'allow', agent_terminate: 'deny' },
+        // 整表替换语义：给定即全部（键即白名单）。
+        tools: { read: 'allow', agent_terminate: 'deny' },
       },
       context: { window: 100, compact: { threshold: 0.5, keepRecentTurns: 2 } },
       sendCountdown: 0,
@@ -135,7 +135,7 @@ describe('createStemSystem（系统装配组合根）', () => {
     const systemLine = String(state.messages.find((m) => m.message.role === 'system')!.message.content)
     assert.match(systemLine, /你是根。/)
     assert.ok(!systemLine.includes('<stem_context>'), '面板绑定 none 策略——不注入 classic note')
-    // user.tools 整表替换：声明生效、默认表（含 access_reply）被替换——用户自担根义务配置。
+    // user.tools 整表替换：声明生效、默认表被替换。
     assert.equal(system.kernel.lineage.effectiveAccess(ROOT_ID, 'read'), 'allow')
     assert.equal(system.kernel.lineage.effectiveAccess(ROOT_ID, 'agent_terminate'), 'deny')
     assert.equal(system.kernel.lineage.effectiveAccess(ROOT_ID, 'agent_instantiate'), 'deny', '未列出 = 白名单封闭')
@@ -146,26 +146,6 @@ describe('createStemSystem（系统装配组合根）', () => {
     )
     assert.match(result, /轮数不足|已压缩|无历史消息/)
     await system.dispose()
-  })
-
-  test('boot 校验律：根生效表 access_reply ≠ allow = 拒启（ask 消息化死锁审判）', async () => {
-    const d = makeDeps({
-      user: { model: { provider: 'fake', id: 'home-model' }, tools: { read: 'allow' } },
-    })
-    await assert.rejects(
-      () =>
-        createStemSystem({
-          config: { store: d.store, paths: d.paths },
-          fs: d.fs,
-          tools: d.loader,
-          gateway: d.gateway,
-        }),
-      (e: unknown) => {
-        const err = e as { kind?: string; message?: string }
-        return err.kind === 'invalid_config' && err.message?.includes('boot 校验律') === true
-      },
-      '缺答复通道的 config 必须拒启并明示死锁理由',
-    )
   })
 
   test('pilot.sendMessage：user#0 发消息 → agent 回复 → letter 事件', async () => {

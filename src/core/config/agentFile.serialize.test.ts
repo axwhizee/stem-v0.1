@@ -15,7 +15,7 @@ const full: AgentClass = {
   name: makeAgentClassID('reviewer'),
   description: '代码审查专家：读 diff、给结论。',
   systemPrompt: '你是审查者。\n输出三点结论：\n- 正确性\n- 风险\n- 建议',
-  tools: { read: 'allow', edit: 'ask', bash: 'deny', skill: 'ignore' },
+  tools: { read: 'allow', edit: 'deny', bash: 'deny', skill: 'ignore' },
   sendCountdown: 1500,
   contextStrategy: 'classic',
   model: { provider: 'opencode-go', id: 'deepseek-v4-flash' },

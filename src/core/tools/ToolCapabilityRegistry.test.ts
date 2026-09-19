@@ -5,14 +5,10 @@
 import { describe, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DefaultToolCapabilityRegistry } from './ToolCapabilityRegistry'
-import type { ToolCapability, ToolContext, ToolError, ToolParametersSchema, ToolAccess, AccessResolver, AccessRequest } from './types'
-import type { AccessAskBus } from './accessRequest'
-import { DefaultAccessAskBus } from './accessRequest'
+import type { ToolCapability, ToolContext, ToolError, ToolParametersSchema, ToolAccess, AccessResolver } from './types'
 import { validateArgs } from './validate'
 
-const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
-
-/** 固定判定表 resolver（模拟族谱台账；缺席 = undefined → 落注册声明 birth）。 */
+/** 固定判定表 resolver（模拟族谱台账；缺席 = undefined → 落注册声明 registerAccess）。 */
 const tableResolver = (table: Record<string, ToolAccess | undefined>): AccessResolver => ({
   accessOf: (_agentId, key) => table[key],
 })
@@ -21,7 +17,7 @@ const baseCtx: ToolContext = { agentId: 'a1' }
 
 const echoTool: ToolCapability = {
   id: 'oc_echo',
-  registerAccess: 'ask', // 业务工具自报 registerAccess：无人显式判定时挂起询问
+  registerAccess: 'allow',
   description: 'echo 文本',
   category: 'business',
   parameters: {
@@ -106,7 +102,7 @@ describe('DefaultToolCapabilityRegistry', () => {
     assert.deepEqual(all.map((t) => t.name).sort(), ['oc_echo', 'telemetry_read'])
     assert.equal(all[0]?.parameters.type, 'object')
 
-    // deny telemetry_read → 只暴露 echo（echo 无判定 → 默认 ask 仍暴露）。
+    // deny telemetry_read → 只暴露 echo（echo 无判定 → 落注册声明 allow）。
     const denyRegistry = new DefaultToolCapabilityRegistry({ resolver: tableResolver({ telemetry_read: 'deny' }) })
     await denyRegistry.register(echoTool)
     await denyRegistry.register(telemetryTool)
@@ -126,10 +122,6 @@ describe('DefaultToolCapabilityRegistry', () => {
       await shown.register({ ...echoTool, registerAccess: 'allow', kind })
       assert.deepEqual(shown.materialize('a1').map((t) => t.name), ['oc_echo'], `registerAccess=allow kind=${kind} 应暴露`)
     }
-    // 族谱显式判定仍可收紧：registerAccess allow + 链上 ask → 暴露（ask 上清单）。
-    const askReg = new DefaultToolCapabilityRegistry({ resolver: tableResolver({ oc_echo: 'ask' }) })
-    await askReg.register({ ...echoTool, registerAccess: 'allow', kind: 'internal' })
-    assert.deepEqual(askReg.materialize('a1').map((t) => t.name), ['oc_echo'])
   })
 
   test('execute：allow 规则直接执行', async () => {
@@ -139,13 +131,8 @@ describe('DefaultToolCapabilityRegistry', () => {
     assert.equal(result.text, 'Echo: hi')
   })
 
-  test('execute：deny 判定 → access_denied（不弹窗）', async () => {
-    const access: AccessAskBus = new DefaultAccessAskBus({
-      askRoot: () => {},
-      getRoot: () => '0',
-      resolve: tableResolver({ oc_echo: 'deny' }),
-    })
-    const registry = new DefaultToolCapabilityRegistry({ access })
+  test('execute：deny 判定 → access_denied（静态拒绝，无审批）', async () => {
+    const registry = new DefaultToolCapabilityRegistry({ resolver: tableResolver({ oc_echo: 'deny' }) })
     await registry.register(echoTool)
     await assert.rejects(
       () => registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'x' } }, baseCtx),
@@ -156,54 +143,12 @@ describe('DefaultToolCapabilityRegistry', () => {
     )
   })
 
-  test('execute：ask（无判定 → 默认）→ 挂起 → once 批准后执行', async () => {
-    let request: AccessRequest | undefined
-    const access: AccessAskBus = new DefaultAccessAskBus({ askRoot: (req) => void (request = req), getRoot: () => '0' })
-    const registry = new DefaultToolCapabilityRegistry({ access })
-    await registry.register(echoTool)
-
-    const execution = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, baseCtx)
-    await tick()
-    assert.ok(request, '无判定 → 默认 ask，应产生访问确认请求')
-
-    await access.reply({ requestId: request!.id, reply: 'once' }, '0')
-    const result = await execution
-    assert.equal(result.text, 'Echo: hi')
-  })
-
-  test('execute：ask → reject → access_rejected', async () => {
-    let request: AccessRequest | undefined
-    const access: AccessAskBus = new DefaultAccessAskBus({ askRoot: (req) => void (request = req), getRoot: () => '0' })
-    const registry = new DefaultToolCapabilityRegistry({ access })
-    await registry.register(echoTool)
-
-    const execution = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, baseCtx)
-    await tick()
-    await access.reply({ requestId: request!.id, reply: 'reject', message: '不需要' }, '0')
-    await assert.rejects(
-      () => execution,
-      (e: unknown) => {
-        const err = e as ToolError
-        return err.kind === 'access_rejected' && err.feedback === '不需要'
-      },
-    )
-  })
-
-  test('execute：ask → always 后同类工具不再询问（session 批准）', async () => {
-    const requests: AccessRequest[] = []
-    const access: AccessAskBus = new DefaultAccessAskBus({ askRoot: (req) => void requests.push(req), getRoot: () => '0' })
-    const registry = new DefaultToolCapabilityRegistry({ access })
-    await registry.register(echoTool)
-
-    const ctx: ToolContext = { agentId: 'a1' }
-    const first = registry.execute({ id: 'c1', name: 'oc_echo', input: { text: 'hi' } }, ctx)
-    await tick()
-    await access.reply({ requestId: requests[0]!.id, reply: 'always' }, '0')
-    await first
-
-    const second = await registry.execute({ id: 'c2', name: 'oc_echo', input: { text: 'again' } }, ctx)
-    assert.equal(second.text, 'Echo: again')
-    assert.equal(requests.length, 1, 'always 后同类工具不再弹窗')
+  test('execute：ignore 可执行但不进模型清单', async () => {
+    const registry = new DefaultToolCapabilityRegistry()
+    await registry.register(telemetryTool)
+    assert.deepEqual(registry.materialize('a1').map((t) => t.name), [])
+    const result = await registry.execute({ id: 'c1', name: 'telemetry_read', input: {} }, baseCtx)
+    assert.equal(result.text, 'logs…')
   })
 
   test('execute：参数不合法 → invalid_arguments', async () => {

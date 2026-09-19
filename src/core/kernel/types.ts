@@ -75,7 +75,7 @@ export type AgentStatus = 'idle' | 'thinking' | 'holding' | 'interrupted' | 'ter
 
 /**
  * AgentClass（模板）。**name 即 id**（注册时查重），无单独 id 字段。
- * 工具清单 `tools` 融合白名单与访问：`Record<访问键, ask|deny|allow|ignore>`，
+ * 工具清单 `tools` 融合白名单与访问：`Record<访问键, deny|allow|ignore>`，
  * **键即白名单**（未列出的工具不可用），值对全局表做收敛补充（只能更严格）。
  * `contextStrategy` 为实例上下文管理策略（默认 classic），在开辟上下文空间时写入。
  */
@@ -84,7 +84,7 @@ export interface AgentClass {
   readonly name: AgentClassID
   readonly description: string
   /**
-   * 该类实例可用的工具清单（融合白名单+访问）：Record<访问键, ask|deny|allow|ignore>。
+   * 该类实例可用的工具清单（融合白名单+访问）：Record<访问键, deny|allow|ignore>。
    * 空 Record = 本地封闭（无工具）；**未设 = 完整继承父生效档案**（族谱台账律，
    * internal 占位类 assistant 即此形）。
    */

@@ -40,18 +40,16 @@ export function formatToolOutput(input: ToolResult | ToolError, opts: ToolOutput
   return clip(text, opts.outputLimit)
 }
 
-/** 工具错误 → 可行动文本（kind 必显示；细节优先 message/feedback，退化为访问键/工具名）。 */
+/** 工具错误 → 可行动文本（kind 必显示；细节优先 message，退化为访问键/工具名）。 */
 export function formatToolError(error: ToolError): string {
   const detail =
     'message' in error && typeof error.message === 'string' && error.message !== ''
       ? error.message
-      : 'feedback' in error && typeof error.feedback === 'string' && error.feedback !== ''
-        ? error.feedback
-        : 'accessKey' in error && typeof error.accessKey === 'string'
-          ? `访问键 ${error.accessKey} 被拒`
-          : 'tool' in error && typeof error.tool === 'string' && error.tool !== ''
-            ? `工具 ${error.tool}`
-            : ''
+      : 'accessKey' in error && typeof error.accessKey === 'string'
+        ? `访问键 ${error.accessKey} 被拒`
+        : 'tool' in error && typeof error.tool === 'string' && error.tool !== ''
+          ? `工具 ${error.tool}`
+          : ''
   return detail !== '' ? `[ToolError ${error.kind}] ${detail}` : `[ToolError ${error.kind}] 工具执行失败`
 }
 

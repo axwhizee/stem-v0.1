@@ -9,16 +9,18 @@
 //     注册即注册声明——工具自报的宽度上界，全链收敛的封顶）；生效权限 =
 //     族谱位置的函数（lineage/AccessLedger 台账物化，经 AccessResolver 端口
 //     查询）；族谱链上无显式判定时落注册声明（无 kind 推导、无兜底表）；
-//     always 批准记入 per-agent 豁免备忘（只免询问，不破 deny/ignore）；
 //  3. 执行生命周期暴露 ToolHooks（before/after/error），
 //     供 telemetry、审计、限流等横切能力挂载；
 //  4. kind（internal/extension/custom）是**纯 provenance 元数据**（装载源/
 //     信级/审计展示），不参与任何权限推断——权限只有两个来源：注册声明
 //     （registerAccess）与收敛清单链（见 docs/architecture.md §2.2）。
+//
+// 权限三态静态收敛：allow / deny / ignore。无进程内审批档；真实爆炸半径
+// 由宿主容器与挂载边界承担。
 // ============================================================
 
-/** 工具访问四态（权限融合进 tools 后的原子状态）。 */
-export type ToolAccess = 'allow' | 'ask' | 'deny' | 'ignore'
+/** 工具访问三态（静态：暴露+执行 / 关闭 / 背景可执行但不进模型清单）。 */
+export type ToolAccess = 'allow' | 'deny' | 'ignore'
 
 /** 工具分类：可扩展（未来 mcp 等新增分类自然并入）。 */
 export type ToolCategory =
@@ -32,7 +34,7 @@ export type ToolCategory =
 /**
  * 工具来源（**纯 provenance**，不参与权限推断——审计测试表驱动断言之）。
  * 注册声明来自 registerAccess 字段与 config 点名，与 kind 无关：
- *   - internal = core 注册点代码（agent_* / context_* / bash / access_reply…）；
+ *   - internal = core 注册点代码（agent_* / context_* / bash…）；
  *   - extension = 仓库扩展（`extension/tools/<名>/<名>.ts`，config.extensions.tools 点名装载+注册声明）；
  *   - custom = 用户空间工具（`.stem/tools/`，**同样必须 config 点名**——目录扫描废止）。
  */
@@ -106,9 +108,6 @@ export type ToolError =
   | { readonly kind: 'tool_not_found'; readonly tool: string }
   | { readonly kind: 'tool_already_registered'; readonly tool: string }
   | { readonly kind: 'access_denied'; readonly tool: string; readonly accessKey: string }
-  | { readonly kind: 'access_rejected'; readonly tool: string; readonly accessKey: string; readonly feedback?: string }
-  | { readonly kind: 'access_timeout'; readonly tool: string; readonly accessKey: string }
-  | { readonly kind: 'access_aborted'; readonly tool: string; readonly accessKey: string }
   | { readonly kind: 'invalid_arguments'; readonly tool: string; readonly message: string }
   | { readonly kind: 'execution_failed'; readonly tool: string; readonly message: string; readonly cause?: unknown }
 
@@ -117,9 +116,6 @@ export const TOOL_ERROR_KINDS: ReadonlySet<string> = new Set([
   'tool_not_found',
   'tool_already_registered',
   'access_denied',
-  'access_rejected',
-  'access_timeout',
-  'access_aborted',
   'invalid_arguments',
   'execution_failed',
 ])
@@ -138,29 +134,7 @@ export function isToolError(value: unknown): value is ToolError {
 /** 工具执行相位（ToolRecord / LogEvent / PilotEvent.tool 共用单源）。 */
 export type ToolPhase = 'called' | 'success' | 'error'
 
-// ---------- 工具访问确认（AccessManager 领域） ----------
-
-/** 挂起中的访问确认请求（ask 时产生，交面板弹窗确认）。 */
-export interface AccessRequest {
-  readonly id: string
-  /** 请求的访问键（工具 accessKey）。 */
-  readonly accessKey: string
-  /** 申请该访问的 agent id。 */
-  readonly agentId: string
-  /** 附带元数据（工具 id、参数摘要等，供面板展示）。 */
-  readonly metadata?: Readonly<Record<string, unknown>>
-  readonly at: number
-}
-
-/** 用户回复（once=单次 / always=始终 / reject=拒绝）。 */
-export type AccessReply = 'once' | 'always' | 'reject'
-
-export interface AccessReplyInput {
-  readonly requestId: string
-  readonly reply: AccessReply
-  /** reject 时可带反馈（告知 agent）。 */
-  readonly message?: string
-}
+// ---------- 工具访问（族谱台账查询端口） ----------
 
 /**
  * 族谱权限查询端口：由 lineage/AccessLedger 实现、kernel 接线注入。
@@ -171,25 +145,13 @@ export interface AccessResolver {
   readonly accessOf: (agentId: string, key: string) => ToolAccess | undefined
 }
 
-/** 访问断言输入。 */
-export interface AccessAssertInput {
+/** 访问拒绝（执行期唯一权限失败：生效 deny）。 */
+export type AccessError = {
+  readonly kind: 'access_denied'
   readonly accessKey: string
   readonly agentId: string
-  /** 该访问键的注册声明（注册表供给；族谱链无显式判定时即生效值——注册即封顶，无兜底推导）。 */
-  readonly registerAccess?: ToolAccess
-  readonly metadata?: Readonly<Record<string, unknown>>
-  /** 中断信号（runtime 轮中断 → 未决 ask 一并 aborted）。 */
-  readonly signal?: AbortSignal
+  readonly message?: string
 }
-
-/** 访问错误（判别联合）。 */
-export type AccessError =
-  | { readonly kind: 'access_denied'; readonly accessKey: string; readonly agentId: string; readonly message?: string }
-  | { readonly kind: 'access_reply_not_root'; readonly accessKey: string; readonly agentId: string; readonly message?: string }
-  | { readonly kind: 'access_rejected'; readonly message?: string; readonly accessKey: string; readonly requestId: string; readonly feedback?: string }
-  | { readonly kind: 'access_request_not_found'; readonly requestId: string; readonly message?: string }
-  | { readonly kind: 'access_timeout'; readonly accessKey: string; readonly agentId: string; readonly message?: string }
-  | { readonly kind: 'access_aborted'; readonly accessKey: string; readonly agentId: string; readonly message?: string }
 
 /** 工具调用审计记录（触发/反馈时由工具模块自动产生）。 */
 export interface ToolRecord {
@@ -210,7 +172,7 @@ export interface ToolCapability {
   readonly parameters: ToolParametersSchema
   /**
    * **注册声明**（入表时的访问动作封顶，必填——无兜底；字段名 `registerAccess`）。
-   * internal 在 core 注册点写定（`access_reply: allow`、`bash: allow`，其余通例 `ignore`）；
+   * internal 在 core 注册点写定（`bash: allow`，其余通例 `ignore`）；
    * extension/custom 由 config.extensions.tools 点名时注入；策略 ownedTools 通例 `ignore`。
    * 任何层级的收敛清单取值不得宽于注册声明（宽出 = 扩张，物化压回/写入面拒绝）。
    */

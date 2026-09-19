@@ -186,5 +186,3 @@ export function contextApply(host: SystemToolHost): ToolCapability {
     },
   }
 }
-
-/** 批准/拒绝访问申请（ask 消息化的回复侧；授权权：仅申请者的族谱根可调用）。 */

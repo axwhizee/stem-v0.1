@@ -6,7 +6,7 @@
 #   docker run -d -p 4321:4321 -v stem-data:/data --name stem stem:1.0
 #   浏览器打开 http://localhost:4321
 #
-# 安全模型（与 bash 工具"无 ask、无沙箱"配套，README 同步说明）：
+# 安全模型（静态三态权限 + 容器边界；README 同步说明）：
 #   **容器即边界**——挂载的 /data volume 就是 bash 工具的爆炸半径；
 #   非 root 用户运行；API key 经环境变量注入，绝不写入镜像/配置。
 # ============================================================

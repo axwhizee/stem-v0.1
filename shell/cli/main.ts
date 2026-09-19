@@ -3,7 +3,7 @@
 //
 // 交互模型：根（user#0）是面板（根接线 assemble:false，自身不跑 LLM 轮）——
 // 用户输入 = 以根身份向当前实例投递信件；实例回信到达根信箱，
-// 经事件流汇总展示。ask 审批同样走信件（access_request → 确认 → access_reply）。
+// 经事件流汇总展示。
 //
 // 运行（S6/R11 opencode-style：`stem [path]`——在项目里直接启动，项目目录即空间）：
 //   npm run shell                    # cwd 即空间
@@ -35,9 +35,8 @@ import {
 } from '../../src/core/kernel'
 import { GatewayError, isGatewayError } from '../../src/core/gateway'
 import { DefaultToolCapabilityRegistry, type ToolCapability } from '../../src/core/tools'
-import type { AccessReply } from '../../src/core/tools'
 import type { PilotEvent } from '../../src/core/events'
-import { QueueDialog, formatDialog, parseSelection, type DialogRequest } from './ui/dialog'
+import { QueueDialog, formatDialog, parseSelection } from './ui/dialog'
 import { bootStem, resolveProjectRoot } from './platform'
 import { parseStamp as parseSenderStamp } from '../../src/core/context'
 import type { InitReport, StemSystem } from '../../src/core/main'
@@ -85,7 +84,7 @@ async function createShell(): Promise<ShellState> {
   // extension 工具由 init 管线按 config.extensions 点名装载，custom 走 .stem/ 扫描）。
   const { system, source } = await bootStem({
     projectRoot: DEFAULT_PROJECT,
-    // 统一事件流（PilotEvent）：流式 / 回信 / 访问申请（消息化）。
+    // 统一事件流（PilotEvent）：流式 / 回信。
     onEvent: (event) => handlePilotEvent(state, event),
   })
   state.source = source
@@ -117,7 +116,7 @@ function parseStamp(message: string): { sender: string; text: string } {
   return { sender: parsed.sender, text: parsed.body }
 }
 
-/** 统一事件流处理：流式输出 / 回信展示 / access_request 弹窗（消息化）。 */
+/** 统一事件流处理：流式输出 / 回信展示。 */
 function handlePilotEvent(state: ShellState, event: PilotEvent): void {
   if (event.type === 'stream') {
     // 流式正文（仅当前 agent 展示；reasoning 不打印）。
@@ -130,34 +129,8 @@ function handlePilotEvent(state: ShellState, event: PilotEvent): void {
   if (event.type !== 'letter') return // status/notice：日志已记录，暂不展示。
   const letter = event.letters[0]
   const { sender, text } = parseStamp(contentText(letter?.content ?? ''))
-  // 访问申请（消息化，内容带 <access_request> 标记）→ 确认弹窗。
-  const accessMatch = /^<access_request id="([^"]+)" accessKey="([^"]+)" agentId="([^"]+)">/.exec(text)
-  if (accessMatch) {
-    const requestId = accessMatch[1] ?? ''
-    const accessKey = accessMatch[2] ?? ''
-    const agentId = accessMatch[3] ?? ''
-    const request: DialogRequest = {
-      title: '工具访问确认',
-      body: `agent ${agentId} 正在申请「${accessKey}」工具访问`,
-      options: [
-        { id: 'once', label: '单次批准' },
-        { id: 'always', label: '始终批准' },
-        { id: 'reject', label: '拒绝' },
-      ],
-    }
-    void state.dialogs.push(request).then((selected) => {
-      const reply = selected[0] as AccessReply | undefined
-      if (!reply) return
-      void state.kernel.access.reply({ requestId, reply }, ROOT_ID)
-    })
-    // 若该弹窗立即激活（队列空闲），打印弹窗；否则已由队列中的激活弹窗占据。
-    if (state.dialogs.active) console.log('\n' + formatDialog(state.dialogs.activeRequest!))
-    return
-  }
-  // 普通回信。
   const label = sender && sender !== state.currentAgentId ? `\n[来自 ${sender}]` : '\n[assistant]'
   console.log(label)
-  // 若该回复未经流式显示（无文本流），直接打印文本。
   if (!state.display.streamedAny) console.log(text)
   state.display.streamedAny = false
 }
@@ -202,7 +175,6 @@ async function handleCommand(state: ShellState, line: string): Promise<boolean> 
         }`,
       )
       console.log(`  user.model: ${cfg.user?.model !== undefined ? `${cfg.user.model.provider}/${cfg.user.model.id}` : '(缺失——boot 应已报错)'}`)
-      console.log(`  autoApprove: ${cfg.autoApprove ?? false}`)
       console.log(`  sendCountdown: ${cfg.sendCountdown ?? '(未配置)'}`)
       console.log(`  user 类: ${cfg.user?.tools !== undefined ? `tools=${JSON.stringify(cfg.user.tools)}` : '(内置默认表)'}`)
       console.log(`  context: ${cfg.context !== undefined ? JSON.stringify(cfg.context) : '(默认 window/compact)'}`)

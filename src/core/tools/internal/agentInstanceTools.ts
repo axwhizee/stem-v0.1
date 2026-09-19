@@ -28,7 +28,7 @@ export function agentInstantiate(host: SystemToolHost): ToolCapability {
         name: { type: 'string', description: '出生称呼（可选，全局唯一；撞名被拒不自动后缀。缺省派生 `类名-N`。id 是出生路径，系统全托管）' },
         model: { type: 'string', description: '显式模型 "提供商/模型"（可选；缺省按 类基因>父继承 解析）' },
         contextRefs: { type: 'array', items: { type: 'string' }, description: '父仓库消息索引列表（消息 id 或轮索引），深拷贝传入新实例' },
-        tools: { type: 'object', description: '工具清单补充：访问键 → ask/deny（对模板表临时收敛）' },
+        tools: { type: 'object', description: '工具清单补充：访问键 → allow|deny|ignore（对模板表临时收敛）' },
         wait: { type: 'boolean', description: 'true = 创建并等待该 agent 回信作为本工具结果（推荐用于子任务委托）' },
         waitTimeoutMs: { type: 'number', description: 'wait 超时毫秒（可选；超时回填提示行，不无限等待）' },
       },
@@ -74,7 +74,7 @@ export function agentInstantiate(host: SystemToolHost): ToolCapability {
         if (err?.kind === 'tools_convergence_expanded') {
           return {
             text:
-              `工具清单收敛被拒（逐键只许沿 ignore→allow→ask→deny 收紧，注册声明与父面显式判定封顶）：\n` +
+              `工具清单收敛被拒（逐键只许沿 ignore→allow→deny 收紧，注册声明与父面显式判定封顶）：\n` +
               (err.violations ?? []).map((v) => `  - ${v}`).join('\n'),
           }
         }

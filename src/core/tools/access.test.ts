@@ -1,5 +1,5 @@
 // ============================================================
-// core/tools/access.ts 纯代数测试：四态严格度总序 + 收敛链折叠。
+// core/tools/access.test.ts 纯代数测试：三态严格度总序 + 收敛链折叠。
 // 物化语义（白名单/继承/grant 封顶）见 lineage/AccessLedger.test。
 // ============================================================
 
@@ -8,22 +8,15 @@ import assert from 'node:assert/strict'
 import { checkToolsConvergence, foldConvergenceSteps, restrictAccess } from './access'
 import type { ToolAccess } from './types'
 
-const ALL: readonly ToolAccess[] = ['deny', 'ask', 'allow', 'ignore']
+const ALL: readonly ToolAccess[] = ['deny', 'allow', 'ignore']
 
-describe('restrictAccess（总序单链：deny ≺ ask ≺ allow ≺ ignore，取更严）', () => {
+describe('restrictAccess（总序单链：deny ≺ allow ≺ ignore，取更严）', () => {
   test('deny 严格支配一切', () => {
     for (const other of ALL) {
       if (other === 'deny') continue
       assert.equal(restrictAccess('deny', other), 'deny', `deny ⊓ ${other}`)
       assert.equal(restrictAccess(other, 'deny'), 'deny', `${other} ⊓ deny`)
     }
-  })
-
-  test('ask 严格于 allow 与 ignore（人审闸盖不过）', () => {
-    assert.equal(restrictAccess('ask', 'allow'), 'ask')
-    assert.equal(restrictAccess('allow', 'ask'), 'ask')
-    assert.equal(restrictAccess('ask', 'ignore'), 'ask')
-    assert.equal(restrictAccess('ignore', 'ask'), 'ask')
   })
 
   test('allow 严格于 ignore（藏匿=扩张被拒；曝光=收敛放行）', () => {
@@ -33,12 +26,17 @@ describe('restrictAccess（总序单链：deny ≺ ask ≺ allow ≺ ignore，�
     assert.equal(restrictAccess('allow', 'ignore'), 'allow')
   })
 
+  test('checkToolsConvergence：allow→ignore 扩张被拒；ignore→allow 收敛放行', () => {
+    assert.equal(checkToolsConvergence({ a: 'allow' }, { a: 'ignore' }).length, 1)
+    assert.deepEqual(checkToolsConvergence({ a: 'ignore' }, { a: 'allow' }), [])
+  })
+
   test('同值幂等', () => {
     for (const a of ALL) assert.equal(restrictAccess(a, a), a)
   })
 
   test('单调性抽查：任何组合结果不宽于两输入', () => {
-    const RANK: Record<ToolAccess, number> = { deny: 0, ask: 1, allow: 2, ignore: 3 }
+    const RANK: Record<ToolAccess, number> = { deny: 0, allow: 1, ignore: 2 }
     for (const a of ALL) {
       for (const b of ALL) {
         const r = restrictAccess(a, b)
@@ -51,7 +49,7 @@ describe('restrictAccess（总序单链：deny ≺ ask ≺ allow ≺ ignore，�
 describe('foldConvergenceSteps（白名单步 / raise 步 / 封顶与违例）', () => {
   test('replace 步 = 键即白名单：未列键出局并本地封闭 deny', () => {
     const { profile, violations } = foldConvergenceSteps(
-      { a: 'allow', b: 'ask' },
+      { a: 'allow', b: 'deny' },
       { a: 'allow', b: 'allow', c: 'ignore' },
       [['类收敛', { a: 'allow' }]],
     )
@@ -61,24 +59,24 @@ describe('foldConvergenceSteps（白名单步 / raise 步 / 封顶与违例）',
   })
 
   test('整表缺席（无步）= 完整继承父显式；无白名单步则无本地封闭', () => {
-    const { profile, violations } = foldConvergenceSteps({ a: 'ask' }, { a: 'allow' }, [])
+    const { profile, violations } = foldConvergenceSteps({ a: 'deny' }, { a: 'allow' }, [])
     assert.deepEqual(violations, [])
-    assert.deepEqual(profile.explicit, { a: 'ask' })
+    assert.deepEqual(profile.explicit, { a: 'deny' })
     assert.equal(profile.fallback, undefined)
   })
 
   test('封顶：步内取值宽于 出生∧父显式 → 违例；物化侧钳制为封顶值', () => {
     const { profile, violations } = foldConvergenceSteps(
       {},
-      { bash: 'ask' }, // 出生封顶 ask
+      { bash: 'allow' }, // 出生封顶 allow
       [['类收敛', { bash: 'ignore' }]],
     )
     assert.equal(violations.length, 1)
     assert.deepEqual(
       { layer: violations[0]!.layer, key: violations[0]!.key, wanted: violations[0]!.wanted, ceiling: violations[0]!.ceiling },
-      { layer: '类收敛', key: 'bash', wanted: 'ignore', ceiling: 'ask' },
+      { layer: '类收敛', key: 'bash', wanted: 'ignore', ceiling: 'allow' },
     )
-    assert.deepEqual(profile.explicit, { bash: 'ask' }, '静默压回封顶')
+    assert.deepEqual(profile.explicit, { bash: 'allow' }, '静默压回封顶')
   })
 
   test('父显式判定参与封顶：父 deny 锁死后续步', () => {
@@ -98,20 +96,20 @@ describe('foldConvergenceSteps（白名单步 / raise 步 / 封顶与违例）',
       { a: 'ignore', b: 'ignore', c: 'ignore' },
       [
         ['类收敛', { a: 'allow', b: 'deny' }],
-        ['策略收敛', { a: 'ask' }, 'raise'],
+        ['策略收敛', { a: 'deny' }, 'raise'],
       ],
     )
     assert.deepEqual(violations, [])
-    assert.deepEqual(profile.explicit, { a: 'ask', b: 'deny' })
+    assert.deepEqual(profile.explicit, { a: 'deny', b: 'deny' })
     assert.equal(profile.fallback, 'deny', '白名单步仍在 → 本地封闭保留')
   })
 
   test('多步独立归因：类步与实例步违例分开报', () => {
     const { violations } = foldConvergenceSteps(
       {},
-      { x: 'ask', y: 'allow' },
+      { x: 'allow', y: 'allow' },
       [
-        ['类收敛', { x: 'allow' }],
+        ['类收敛', { x: 'ignore' }],
         ['实例收敛', { y: 'ignore' }],
       ],
     )

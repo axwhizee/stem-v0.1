@@ -18,7 +18,7 @@ const timeline = $('timeline')
 let currentAgentId = ''
 let agentsCache = []
 let templatesCache = []
-let pendingAccess = null
+
 // —— 流式 live 层状态 ——
 const liveBuckets = createLiveBuckets()
 let watchAgentId = '' // 监督抽屉目标（'' = 关）
@@ -286,7 +286,6 @@ function renderTimeline(items) {
   timeline.innerHTML = ''
   liveHost = null // 历史整建：live 尾层随 next paint 重建
   for (const it of items) {
-    if (it.kind === 'ask') continue // 来信 access_request → 「审」面板，不占正文流
     if (it.kind === 'meta') { timeline.appendChild(msgEl('meta', it.icon + '  ' + it.text)); continue }
     if (it.kind === 'tool') { timeline.appendChild(toolLineEl(it.text, it.who, it.toolName)); continue } // 工具结果 = 默认折叠件
     timeline.appendChild(msgEl(it.side, it.text, it.who))
@@ -471,25 +470,6 @@ function closeDrawer() {
 }
 $('drawerClose').onclick = closeDrawer
 
-// ---------- 访问确认（ask → 审面板，顶部居中） ----------
-
-function showPermission(content) {
-  const m = content.match(/<access_request id="([^"]+)" accessKey="([^"]+)" agentId="([^"]+)">/)
-  if (m === null) return
-  pendingAccess = { requestId: m[1], accessKey: m[2], agentId: m[3] }
-  $('permBody').textContent = `agent ${m[3]} 申请使用工具「${m[2]}」（授权者：族谱根 user#0 = 你）`
-  $('permission').style.display = 'block'
-}
-async function replyAccess(reply) {
-  if (pendingAccess === null) return
-  await fetch('/api/access', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId: pendingAccess.requestId, reply }) })
-  pendingAccess = null
-  $('permission').style.display = 'none'
-}
-$('permOnce').onclick = () => replyAccess('once')
-$('permAlways').onclick = () => replyAccess('always')
-$('permReject').onclick = () => replyAccess('reject')
-
 // ---------- 事件流（delta + tool 相进桶；letter 快照收口；status 清画布） ----------
 
 function openStream() {
@@ -518,7 +498,6 @@ function handleEvent(ev) {
   }
   if (ev.type === 'letter') {
     const content = (ev.letters && ev.letters[0] && typeof ev.letters[0].content === 'string') ? ev.letters[0].content : ''
-    if (content.startsWith('<access_request')) { showPermission(content); return }
     if (ev.agentId === currentAgentId) {
       // 收信只刷新历史（新 user 行上屏）；桶归轮生命周期管，此处不动。
       void loadContext(currentAgentId).catch((e) => console.error('[ui] loadContext@letter', e))

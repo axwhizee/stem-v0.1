@@ -5,8 +5,7 @@
 // **当前目标 agent**（/new /use /exit 维护，回写 .stem/feishu.jsonc）；静态
 // 绑定表与接待员（secretaryClass 可选项）只是未绑定时的兜底。飞书消息 =
 // 船长的话（pilot 自根身份投递给目标），目标回根的信 = 读 aloud 给主人；
-// 审批申请经交互卡三按钮远程裁决（→ pilot.replyAccess）。连接就绪发"上线"、
-// SIGTERM 优雅发"离线"；重连后按会话拉取增量消息补偿（根的答复义务不因
+// 连接就绪发"上线"、SIGTERM 优雅发"离线"；重连后按会话拉取增量消息补偿。
 // 链路中断豁免）。一切决策在 router.ts（纯逻辑可测），本文件只做接线与
 // 动作执行。core 零改动。
 //
@@ -24,15 +23,12 @@ import {
   planReplay,
   routeUserMail,
   applyWatchCommand,
-  parseCardAction,
   setSessionTarget,
   formatTree,
   HELP_TEXT,
-  type AccessRequestView,
   type MailItem,
   type OutAction,
 } from './router'
-import { approvalCard, approvalDecidedCard } from './cards'
 
 process.on('unhandledRejection', (reason) => {
   // 判别联合对象 String() 会变 [object Object]——与 webui 同律 JSON 保真。
@@ -67,7 +63,6 @@ async function main(): Promise<void> {
       try { patchFeishuConfig(PROJECT_ROOT, { kind: 'seen', chatId, at }) } catch { /* 高频面：静默（下次必达） */ }
     },
   })
-  const cardOfRequest = new Map<string, { messageId: string; request: AccessRequestView }>()
 
   // —— 接待员（可选项：secretaryClass='' = 关闭秘书中转） ——
   if (config.secretaryClass !== '') {
@@ -125,21 +120,6 @@ async function main(): Promise<void> {
             : null
     if (desc === null || agentId === '') return
     for (const chat of chatsWatching(state, agentId)) push(chat, desc)
-  })
-
-  // —— 审批卡回调：owner 点击 → access_reply → 卡片原地更新留档 ——
-  platform.onCardAction((ev) => {
-    void (async () => {
-      if (!config.ownerOpenIds.includes(ev.openId)) return
-      const view = parseCardAction(ev.value)
-      if (view === undefined) return
-      await system.pilot.replyAccess({ requestId: view.requestId, reply: view.reply })
-      const held = cardOfRequest.get(view.requestId)
-      if (held !== undefined) {
-        await platform.updateCard(ev.messageId === '' ? held.messageId : ev.messageId, approvalDecidedCard(held.request, view.reply))
-      }
-      console.log(`[feishu-shell] 审批 ${view.requestId} → ${view.reply}（飞书裁决）`)
-    })().catch((e) => console.error('[feishu-shell] 卡片裁决失败', String(e)))
   })
 
   await platform.start()
@@ -202,12 +182,6 @@ async function main(): Promise<void> {
             break
           case 'deliver':
             await system.pilot.sendMessage(action.to, action.text)
-            break
-          case 'approvalCard':
-            for (const chatId of action.chatIds) {
-              const messageId = await platform.sendCard(chatId, approvalCard(action.request))
-              cardOfRequest.set(action.request.requestId, { messageId, request: action.request })
-            }
             break
           case 'command':
             await platform.sendText(action.chatId, await runCommand(action.name, action.args, action.chatId))

@@ -2,7 +2,7 @@
 // test/feasibility/offline1.mts —— 机制可行性离线冒烟档 1
 //
 // v1.0 初步测试（验收方案的机制可行性子集，零密钥零成本）：
-//   S1 装配全链 / S2 端到端消息+token 真实计量 / S3 ask 审批（消息化）
+//   S1 装配全链 / S2 端到端消息+token 真实计量 / S3 进化书写 + bash
 //   + 进化书写落盘 / S4 多 agent 实例化与通信 / S5 模型四级律+热切+不级联
 //   / S6 SQLite 持久化+重启恢复+再工作。
 // LLM = mockSse 匿名 provider（R13 形态）——走真实宿主装配路径（bootStem），
@@ -46,14 +46,14 @@ const script = (body: Record<string, unknown>) => {
   const last = msgs[msgs.length - 1]
   const text = last?.role === 'user' && typeof last.content === 'string' ? last.content : ''
   if (text.includes('WRITE_CLASS')) {
-    // 子实例（writer 类，agent_class_create=ask）申请书写类 → 触发 ask 消息化。
+    // 子实例（writer 类，agent_class_create=allow）书写类 → 直接落盘。
     return toolCallResp('agent_class_create', {
       name: 'reviewer', description: '审查员类', systemPrompt: 'You review things.',
       tools: { read: 'allow' }, model: 'mock/genomic',
     })
   }
   if (text.includes('USE_BASH')) {
-    // coder 子实例被收敛 bash=ask → 触发根信箱审批链。
+    // coder 子实例 bash 被显式 allow → 直接执行（无审批档）。
     return toolCallResp('bash', { command: 'echo feasibility-bash-ok' })
   }
   return textResp(`MOCK-DONE[${String(body.model)}]: ${text.slice(0, 40)}`)
@@ -66,7 +66,6 @@ mkdirSync(join(dir, '.stem'), { recursive: true })
 writeFileSync(join(dir, '.stem', 'stem.jsonc'), JSON.stringify({
   providers: { mock: { base_url: mock.url } },
   user: { model: 'mock/echo', tools: defaultStemConfig().user?.tools },
-  autoApprove: false,
   context: { window: 128000, compact: { enabled: false } },
   extensions: { tools: {} },
   sendCountdown: 20,
@@ -88,7 +87,7 @@ async function waitLetter(marker: string, timeoutMs = 20_000): Promise<string> {
   const start = Date.now()
   while (Date.now() - start < timeoutMs) {
     const hit = letters.find((l) => l.text.includes(marker))
-    if (hit) { const m = /<access_request id="([^"]+)"/.exec(hit.text); if (m) return m[1]! }
+    if (hit) return hit.text
     await sleep(50)
   }
   throw new Error(`等 ${marker} 超时；letters=${JSON.stringify(letters.slice(-3))}`)
@@ -107,10 +106,10 @@ try {
   const agents0 = await sys.pilot.listAgents()
   ok('根（user#0）存在且为根', agents0.some((a) => a.id === '0' && parentIdOf(a.id) === null && a.name === 'user'), JSON.stringify(agents0.map((a) => [a.id, parentIdOf(a.id)])))
   const toolsAll = await sys.tools.list()
-  ok('internal 工具在场（bash/access_reply）', toolsAll.some((t) => t.id === 'bash') && toolsAll.some((t) => t.id === 'access_reply'))
+  ok('internal 工具在场（bash）', toolsAll.some((t) => t.id === 'bash'))
   ok('extension 纯关（extensions.tools={} 不点名）', !toolsAll.some((t) => t.id === 'read'))
   const mat = sys.tools.materialize('0').map((d) => { const x = d as { name: string }; return x.name })
-  ok('族谱物化根能力面', mat.includes('access_reply') && mat.includes('agent_class_create') && mat.includes('agent_update'), JSON.stringify(mat))
+  ok('族谱物化根能力面', mat.includes('agent_class_create') && mat.includes('agent_update'), JSON.stringify(mat))
 
   // ---------- S2 端到端消息（pilot→子实例 → LLM 轮 → 回信信箱） ----------
   console.log('S2 端到端（根面板模型：发信给实例，实例跑轮，回信归位）')
@@ -129,21 +128,17 @@ try {
   const inst2 = await sys.pilot.inspect(coderId)
   ok('coder 出生（parentId=根 0）', parentIdOf(inst2.id) === makeAgentID('0'), JSON.stringify(parentIdOf(inst2.id)))
 
-  // ---------- S3 ask 审批（消息化）+ 进化书写 + bash 对外操作面 ----------
-  console.log('S3 子实例跑轮：ask→根信箱→答复→落盘；bash allow 执行')
+  // ---------- S3 进化书写 + bash 对外操作面 ----------
+  console.log('S3 子实例跑轮：allow 直接写类；bash allow 执行')
   await sys.kernel.templates.register({
     name: makeAgentClassID('writer'), description: '书写试验类', systemPrompt: 'You write.',
-    tools: { agent_class_create: 'ask', bash: 'allow' },
+    tools: { agent_class_create: 'allow', bash: 'allow' },
   })
   const writerId = await sys.pilot.instantiate({ className: makeAgentClassID('writer'), userPrompt: 'WRITE_CLASS 创建一个 reviewer 类', name: 'writer-1' }, dir)
-  const reqId = await waitLetter('<access_request')
-  ok('access_request 投递根信箱（ask 消息化，含 accessKey）',
-     letters.some((l) => l.agentId === '0' && l.text.includes('accessKey="agent_class_create"')), JSON.stringify(letters.slice(-3)))
-  await sys.pilot.replyAccess({ requestId: reqId, reply: 'once' })
-  await waitIdle('S3-post-approval')
-  ok('审批通过后类文件落盘 .stem/agent/reviewer.md', existsSync(join(dir, '.stem', 'agent', 'reviewer.md')))
+  await waitIdle('S3-write')
+  ok('allow 通过后类文件落盘 .stem/agent/reviewer.md', existsSync(join(dir, '.stem', 'agent', 'reviewer.md')))
   ok('reviewer 类注册进模板表', (await sys.kernel.templates.list()).some((c) => c.name === makeAgentClassID('reviewer')))
-  // bash allow 直执行（无 ask）：结果作为 tool 行回载语料
+  // bash allow 直执行：结果作为 tool 行回载语料
   await sys.kernel.sendMessage('0', writerId, 'USE_BASH 执行 echo')
   await waitIdle('S3-bash')
   ok('bash allow 执行且结果入库（对外操作面）', (await sys.pilot.exportContext(writerId)).includes('feasibility-bash-ok'))

@@ -32,7 +32,7 @@ function makeMemFs(files: Record<string, string> = {}) {
     load: async () => ({
       exists: true,
       // user.model 必填（boot 硬校验）；根清单 = 首启模板实值（agent_class_create/update
-      // = ask 走 access_reply 授权链——DEFAULT_USER_TOOLS 退役后模板是唯一缺省值源）。
+      // 模板 user.tools 推荐清单（allow/deny/ignore）——DEFAULT_USER_TOOLS 退役后模板是唯一缺省值源）。
       config: {
         user: { model: { provider: 'opencode', id: 'test' }, tools: defaultStemConfig().user?.tools },
       } as StemConfig,
@@ -82,45 +82,30 @@ describe('进化跨重启（类落盘 e2e：目录即真相兑现）', () => {
       gateway,
     })
     const ctx = { agentId: ROOT_ID }
-    // 根表 create/update = ask → 走 access_reply 正规授权链（根答复义务 +
-    // per-(agent,key) always 备忘各实弹验证一次）：执行挂起 → 从 ask-bus 取
-    // 挂起请求 → 答复 → promise 兑现。
-    const runApproved = async (toolName: string, input: Record<string, unknown>) => {
-      const call = system.tools.execute({ id: `x-${toolName}-${++callSeq}`, name: toolName, input }, ctx)
-      await new Promise((r) => setTimeout(r, 20))
-      const req = system.kernel.access.list().find((q) => q.accessKey === toolName)
-      if (req) {
-        await system.tools.execute(
-          { id: `r-${req.id}`, name: 'access_reply', input: { requestId: req.id, reply: 'always' } },
-          ctx,
-        )
-      }
-      return call
-    }
-    let callSeq = 0
-
-    const created = await runApproved('agent_class_create', {
-      name: 'reviewer',
-      description: '审查 v1',
-      systemPrompt: 'review politely',
-      tools: { read: 'allow', bash: 'ask' },
-    })
+    // 根表 create/update = allow（模板推荐清单）→ 直接执行，无审批档。
+    const created = await system.tools.execute(
+      { id: 'call_create', name: 'agent_class_create', input: {
+        name: 'reviewer',
+        description: '审查 v1',
+        systemPrompt: 'review politely',
+        tools: { read: 'allow', bash: 'allow' },
+      } },
+      ctx,
+    )
     assert.match(created.text, /已落盘/)
     const file = '/proj/.stem/agent/reviewer.md'
     assert.ok(d.files[file], '进化文件已写入文件表')
     assert.match(d.files[file]!, /review politely/)
 
-    // update 首次触发同链授权（新 accessKey 独立 ask → always 备忘后再免询问）。
-    const updated = await runApproved('agent_class_update', {
-      name: 'reviewer',
-      systemPrompt: 'review harshly',
-      tools: { bash: 'deny' },
-    })
+    const updated = await system.tools.execute(
+      { id: 'call_update', name: 'agent_class_update', input: {
+        name: 'reviewer',
+        systemPrompt: 'review harshly',
+        tools: { bash: 'deny' },
+      } },
+      ctx,
+    )
     assert.match(updated.text, /已更新类 reviewer/)
-    assert.deepEqual(system.kernel.access.listApprovals(), [
-      { agentId: ROOT_ID, accessKey: 'agent_class_create' },
-      { agentId: ROOT_ID, accessKey: 'agent_class_update' },
-    ], 'always 备忘 = per-(agent,key) 豁免询问')
 
     // ---------- 重启：全新系统从同一文件表装载 ----------
     await system.dispose()

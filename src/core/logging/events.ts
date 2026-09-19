@@ -176,25 +176,6 @@ export interface KernelOrphanError {
   readonly error: string
 }
 
-/** 访问请求记录（评估动作 + 是否挂起确认）。 */
-export interface AccessAsked {
-  readonly type: 'access.asked'
-  readonly at: number
-  readonly agentId: string
-  readonly accessKey: string
-  readonly action: 'allow' | 'ask' | 'deny' | 'ignore'
-}
-
-/** 访问回复记录。 */
-export interface AccessReplied {
-  readonly type: 'access.replied'
-  readonly at: number
-  readonly agentId: string
-  readonly accessKey: string
-  readonly requestId: string
-  readonly reply: 'once' | 'always' | 'reject'
-}
-
 /** 初始化：用户工具注册记录。 */
 export interface InitToolRegistered {
   readonly type: 'init.tool.registered'
@@ -284,7 +265,5 @@ export type LogEvent =
   | KernelModelSet
   | KernelInstanceUpdated
   | AgentMessageSent
-  | AccessAsked
-  | AccessReplied
   | InitToolRegistered
   | InitAgentRegistered

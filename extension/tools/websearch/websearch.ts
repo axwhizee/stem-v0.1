@@ -4,7 +4,7 @@
 // 后端 = 阿里云百炼 WebSearch（Dashscope MCP 端点，通路在 ./dashscopeMcp.ts）。
 // 密钥治理：值只走环境变量 ALIBABA_API_KEY（与 providers.alibaba.key_env 同
 // 账号同变量），源码/config/日志零明文；未设置 = 用到时才回可行动错误文本。
-// 对外操作面与 bash 同权级：无 ask、无黑名单，超时兜底。
+// 对外操作面与 bash 同权级：静态权限、无黑名单，超时兜底。
 // ============================================================
 
 import type { ToolCapability } from '../../../src/core/tools'

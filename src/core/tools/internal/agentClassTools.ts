@@ -27,7 +27,7 @@ export function agentClassCreate(host: SystemToolHost): ToolCapability {
         name: { type: 'string', description: '类名（唯一，即类 id，kebab-case）' },
         description: { type: 'string', description: '类用途描述' },
         systemPrompt: { type: 'string', description: '该类的专属系统提示词' },
-        tools: { type: 'object', description: '工具清单：访问键 → allow|ask|deny|ignore（键即白名单，对继承面收敛）' },
+        tools: { type: 'object', description: '工具清单：访问键 → allow|deny|ignore（键即白名单，对继承面收敛）' },
         contextStrategy: { type: 'string', description: '上下文管理策略（默认 classic）' },
         model: { type: 'string', description: '模型（"提供商/模型"，可选；缺省沿 类基因>父继承 解析）' },
         sendCountdown: { type: 'number', description: '送信倒计时毫秒（可选，缺省 1000）' },
@@ -83,7 +83,7 @@ export function agentClassUpdate(host: SystemToolHost): ToolCapability {
   return {
     id: 'agent_class_update',
     description:
-      '更新现役 agent 类并回写 `.stem/agent/<name>.md`（同名覆盖；进化书写面）。缺省目标 = 你所属的类（显式 name 可指向其它类，经 ask 授权）。tools 只能收敛（deny 不可撤销，ask 不得升为 allow/ignore）；systemPrompt/description/model/contextStrategy/sendCountdown 可改。**只影响后续实例**（你的既有权限面不变）。',
+      '更新现役 agent 类并回写 `.stem/agent/<name>.md`（同名覆盖；进化书写面）。缺省目标 = 你所属的类（显式 name 可指向其它类，须有 agent_class_update 权限）。tools 只能收敛（deny 不可撤销，allow 不得改宽为 ignore）；systemPrompt/description/model/contextStrategy/sendCountdown 可改。**只影响后续实例**（你的既有权限面不变）。',
     accessKey: 'agent_class_update',
     registerAccess: 'ignore', // 注册声明（agent_class_update）
     kind: 'internal',

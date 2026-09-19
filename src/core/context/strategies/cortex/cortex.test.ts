@@ -542,8 +542,8 @@ describe('策略声明清单审计（定律：ignore 注册声明 → raise 抬�
     )
   })
 
-  test('祖先封顶：根对键显式 ask → 宿主 raise 被拒（写面拒绝归因策略层）', async () => {
-    const h = await fakeHarness({ tools: { access_reply: 'allow', fake_note: 'ask' } } as never)
+  test('祖先封顶：根对键显式 deny → 宿主 raise 被拒（写面拒绝归因策略层）', async () => {
+    const h = await fakeHarness({ tools: { fake_note: 'deny' } } as never)
     await assert.rejects(
       () => h.kernel.instantiateAgent(
         { className: makeAgentClassID('fake-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
@@ -558,9 +558,9 @@ describe('策略声明清单审计（定律：ignore 注册声明 → raise 抬�
   })
 
   test('纯 raise 链不破继承形封闭（父白名单封闭 → 宿主未列键仍 deny）', async () => {
-    // 根写白名单表（access_reply 注册声明 allow 必需）→ 根 fallback deny 下传；
+    // 根写白名单表（未列 bash）→ 根 fallback deny 下传；
     // fake-agent 类不设表 + raise fake_note → 表外键仍继承根封闭。
-    const h = await fakeHarness({ tools: { access_reply: 'allow' } } as never)
+    const h = await fakeHarness({ tools: { pin: 'allow' } } as never)
     const id = await h.kernel.instantiateAgent(
       { className: makeAgentClassID('fake-agent'), parentId: makeAgentID(ROOT_ID), userPrompt: 'hi' },
     )

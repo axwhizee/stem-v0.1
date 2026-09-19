@@ -2,7 +2,7 @@
 // shell/webui/view.test.ts —— 视图纯函数矩阵（S6 批 2，R8/R9）
 //
 // 覆盖：汉字字形表（无 emoji/几何字符）/ sender 剥壳截断 /
-// 第一视角归位 routeLetters（根窗反相 + ask/摘要/invalid）/
+// 第一视角归位 routeLetters（根窗反相 + 摘要/invalid）/
 // git 风行序 computeTreeRows（DFS/泳道/折叠/家族色）/ 动作三态。
 // 纯函数零 DOM：浏览器与 node 共用同一实现，UI 层不携带逻辑。
 // ============================================================
@@ -142,11 +142,6 @@ describe('routeLetters（R9 第一视角归位）', () => {
     assert.equal(rows[2]?.kind, 'msg')
   })
 
-  test('access_request 出 ask 项（归审面板，不入正文流）', () => {
-    const items = routeLetters([msg({ role: 'user', content: '<access_request id="r1" accessKey="bash" agentId="a1">' })], ROOT_ID)
-    assert.equal(items[0]?.kind, 'ask')
-    assert.equal(items[0]?.icon, '审')
-  })
 })
 
 describe('computeTreeRows（git 风行序：DFS/泳道/折叠）', () => {
