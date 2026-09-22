@@ -14,7 +14,6 @@ test/space-v11/.stem/mem/
 __pycache__/
 
 # 临时
-prompts.md
 plan.md
 tmp/
 reference/
