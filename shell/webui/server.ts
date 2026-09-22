@@ -16,6 +16,7 @@ import { parseStamp, stripSenderStamp } from '../../src/core/context'
 import type { PilotEvent } from '../../src/core/events'
 import type { StemSystem } from '../../src/core/main'
 import { readJsonBody, sendJson, sendStatic as sendStaticShared } from '../cli/http'
+import { WEB_STATIC } from '../cli/static.gen'
 
 const PORT = Number(process.env.PORT ?? 4321)
 /** 绑定地址：裸机默认仅本机（127.0.0.1）；容器内由 STEM_HOST=0.0.0.0 放开（端口映射需要）。 */
@@ -249,6 +250,13 @@ async function contextOf(system: StemSystem, agentId: string): Promise<{ agentId
 }
 
 function sendStatic(res: ServerResponse, file: string, contentType: string): void {
+  // SEA / 单文件：import.meta.url 不在源码目录，优先用内嵌表
+  const embedded = WEB_STATIC[file]
+  if (embedded !== undefined) {
+    res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-cache' })
+    res.end(embedded)
+    return
+  }
   sendStaticShared(res, new URL('./' + file, import.meta.url), contentType, { cache: 'no-cache', missingStatus: 500 })
 }
 

@@ -21,6 +21,7 @@ import { dbBytes, dashAgents, listMessages, openDb, rawTable, summary, tokenStat
 import { getInventory } from './inventory'
 import { resolveProjectRoot } from '../cli/platform'
 import { readJsonBody, sendJson, sendStatic as sendStaticShared } from '../cli/http'
+import { DASH_STATIC, WEB_STATIC } from '../cli/static.gen'
 
 const PORT = Number(process.env.STEM_DASHBOARD_PORT ?? 4421)
 const HOST = process.env.STEM_HOST ?? '127.0.0.1'
@@ -47,6 +48,14 @@ function dbWrite(): DatabaseSync | undefined {
 }
 
 function sendStatic(res: ServerResponse, file: string, contentType: string): void {
+  // SEA：优先内嵌表；key 去掉 ./public/ 前缀
+  const key = file.replace(/^\.\//, '').replace(/^public\//, '')
+  const embedded = file.endsWith('view.js') ? WEB_STATIC['view.js'] : DASH_STATIC[key]
+  if (embedded !== undefined) {
+    res.writeHead(200, { 'Content-Type': contentType, 'Cache-Control': 'no-store' })
+    res.end(embedded)
+    return
+  }
   sendStaticShared(res, new URL(file, import.meta.url), contentType, { cache: 'no-store', missingStatus: 404 })
 }
 
